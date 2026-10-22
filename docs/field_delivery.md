@@ -22,6 +22,7 @@
 | 项目 | 状态 | 证据或后续命令 |
 | --- | --- | --- |
 | 固定 SHA / 重复包名 / 源树审计 | PASS | `python3 scripts/audit.py`；快照如上。 |
+| 全新检出部署入口 | PASS | 从远端 `main` 全新克隆后运行 `scripts/init_workspace.sh`，13 个固定依赖均成功获取；重复包、dirty、SHA 偏差均为 0。验证提交 `9e1de6fb235f30f8f48e2d801cf3841fb949aef1`。 |
 | Python 后端地图版本、录包完整性、进程组取消、binary PCD 解析 | PASS | `PYTHONPATH=. python3 -m unittest discover -s tests -v`，4 项通过；[测试日志](test_results_cloud.txt)。 |
 | 网页资源和 HTTP API smoke | PASS | `/`, `/app.js`, `/style.css`, `/api/status`, `/api/jobs`, `/api/maps`, `/api/templates` 均 HTTP 200；无 ROS 建图请求 HTTP 400，明确报错；[HTTP 结果](http_smoke_cloud.json)。 |
 | JS 语法和 Python 编译 | PASS | `node --check workbench/static/app.js`；`python3 -m compileall -q ...`。 |
