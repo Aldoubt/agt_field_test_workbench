@@ -1,0 +1,6 @@
+autonomous_motion: disabled_until_field_acceptance
+manual_supervised_speed_mps: 0.05
+require_map_status: ACCEPTED
+require_localization: true
+require_tf_continuity: true
+require_costmap_ready: true

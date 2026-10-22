@@ -1,0 +1,17 @@
+robot: fwmini
+status: PROVISIONAL_UNVERIFIED_HUMBLE_AND_HARDWARE
+body_frame: base_link
+odom_frame: odom
+footprint_m: [[0.30, 0.25], [0.30, -0.25], [-0.30, -0.25], [-0.30, 0.25]]
+forward_mps: 0.05
+reverse_mps: 0.03
+angular_radps: 0.15
+linear_accel_mps2: 0.1
+linear_decel_mps2: 0.2
+control_hz: 50
+can_interface: can0
+can_bitrate: null
+wheel_odom_topic: /wheel/odom
+driver_command_topic: /cmd_vel
+driver_tf_enabled: true
+motion_requires: [vendor_mode_confirmed, physical_estop_checked, remote_takeover_checked, can_feedback_fresh, command_timeout_checked, measured_geometry]

@@ -1,0 +1,17 @@
+robot: bunker
+status: BASELINE_REQUIRES_FIELD_CHECK
+body_frame: base_link
+odom_frame: odom
+footprint_m: [[0.42, 0.33], [0.42, -0.33], [-0.42, -0.33], [-0.42, 0.33]]
+forward_mps: 0.15
+reverse_mps: 0.08
+angular_radps: 0.3
+linear_accel_mps2: 0.2
+linear_decel_mps2: 0.3
+control_hz: 50
+can_interface: can0
+can_bitrate: 500000
+wheel_odom_topic: /wheel/odom
+driver_command_topic: /mux/cmd_vel
+driver_tf_enabled: false
+motion_requires: [physical_estop_checked, remote_takeover_checked, can_feedback_fresh, command_timeout_checked]

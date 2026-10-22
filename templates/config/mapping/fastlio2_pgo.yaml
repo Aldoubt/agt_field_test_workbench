@@ -1,0 +1,6 @@
+backend: fastlio2_pgo
+source_script: src/agt-lio-pgo-mapping/scripts/run_mid360_mapping.sh
+ros_domain_id: 89
+raw_input_filter: disabled
+calibration_source: calibration/<robot>/<version>.json
+output_status_on_creation: DRAFT

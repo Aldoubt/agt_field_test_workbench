@@ -1,0 +1,5 @@
+sensor: MID-360
+lidar_topic: /livox/lidar
+imu_topic: /livox/imu
+internal_calibration: separate_from_robot_mount
+mount_profiles: [bunker, fwmini]

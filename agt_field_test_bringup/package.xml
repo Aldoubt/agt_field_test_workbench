@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>agt_field_test_bringup</name>
+  <version>0.1.0</version>
+  <description>Controlled AGT field test launch entry points</description>
+  <maintainer email="field-test@example.invalid">AGT Field Test</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_msgs</exec_depend>
+  <exec_depend>agt_system_bringup</exec_depend>
+  <exec_depend>agt_base_control</exec_depend>
+  <exec_depend>agt_bunker_base</exec_depend>
+  <exec_depend>tracked_chassis_description</exec_depend>
+  <exec_depend>livox_ros_driver2</exec_depend>
+  <exec_depend>fwmini_bringup</exec_depend>
+  <exec_depend>fwmini_chassis_adapter</exec_depend>
+  <exec_depend>fwmini_odom_adapter</exec_depend>
+  <exec_depend>yhs_can_control</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

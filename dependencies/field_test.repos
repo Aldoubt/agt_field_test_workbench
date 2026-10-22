@@ -1,0 +1,53 @@
+repositories:
+  agt_navigation_v3:
+    type: git
+    url: https://github.com/Aldoubt/agt_navigation_v3.git
+    version: b3a60487dff973c6326aca2ca2e9db1e78daeaaa
+  agt-lio-pgo-mapping:
+    type: git
+    url: https://github.com/Aldoubt/agt-lio-pgo-mapping.git
+    version: 62e80002cf2db12fce8332688dc63f4a94b87f12
+  agt_pointcloud_pipeline:
+    type: git
+    url: https://github.com/Aldoubt/agt_pointcloud_pipeline.git
+    version: 2def1b76b7526b88972a3bc747b47dd7badcc765
+  fwmini_navigation_lab:
+    type: git
+    url: https://github.com/Aldoubt/fwmini_navigation_lab.git
+    version: 34ac35650452027f6f8efde0e3c4ace6ca526a9f
+  agt_bunker_base:
+    type: git
+    url: https://github.com/Aldoubt/agt_bunker_base.git
+    version: cb6c3655ad7d85d8a1e847342eefa20f90d102ed
+  agt_chassis_description:
+    type: git
+    url: https://github.com/Aldoubt/agt_chassis_description.git
+    version: 75b838ce9af0d8da7c403d6683b34f4e4268f687
+  external/fast_lio2_mapping:
+    type: git
+    url: https://github.com/Aldoubt/fast-lio2.git
+    version: 7f664a66ae7b3b683dddf7f5322c1ea55a3c8141
+  external/livox_ros_driver2:
+    type: git
+    url: https://github.com/Livox-SDK/livox_ros_driver2.git
+    version: 13eb05e4e6dd7a765b934d0c5fd6236676a57b49
+  external/batch_lio:
+    type: git
+    url: https://github.com/Functionhx/Batch-LIO.git
+    version: fe4a9cb3c07024caad70239d6015c49c01d72608
+  external/3d_bbs:
+    type: git
+    url: https://github.com/KOKIAOKI/3d_bbs.git
+    version: 41529a34a2fb9618b5ff560fb3c2363f1615666d
+  external/small_gicp:
+    type: git
+    url: https://github.com/koide3/small_gicp.git
+    version: 2c6c7831bc1f5ada2ee5300027fe7d7aee66827d
+  external/Sophus:
+    type: git
+    url: https://github.com/strasdat/Sophus.git
+    version: de0f8d3d92bf776271e16de56d1803940ebccab9
+  external/Livox-SDK2:
+    type: git
+    url: https://github.com/Livox-SDK/Livox-SDK2.git
+    version: 08f523c930b2f0ba1e98a6afaa8d7476bf479908

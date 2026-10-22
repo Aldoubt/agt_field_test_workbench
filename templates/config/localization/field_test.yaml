@@ -1,0 +1,5 @@
+lio_backend: batch_lio
+enable_map_tracking: true
+map_odom_authority: agt_localization_manager
+correction_application: agt_localization_manager_tracking_pose
+lost_global_recovery: manual
