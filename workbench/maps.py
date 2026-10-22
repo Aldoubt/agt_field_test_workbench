@@ -3,6 +3,7 @@ import base64
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import struct
@@ -110,7 +111,7 @@ class Maps:
             'source_bag': source_bag, 'calibration': calibration, 'parent': None,
         })
 
-    def revise(self, parent, pixels_b64, status='DRAFT'):
+    def revise(self, parent, pixels_b64, status='DRAFT', keepout_polygons_px=None):
         original = self.get(parent)
         if status not in STATES:
             raise ValueError('invalid map status')
@@ -118,11 +119,23 @@ class Maps:
         pixels = base64.b64decode(pixels_b64, validate=True)
         if len(pixels) != width * height:
             raise ValueError('pixel count mismatch')
+        polygons = keepout_polygons_px if keepout_polygons_px is not None else original.get('keepout_polygons_px', [])
+        if not isinstance(polygons, list) or len(polygons) > 100:
+            raise ValueError('too many keepout polygons')
+        for polygon in polygons:
+            if not isinstance(polygon, list) or not 3 <= len(polygon) <= 200:
+                raise ValueError('invalid keepout polygon')
+            for point in polygon:
+                if (not isinstance(point, list) or len(point) != 2 or
+                        any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in point) or
+                        not 0 <= point[0] < width or not 0 <= point[1] < height):
+                    raise ValueError('keepout polygon outside map')
         meta = yaml.safe_load((self.directory / parent / 'map.yaml').read_text())
         lineage = {k: original.get(k) for k in
                    ('source_yaml', 'source_pgm_sha256', 'source_pcd', 'source_pcd_sha256',
                     'source_bag', 'calibration')}
         lineage['parent'] = parent
+        lineage['keepout_polygons_px'] = polygons
         return self._save(width, height, pixels, meta, lineage, status)
 
     def set_status(self, map_id, status, reason):
@@ -153,9 +166,21 @@ class Maps:
                   ('resolution', 'origin', 'negate', 'occupied_thresh', 'free_thresh')}
         config['image'] = 'map.pgm'
         (directory / 'map.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
+        polygons_px = lineage.get('keepout_polygons_px', [])
+        origin_x, origin_y, yaw = meta['origin']
+        resolution = meta['resolution']
+        def world(point):
+            x = (point[0] + .5) * resolution
+            y = (height - point[1] - .5) * resolution
+            return [origin_x + math.cos(yaw) * x - math.sin(yaw) * y,
+                    origin_y + math.sin(yaw) * x + math.cos(yaw) * y]
+        keepout = {'frame_id': 'map', 'polygons': [[world(p) for p in polygon]
+                                                for polygon in polygons_px]}
+        (directory / 'keepout_zones.yaml').write_text(yaml.safe_dump(keepout, sort_keys=False))
         manifest = {'id': map_id, 'status': status, 'created_at': datetime.now(timezone.utc).isoformat(),
                     'width': width, 'height': height, 'resolution': meta['resolution'],
                     'origin': meta['origin'], 'sha256': hashlib.sha256((directory / 'map.pgm').read_bytes()).hexdigest(),
-                    'yaml': str(directory / 'map.yaml'), 'pgm': str(directory / 'map.pgm'), **lineage}
+                    'yaml': str(directory / 'map.yaml'), 'pgm': str(directory / 'map.pgm'),
+                    'keepout_zones': str(directory / 'keepout_zones.yaml'), **lineage}
         write_json(directory / 'manifest.json', manifest)
         return manifest

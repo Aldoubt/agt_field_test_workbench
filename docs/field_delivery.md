@@ -22,8 +22,8 @@
 | 项目 | 状态 | 证据或后续命令 |
 | --- | --- | --- |
 | 固定 SHA / 重复包名 / 源树审计 | PASS | `python3 scripts/audit.py`；快照如上。 |
-| Python 后端地图版本、录包完整性、进程组取消、binary PCD 解析 | PASS | `PYTHONPATH=. python3 -m unittest discover -s tests -v`，4 项通过。 |
-| 网页资源和 HTTP API smoke | PASS | `/`, `/app.js`, `/style.css`, `/api/status`, `/api/jobs`, `/api/maps`, `/api/templates` 均 HTTP 200；无 ROS 建图请求 HTTP 400，明确报错。 |
+| Python 后端地图版本、录包完整性、进程组取消、binary PCD 解析 | PASS | `PYTHONPATH=. python3 -m unittest discover -s tests -v`，4 项通过；[测试日志](test_results_cloud.txt)。 |
+| 网页资源和 HTTP API smoke | PASS | `/`, `/app.js`, `/style.css`, `/api/status`, `/api/jobs`, `/api/maps`, `/api/templates` 均 HTTP 200；无 ROS 建图请求 HTTP 400，明确报错；[HTTP 结果](http_smoke_cloud.json)。 |
 | JS 语法和 Python 编译 | PASS | `node --check workbench/static/app.js`；`python3 -m compileall -q ...`。 |
 | Ubuntu 22.04 / ROS 2 Humble 全量构建、colcon test | BLOCKED | 当前主机 Debian 13，`/opt/ros/humble/setup.bash` 不存在；[build_humble_cloud.log](build_humble_cloud.log) 记录退出码 2。需在工控机运行 `bash scripts/build_humble.sh`，保存日志。 |
 | FAST-LIO2 + PGO 真实 bag 回放、自动 PCD→PGM | NOT_RUN | 无 rosbag、ROS 运行时和传感器；网页 Mapping 指定真实 bag 后执行。 |

@@ -1,6 +1,7 @@
 """Local browser entry. Fixed operations only; no shell or velocity endpoint."""
 import argparse
 import hashlib
+from io import BytesIO
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -8,6 +9,8 @@ import math
 import mimetypes
 from pathlib import Path
 import re
+import signal
+import zipfile
 import subprocess
 
 from .maps import Maps
@@ -69,6 +72,22 @@ class Handler(BaseHTTPRequestHandler):
                 if not source or not Path(source).is_file():
                     raise ValueError('this 2D map has no linked PCD')
                 return self.response(200, sample_pcd(source))
+            match = re.fullmatch(r'/api/maps/([^/]+)/export', self.path)
+            if match:
+                manifest = MAPS.get(match.group(1))
+                directory = ROOT / 'maps/versions' / manifest['id']
+                buffer = BytesIO()
+                with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                    for name in ('map.pgm', 'map.yaml', 'manifest.json', 'keepout_zones.yaml'):
+                        archive.write(directory / name, name)
+                data = buffer.getvalue()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/zip')
+                self.send_header('Content-Disposition', f'attachment; filename="agt_map_{manifest["id"]}.zip"')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
             match = re.fullmatch(r'/api/jobs/([^/]+)/log', self.path)
             if match:
                 file = ROOT / 'runs' / match.group(1) / 'process.log'
@@ -108,7 +127,8 @@ class Handler(BaseHTTPRequestHandler):
             match = re.fullmatch(r'/api/maps/([^/]+)/revise', self.path)
             if match:
                 return self.response(200, MAPS.revise(match.group(1), payload['pixels'],
-                                                      payload.get('status', 'DRAFT')))
+                                                      payload.get('status', 'DRAFT'),
+                                                      payload.get('keepout_polygons_px')))
             match = re.fullmatch(r'/api/maps/([^/]+)/status', self.path)
             if match:
                 return self.response(200, MAPS.set_status(match.group(1), payload['status'],
@@ -162,10 +182,16 @@ def main():
     if args.host not in ('127.0.0.1', 'localhost', '::1'):
         parser.error('only localhost binding is supported; use an authenticated tunnel for remote access')
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    def terminate(_signal, _frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, terminate)
     print(f'AGT Field Test Workbench: http://{args.host}:{args.port}', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        pass
+    finally:
+        JOBS.stop_all()
         server.server_close()
 
 

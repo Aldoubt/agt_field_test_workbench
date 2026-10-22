@@ -1,0 +1,9 @@
+test_binary_pcd_preview_reads_xyz_offsets (test_workbench.WorkbenchTests.test_binary_pcd_preview_reads_xyz_offsets) ... ok
+test_cancel_only_owned_process_group (test_workbench.WorkbenchTests.test_cancel_only_owned_process_group) ... ok
+test_incomplete_bag_is_never_pass (test_workbench.WorkbenchTests.test_incomplete_bag_is_never_pass) ... ok
+test_map_versions_preserve_parent_and_input (test_workbench.WorkbenchTests.test_map_versions_preserve_parent_and_input) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.012s
+
+OK

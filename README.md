@@ -35,7 +35,7 @@ bash scripts/run_field_test.sh robot:=bunker enable_chassis:=true \
 ```
 
 同等 ROS 入口：`ros2 launch agt_field_test_bringup field_test.launch.py robot:=bunker|fwmini`。建议使用 `run_field_test.sh`，它用 `flock` 阻止两次脚本启动竞争 CAN。`Ctrl+C` 停止。FW-mini 的底盘适配器启动后仍需显式调用 `/fwmini/enable_motion`；当前未做过现场安全验收，不应启用运动。
-Bunker 的底盘单独启动时，入口只接入低速手动 command guard（命令超时 0.20 s），不依赖全局定位；显式 `enable_navigation:=true` 时由 V3 导航入口启动其 guard，并校验 `ACCEPTED` 地图与定位 PCD 的 SHA-256 对应关系。
+Bunker 和 FW-mini 的底盘单独启动时，入口只接入低速手动 command guard（命令超时 0.20 s），不依赖全局定位；FW-mini 适配器仍默认禁止运动并执行自己的超时。显式 `enable_navigation:=true` 时由 V3 导航入口启动其 guard，并校验 `ACCEPTED` 地图与定位 PCD 的 SHA-256 对应关系。
 
 ## 当前闭环
 
@@ -43,7 +43,7 @@ Bunker 的底盘单独启动时，入口只接入低速手动 command guard（�
 - 建图：网页调用原 `run_mid360_mapping.sh`。bag 回放在隔离 Domain 89 运行 FAST-LIO2 + PGO；实机传感器模式需要对应机器人已核实的 MID360 IP JSON，调用原脚本并由它录制一次 raw bag。成功后复用 `agt_pcd2grid_exporter` 自动生成 PGM/YAML，作为 `DRAFT` 进入 Map Studio。输入 bag 不改动。取消仅向本次启动的进程组发信号。
 - 标定：候选数据和 SHA-256 存于 `calibration/<robot>/`；已验证状态需要 `runs/` 或 `reports/` 中的 JSON 报告，且 `checks.repeatability/motion/geometry` 均为 `PASS`。映射时把选定 `r_il/t_il` 写入独立 FAST-LIO2 参数文件并传给原 launch。时间偏差与底盘安装变换只记录，尚未接入算法和 URDF；现场需要另行核验。
 - 录包：五种模板，仅录取当前存在的话题；启动前检查剩余磁盘，保存缺失话题、类型、代码 SHA、底盘与标定信息。停止时检查 `metadata.yaml`、消息数和存储文件；异常标记 `INCOMPLETE`。
-- Map Studio：从本工作区产物导入 PGM/YAML，缩放、平移、矩形擦除、障碍线、禁行 polygon、撤销/重做。保存生成不可覆盖的新版本，保留来源和 SHA-256。审核状态不阻断编辑。
+- Map Studio：从本工作区产物导入 PGM/YAML，缩放、平移、矩形擦除、障碍线、禁行 polygon、撤销/重做，关联源 PCD 时显示 3D 点云采样。保存生成不可覆盖的新版本和 `keepout_zones.yaml`，可在浏览器下载 ZIP，保留来源和 SHA-256。审核状态不阻断编辑。
 - 运行状态：网页读取当前 ROS 话题，并显示缺失项；无 ROS 时明确显示 `ROS_UNAVAILABLE`。Navigation 页面只显示状态，不提供未经验证的运动按钮。
 
 ## 已核实的冲突和限制

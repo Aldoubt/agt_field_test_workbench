@@ -33,12 +33,14 @@ class WorkbenchTests(unittest.TestCase):
                 'negate': 0, 'occupied_thresh': 0.65, 'free_thresh': 0.196}))
             maps = Maps(root)
             first = maps.import_yaml(source / 'map.yaml')
-            second = maps.revise(first['id'], base64.b64encode(b'\xff\xff\xcd\xff').decode())
+            second = maps.revise(first['id'], base64.b64encode(b'\xff\xff\xcd\xff').decode(),
+                                 keepout_polygons_px=[[[0, 0], [1, 0], [1, 1]]])
             self.assertEqual(first['status'], 'DRAFT')
             self.assertEqual(second['parent'], first['id'])
             self.assertNotEqual(first['sha256'], second['sha256'])
             self.assertEqual(read_pgm(source / 'map.pgm')[2], b'\x00\xff\xcd\xff')
             self.assertEqual(read_pgm(Path(first['pgm']))[2], b'\x00\xff\xcd\xff')
+            self.assertEqual(len(yaml.safe_load(Path(second['keepout_zones']).read_text())['polygons']), 1)
             with self.assertRaises(ValueError):
                 maps.import_yaml(source / 'map.yaml' .replace('map', '../outside'))
 
@@ -63,6 +65,9 @@ class WorkbenchTests(unittest.TestCase):
             self.assertEqual(stopped['state'], 'CANCELLED')
             self.assertEqual(next(j for j in jobs.list() if j['id'] == second['id'])['state'], 'RUNNING')
             jobs.stop(second['id'])
+            recovered = Jobs(temp).list()
+            self.assertEqual({j['id'] for j in recovered}, {first['id'], second['id']})
+            self.assertEqual(next(j for j in recovered if j['id'] == second['id'])['state'], 'INCOMPLETE')
 
 
 if __name__ == '__main__':

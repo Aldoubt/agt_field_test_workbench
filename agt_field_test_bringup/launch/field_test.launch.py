@@ -70,6 +70,15 @@ def _configure(context):
             # Adapter starts disabled and needs explicit /fwmini/enable_motion.
             nodes.extend([
                 _include('yhs_can_control', 'yhs_can_control.launch.py'),
+                Node(package='agt_base_control', executable='cmd_vel_guard',
+                     name='agt_cmd_vel_guard', output='screen', parameters=[{
+                         'default_control_mode': 'manual',
+                         'require_localization_status': False,
+                         'output_topic': '/cmd_vel',
+                         'max_linear_x': 0.05, 'max_reverse_x': 0.03,
+                         'max_angular_z': 0.15,
+                         'command_timeout_sec': 0.20,
+                     }]),
                 _include('fwmini_chassis_adapter', 'adapter.launch.py'),
                 Node(package='fwmini_odom_adapter', executable='fwmini_odom_adapter_node',
                      name='fwmini_odom_adapter', output='screen'),

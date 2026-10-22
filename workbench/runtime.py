@@ -46,6 +46,12 @@ def write_json(path, value):
     temporary.replace(path)
 
 
+def source_versions(root):
+    return {p.name: subprocess.run(['git', '-C', str(p), 'rev-parse', 'HEAD'],
+                                   capture_output=True, text=True).stdout.strip()
+            for p in (Path(root) / 'src').iterdir() if (p / '.git').exists()}
+
+
 def ros_ready():
     return ROS_SETUP.is_file() and INSTALL.is_file()
 
@@ -117,6 +123,12 @@ class Jobs:
 
     def _new(self, kind, command, meta, env=None):
         with self.lock:
+            history = self.list()
+            if any(item['state'] == 'ORPHANED' and
+                   (item['kind'] == kind or
+                    (kind.startswith('mapping') and item['kind'].startswith('mapping')))
+                   for item in history):
+                raise ValueError('an orphaned prior job may still own the resource; inspect its PID and log')
             if any(item['kind'] == kind and item['state'] == 'RUNNING' for item in self.jobs.values()):
                 raise ValueError(f'{kind} already running')
             if kind.startswith('mapping') and any(item['kind'].startswith('mapping') and
@@ -160,11 +172,38 @@ class Jobs:
                         record['integrity'] = check_bag(Path(record['output']), record.get('topics'))
                         if record['integrity']['state'] != 'PASS':
                             record['state'] = 'INCOMPLETE'
+                    elif item['kind'].startswith('mapping'):
+                        result = Path(record['output']) / 'field_test_result.json'
+                        if result.is_file():
+                            record['result'] = json.loads(result.read_text())
                     write_json(self.root / 'runs' / record['id'] / 'run.json', record)
                 item['state'] = record['state']
                 result.append(dict(record, duration_sec=round(time.time() - process_start(record), 1)
                                    if record['state'] == 'RUNNING' else None))
-            return result
+            for manifest in sorted((self.root / 'runs').glob('*/run.json'), reverse=True):
+                if manifest.parent.name in self.jobs:
+                    continue
+                try:
+                    record = json.loads(manifest.read_text())
+                except (OSError, ValueError):
+                    continue
+                if record.get('state') == 'RUNNING':
+                    pid = record.get('pid')
+                    try:
+                        os.kill(pid, 0)
+                        state = 'ORPHANED'
+                    except (OSError, TypeError):
+                        state = 'INCOMPLETE'
+                    record['state'] = state
+                    record['reason'] = 'web server restarted before this job reached a terminal state'
+                    write_json(manifest, record)
+                result.append(record)
+            return sorted(result, key=lambda record: record['id'], reverse=True)
+
+    def stop_all(self):
+        for item in self.list():
+            if item['id'] in self.jobs and item['state'] == 'RUNNING':
+                self.stop(item['id'])
 
     def stop(self, run_id):
         with self.lock:
@@ -200,8 +239,11 @@ class Jobs:
             raise ValueError('existing rosbag2 directory with metadata.yaml required')
         if calibration:
             config = calibration_config(self.root, robot, calibration)
+            calibration_sha = json.loads((self.root / 'calibration' / robot /
+                                          (calibration + '.json')).read_text())['sha256']
         else:
             config = None
+            calibration_sha = None
         run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]
         output = self.root / 'maps' / run_id
         cmd = ['python3', str(REPO / 'scripts/mapping_pipeline.py'),
@@ -222,6 +264,8 @@ class Jobs:
         return self._new('mapping_live' if live else 'mapping_bag', cmd,
                          {'robot': robot, 'bag': str(source) if source else None,
                           'output': str(output), 'calibration': calibration,
+                          'calibration_sha256': calibration_sha,
+                          'versions': source_versions(self.root),
                           'ros_domain_id': 89, 'sensor_only': live,
                           'raw_bag': str(output / 'raw_bag') if live else None}, env)
 
@@ -243,9 +287,7 @@ class Jobs:
         command = ['bash', str(ROS_EXEC), 'ros2', 'bag', 'record', '-o', str(output),
                    '--qos-profile-overrides-path', str(self.root / 'config/recording/qos_overrides.yaml'),
                    *selected]
-        versions = {p.name: subprocess.run(['git', '-C', str(p), 'rev-parse', 'HEAD'],
-                                           capture_output=True, text=True).stdout.strip()
-                    for p in (self.root / 'src').iterdir() if (p / '.git').exists()}
+        versions = source_versions(self.root)
         qos = {}
         for topic in selected:
             try:

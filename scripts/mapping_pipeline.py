@@ -11,7 +11,7 @@ REPO = Path(__file__).resolve().parents[1]
 ROOT = REPO.parent.parent
 sys.path.insert(0, str(REPO))
 from workbench.maps import Maps  # noqa: E402
-from workbench.runtime import write_json  # noqa: E402
+from workbench.runtime import check_bag, write_json  # noqa: E402
 
 
 def main():
@@ -36,6 +36,10 @@ def main():
     if code:
         print(f'Mapping exited {code}; no conversion or acceptance claimed', flush=True)
         return code
+    raw_integrity = check_bag(output / 'raw_bag') if args.live else None
+    if args.live and raw_integrity['state'] != 'PASS':
+        print(f'Live raw bag incomplete: {raw_integrity}; output preserved', file=sys.stderr)
+        return 5
     package = output / 'map_package'
     if not package.is_dir():
         print(f'Mapping package missing: {package}', file=sys.stderr)
@@ -58,7 +62,7 @@ def main():
         return 4
     write_json(output / 'field_test_result.json', {'robot': args.robot, 'calibration': args.calibration,
                'source_bag': args.bag or str(output / 'raw_bag'), 'map_version': version['id'],
-               'status': 'DRAFT'})
+               'raw_bag_integrity': raw_integrity, 'status': 'DRAFT'})
     print('Map Studio version:', version['id'], flush=True)
     return 0
 

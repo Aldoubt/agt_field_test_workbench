@@ -1,0 +1,35 @@
+{
+  "/": {
+    "http": 200,
+    "bytes": 6176
+  },
+  "/style.css": {
+    "http": 200,
+    "bytes": 2331
+  },
+  "/app.js": {
+    "http": 200,
+    "bytes": 13028
+  },
+  "/api/status": {
+    "http": 200,
+    "bytes": 914,
+    "mode": "ROS_UNAVAILABLE"
+  },
+  "/api/jobs": {
+    "http": 200,
+    "bytes": 2
+  },
+  "/api/maps": {
+    "http": 200,
+    "bytes": 2
+  },
+  "/api/templates": {
+    "http": 200,
+    "bytes": 711
+  },
+  "mapping_without_ros": {
+    "http": 400,
+    "error": "ROS Humble unified overlay not built"
+  }
+}
