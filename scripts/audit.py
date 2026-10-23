@@ -37,10 +37,12 @@ def main():
                        all(hashlib.sha256((path / name).read_bytes()).hexdigest() == digest
                            for name, digest in INTEGRATION_PATCH_SHA.items()))
             generated_livox = (relative == 'external/livox_ros_driver2' and
-                               {line[3:] for line in changes} == {'package.xml', 'launch/'} and
+                               {line[3:] for line in changes} in ({'launch/'}, {'package.xml', 'launch/'}) and
                                filecmp.cmp(path / 'package.xml', path / 'package_ROS2.xml', shallow=False) and
                                sorted(p.name for p in (path / 'launch').iterdir()) ==
-                               sorted(p.name for p in (path / 'launch_ROS2').iterdir()))
+                               sorted(p.name for p in (path / 'launch_ROS2').iterdir()) and
+                               all(filecmp.cmp(p, path / 'launch_ROS2' / p.name, shallow=False)
+                                   for p in (path / 'launch').iterdir()))
             row.update(head=git(path, 'rev-parse', 'HEAD'),
                        branch=git(path, 'branch', '--show-current'),
                        dirty=bool(changes) and not patched and not generated_livox,

@@ -23,6 +23,14 @@ repositories:
     type: git
     url: https://github.com/Aldoubt/agt_chassis_description.git
     version: 75b838ce9af0d8da7c403d6683b34f4e4268f687
+  external/bunker_ros2:
+    type: git
+    url: https://github.com/westonrobot/bunker_ros2.git
+    version: b6c8c9e5eed5aa1c236751e0e34f9917d4a10d2b
+  external/ugv_sdk:
+    type: git
+    url: https://github.com/agilexrobotics/ugv_sdk.git
+    version: f2704eacdc90357078cd93ec60aae08bb4baab35
   external/fast_lio2_mapping:
     type: git
     url: https://github.com/Aldoubt/fast-lio2.git

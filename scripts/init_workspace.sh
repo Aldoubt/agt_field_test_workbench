@@ -8,9 +8,21 @@ if [[ "$REPO" != "$ROOT/src/agt_field_test_workbench" ]]; then
 fi
 mkdir -p "$ROOT"/{calibration,maps,bags,runs,reports,work,config}
 if [[ -e "$ROOT/.repos" ]]; then
-  cmp -s "$ROOT/.repos" "$REPO/dependencies/field_test.repos" || {
-    echo 'Existing .repos differs; preserved. Resolve before proceeding.' >&2; exit 2;
-  }
+  if ! cmp -s "$ROOT/.repos" "$REPO/dependencies/field_test.repos"; then
+    python3 - "$ROOT/.repos" "$REPO/dependencies/field_test.repos" <<'PY'
+import shutil
+import sys
+import yaml
+
+current_path, new_path = sys.argv[1:]
+current = yaml.safe_load(open(current_path, encoding='utf-8'))['repositories']
+new = yaml.safe_load(open(new_path, encoding='utf-8'))['repositories']
+if not all(new.get(name) == spec for name, spec in current.items()):
+    raise SystemExit('Existing .repos has changed pins; preserved. Resolve before proceeding.')
+shutil.copyfile(new_path, current_path)
+print(f'Updated .repos with {len(new) - len(current)} new locked repositories')
+PY
+  fi
 else
   cp "$REPO/dependencies/field_test.repos" "$ROOT/.repos"
 fi
