@@ -2,8 +2,8 @@
 import json
 from pathlib import Path
 import yaml
-from agt_field_test_bringup import profiles
 from .runtime import ROOT,REPO,write_json
+from agt_field_test_bringup import profiles
 from .maps import _new_id,hash_file
 
 def list_profiles(root=ROOT):
