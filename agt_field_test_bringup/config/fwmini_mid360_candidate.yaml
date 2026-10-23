@@ -1,0 +1,63 @@
+schema_version: 1
+robot: fwmini
+profile_id: fwmini_mid360_candidate
+status: CALIBRATION_CANDIDATE
+calibration_date: '2026-10-21'
+record_date: '2026-10-22'
+source:
+  repository: https://github.com/Aldoubt/fwmini_navigation_lab.git
+  branch: feature/fwmini-field-profile-usable-20261022
+  commit: 94a5c5bd679c9980f30d16b475a88a8e06ef7334
+  files:
+    - src/fwmini_bringup/config/geometry.field_trial.yaml
+    - src/fwmini_multi_nav_bringup/config/field_trial/fwmini_mid360_extrinsic.yaml
+    - docs/field_20261022/FWMINI_FIELD_TRIAL_20261022.md
+  original_paths:
+    - ~/ros2_ws/experiments/fwmini_rviz_nav_candidate_20261021/fwmini_profile_candidate.yaml
+    - ~/fwmini_ws/worktrees/fwmini-nav2-agt-cmd-bridge/src/fwmini_bringup/config/geometry.field_trial.yaml
+  original_profile_available_in_cloud: false
+  method: FAST-LIO2 planar rotation-center fit + CAD height + static LIO median pitch
+body:
+  length_m: 0.495
+  width_m: 0.360
+  height_m: 0.320
+  wheelbase_m: 0.350
+  track_m: 0.250
+  wheel_diameter_m: 0.140
+  source: FW-mini standard manufacturer; not independent precision measurement
+base_footprint_to_base_z_m: 0.070
+mount:
+  parent_frame: base_link
+  child_frame: livox_frame
+  translation_m: [0.146725, 0.002608, 0.377040]
+  rotation_rpy_rad: [0.0, 0.2152, 0.0]
+  convention: p_base = R_base_livox * p_livox + t_base_livox; fixed-axis URDF RPY radians
+  pitch_meaning: positive pitch points sensor x forward-down
+  z_derivation: CAD lidar center 0.44704 m minus base_link height 0.070 m
+lidar_imu:
+  parent_frame: imu_link
+  child_frame: livox_frame
+  rotation_row_major: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+  translation_m: [-0.011, -0.02329, 0.04412]
+  status: ASSUMED_LOCKED_FASTLIO_BASELINE
+  source: agt-lio-pgo-mapping 62e80002cf2db12fce8332688dc63f4a94b87f12 fastlio2_mid360.yaml r_il/t_il
+  convention: p_imu = R_imu_lidar * p_lidar + t_imu_lidar; not the chassis mount
+assumptions:
+  - fitted steering rotation center equals base_link origin in XY
+  - existing FAST-LIO2 internal r_il/t_il applies to this MID360/IMU assembly
+  - forward mounting and REP-103 body x-forward y-left z-up
+pending_validation:
+  - independent turn-center-to-base_link measurement; fitted x differs from earlier chassis-center description
+  - sensor serial and unchanged physical mount identity
+  - repeated straight-line and in-place-spin residuals
+  - independent pitch/height and point-cloud geometry checks
+  - internal LiDAR/IMU direction and timing verification
+  - localization correctness, Nav2 footprint and motion safety acceptance
+validation:
+  mount_direction: NOT_RUN
+  rotation_center: NOT_RUN
+  repeatability: NOT_RUN
+  geometry: NOT_RUN
+  tf_ownership: NOT_RUN
+  localization: NOT_RUN
+  motion_safety: NOT_RUN

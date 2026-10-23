@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/Aldoubt/fwmini_navigation_lab.git",
+  "commit": "94a5c5bd679c9980f30d16b475a88a8e06ef7334",
+  "branch": "feature/fwmini-field-profile-usable-20261022",
+  "cross_checked_commit": "aad4b6eb955ebb4de6444d40dc7d9e1b14f879a8",
+  "cross_check": "mount translation, RPY, dimensions and field-trial record match; status and review wording differ; both leave independent precision validation pending",
+  "original_home_directories_in_cloud": false,
+  "snapshots": {
+    "FWMINI_CLOUD_HANDOFF_20261022.md": "f6280bbf3c3cca913fe666eb382112459ecf5c932af7db8754307851cd62e326",
+    "FWMINI_FIELD_TRIAL_20261022.md": "8a41b82bc08b4eefa47c54a57ed8c006a65c5a51a82ce060f98b4ed417f5259a",
+    "extrinsic.route_workbench.yaml": "3ba2287bafbd9aed25913213fd6e728093ce6db15680fd02789bd8e07f5fe0cd",
+    "fwmini_mid360_extrinsic.yaml": "df806b6e91947f10a5a4d635a15f1bfa114540333939e887ef67231a1b2b01b6",
+    "geometry.field_trial.yaml": "f10932f72750db66243f8cf439502448d715e2b6bbf3e71b014c11b3a4aa8734",
+    "geometry.route_workbench.yaml": "d2637347019c28254211e4f4374f702f49d4aeb6df691e2d671ce39a2532fbbc"
+  }
+}

@@ -1,4 +1,5 @@
 const $=id=>document.getElementById(id), safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let mountProfiles=[], selectedMount=null;
 let robot='bunker', maps=[], selected=null, grid=null, tool='pan', scale=1, ox=0, oy=0, start=null, polygon=[], keepout=[], undo=[], redo=[];
 const canvas=$('map-canvas'), ctx=canvas.getContext('2d');
 async function api(path,data){let r=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});let j=await r.json();if(!r.ok)throw Error(j.error||r.status);return j}
@@ -6,15 +7,15 @@ function toast(t){$('toast').textContent=t;$('toast').style.display='block';setT
 function run(fn){Promise.resolve().then(fn).catch(e=>toast(e.message))}
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#nav button,.page').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(b.dataset.page).classList.add('active');if(b.dataset.page==='runs')run(refreshJobs);if(b.dataset.page==='maps')run(refreshMaps)});
 $('robot-select').onchange=()=>{robot=$('robot-select').value;showRobot();run(refreshCal)};
-function showRobot(){let fw=robot==='fwmini';$('robot-note').textContent=fw?'FW-mini：厂家 CAN 与 ROS Humble 实机构建尚未验收；厂商源码许可证未知。默认仅预览模型和传感器。':'Bunker：CAN 500000 bit/s；遥控器优先级和物理急停须现场确认。';$('robot-config').textContent=fw?'配置：config/robots/fwmini.yaml\n驱动：YHS CAN → fwmini_chassis_adapter → /wheel/odom':'配置：config/robots/bunker.yaml\n驱动：agt_bunker_base → /wheel/odom';}
+function showRobot(){let fw=robot==='fwmini';$('robot-note').textContent=fw?'FW-mini：已有 2026-10-21 旋转拟合与 CAD 安装候选。Humble 软件已构建，CAN、运动和独立标定仍需现场验收。':'Bunker：CAN 500000 bit/s；遥控器优先级和物理急停须现场确认。';$('robot-config').textContent=fw?'配置：config/robots/fwmini.yaml\n驱动：YHS CAN → fwmini_chassis_adapter → /wheel/odom':'配置：config/robots/bunker.yaml\n驱动：agt_bunker_base → /wheel/odom';}
 async function refreshStatus(){let s=await api('status');$('mode').textContent=s.mode+' · ROS Domain '+s.ros_domain_id;$('status-error').textContent=s.error||'';$('checks').innerHTML=Object.entries(s.checks).map(([k,v])=>`<div class="card ${v.state==='OBSERVED'?'good':'bad'}"><b>${safe(k)}</b><div>${safe(v.state)}</div><small>缺少：${safe(v.missing.join(', ')||'无')}</small></div>`).join('');$('localization-state').innerHTML=['local_odometry','localization','tracking'].map(k=>{let v=s.checks[k];return `<div class="card ${v.state==='OBSERVED'?'good':'bad'}">${safe(k)}：${safe(v.state)}<br><small>${safe(v.missing.join(', '))}</small></div>`}).join('')+'<pre>'+safe(JSON.stringify(s.observations,null,2))+'</pre>';$('navigation-state').textContent='当前仅观察；Nav2 话题 '+s.checks.nav2.state+'。运动需要现场验收后在受控终端启动。';}
 async function refreshJobs(){let jobs=await api('jobs');$('jobs').innerHTML=jobs.map(j=>`<div class="card job"><div><b>${safe(j.kind)}</b> · ${safe(j.state)} · ${safe(j.id)}<div class="muted">${safe(j.output||'')} · ${safe(j.duration_sec==null?'':j.duration_sec+'s')}</div></div><div><button data-log="${safe(j.id)}">日志</button> ${j.state==='RUNNING'?`<button data-stop="${safe(j.id)}">停止</button>`:''}</div></div>`).join('')||'<p>暂无会话</p>';document.querySelectorAll('[data-stop]').forEach(b=>b.onclick=()=>run(async()=>{await api('jobs/'+b.dataset.stop+'/stop',{});await refreshJobs()}));document.querySelectorAll('[data-log]').forEach(b=>b.onclick=()=>run(async()=>{let x=await api('jobs/'+b.dataset.log+'/log');alert(x.text)}));}
 function nums(text,n){let v=text.split(',').map(x=>Number(x.trim()));if(v.length!==n||v.some(x=>!Number.isFinite(x)))throw Error('需要 '+n+' 个有限数字');return v}
-async function refreshCal(){let a=await api('calibrations/'+robot);$('cal-list').innerHTML=a.map(x=>`<div class="card"><b>${safe(x.version)}</b> · ${safe(x.status)} · SHA-256 ${safe(x.sha256)}<br><small>${safe(x.sensor_id||'未记录传感器 ID')}</small></div>`).join('')||'<p>尚无标定版本</p>'}
+async function refreshCal(){let a=await api('calibrations/'+robot);$('cal-list').innerHTML=a.map(x=>`<div class="card"><b>${safe(x.version)}</b> · ${safe(x.status)} · SHA-256 ${safe(x.sha256)}<br><small>${safe(x.sensor_id||'未记录传感器 ID')}</small></div>`).join('')||'<p>尚无标定版本</p>';await refreshMounts()}
 $('cal-save').onclick=()=>run(async()=>{let x=await api('calibrations',{robot,version:$('cal-version').value,sensor_id:$('cal-sensor').value,internal:{rotation_row_major:nums($('cal-r').value,9),translation_m:nums($('cal-t').value,3),time_offset_sec:Number($('cal-time').value)},mount:$('cal-mount').value,evidence:$('cal-evidence').value,verified:$('cal-verified').checked});toast('已保存 '+x.version+'：'+x.status);await refreshCal()});
-$('mapping-offline').onclick=()=>run(async()=>{let x=await api('mapping/start',{robot,bag:$('mapping-bag').value,calibration:$('mapping-cal').value||null});$('mapping-result').textContent='运行 '+x.id+'，输出 '+x.output;toast('离线建图已启动')});
-$('mapping-live').onclick=()=>run(async()=>{if(!confirm('实机建图将启动 MID360 并录制 raw bag。确认传感器 IP 和场地已检查？'))return;let x=await api('mapping/start',{robot,live:true,livox_config:$('mapping-livox').value||null,calibration:$('mapping-cal').value||null});$('mapping-result').textContent='运行 '+x.id+'，raw bag '+x.raw_bag;toast('实机建图已启动')});
-$('rec-start').onclick=()=>run(async()=>{let x=await api('recording/start',{robot,template:$('rec-template').value,label:$('rec-label').value});$('rec-result').textContent='录包 '+x.id+'，输出 '+x.output+'；缺失话题：'+x.missing_topics.join(', ');toast('录包已启动')});
+$('mapping-offline').onclick=()=>run(async()=>{let x=await api('mapping/start',{robot,bag:$('mapping-bag').value,calibration:$('mapping-cal').value||null,mount_profile:robot==='fwmini'?selectedMount:null});$('mapping-result').textContent='运行 '+x.id+'，输出 '+x.output;toast('离线建图已启动')});
+$('mapping-live').onclick=()=>run(async()=>{if(!confirm('实机建图将启动 MID360 并录制 raw bag。确认传感器 IP 和场地已检查？'))return;let x=await api('mapping/start',{robot,live:true,livox_config:$('mapping-livox').value||null,calibration:$('mapping-cal').value||null,mount_profile:robot==='fwmini'?selectedMount:null});$('mapping-result').textContent='运行 '+x.id+'，raw bag '+x.raw_bag;toast('实机建图已启动')});
+$('rec-start').onclick=()=>run(async()=>{let x=await api('recording/start',{robot,template:$('rec-template').value,label:$('rec-label').value,mount_profile:robot==='fwmini'?selectedMount:null});$('rec-result').textContent='录包 '+x.id+'，输出 '+x.output+'；缺失话题：'+x.missing_topics.join(', ');toast('录包已启动')});
 async function refreshMaps(){maps=await api('maps');$('map-select').innerHTML='<option value="">选择地图版本</option>'+maps.map(m=>`<option value="${safe(m.id)}">${safe(m.id)} · ${safe(m.status)}</option>`).join('');if(selected)$('map-select').value=selected.id;}
 $('map-import').onclick=()=>run(async()=>{let x=await api('maps/import',{yaml_path:$('map-path').value,calibration:$('mapping-cal').value||null});toast('导入地图 '+x.id);await refreshMaps();await openMap(x.id)});
 $('map-select').onchange=()=>run(()=>openMap($('map-select').value));
@@ -47,3 +48,18 @@ cloudCanvas.onpointerdown=e=>{cloudStart={x:e.clientX,y:e.clientY,yaw:cloudYaw,p
 cloudCanvas.onpointermove=e=>{if(!cloudStart)return;cloudYaw=cloudStart.yaw+(e.clientX-cloudStart.x)*.007;cloudPitch=Math.max(-1.5,Math.min(1.5,cloudStart.pitch+(e.clientY-cloudStart.y)*.007));drawCloud()};
 cloudCanvas.onpointerup=()=>{cloudStart=null};
 cloudCanvas.onwheel=e=>{e.preventDefault();cloudZoom=Math.max(.1,Math.min(10,cloudZoom*(e.deltaY<0?1.15:1/1.15)));drawCloud()};
+
+async function refreshMounts(){
+  $('fwmini-mount-panel').hidden=robot!=='fwmini';if(robot!=='fwmini')return;
+  mountProfiles=await api('fwmini/mounts');
+  $('fwmini-mount-select').innerHTML=mountProfiles.map(x=>`<option value="${safe(x.path)}">${safe(x.status)} · ${safe(x.path.split('/').pop())}</option>`).join('');
+  if(mountProfiles.some(x=>x.path===selectedMount))$('fwmini-mount-select').value=selectedMount;
+  showMount();
+}
+function showMount(){
+  selectedMount=$('fwmini-mount-select').value;let x=mountProfiles.find(x=>x.path===selectedMount);if(!x)return;
+  $('fwmini-mount-detail').textContent=JSON.stringify({status:x.status,date:x.calibration_date,source:x.source,body:x.body,mount:x.mount,lidar_imu:x.lidar_imu,assumptions:x.assumptions,pending_validation:x.pending_validation,validation:x.validation,verification:x.verification,calibration_sha256:x.calibration_sha256},null,2);
+  $('fwmini-mount-command').textContent='受监督定位观察（自备对应地图 PCD）：\nbash scripts/run_field_test.sh robot:=fwmini enable_localization:=true fwmini_mode:=supervised_localization supervised:=true fwmini_mount_file:='+JSON.stringify(selectedMount)+' global_map:=/absolute/path/map.pcd';
+}
+$('fwmini-mount-select').onchange=showMount;
+$('mount-verify').onclick=()=>run(async()=>{let x=await api('fwmini/mounts/verify',{profile:selectedMount,report:$('mount-report').value,sensor_id:$('mount-sensor').value});selectedMount=x.path;await refreshMounts();toast('已生成 VERIFIED 版本；重启相关会话后使用')});

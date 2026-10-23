@@ -28,6 +28,8 @@ else
 fi
 cp -an "$REPO/templates/config/." "$ROOT/config/"
 mkdir -p "$ROOT/calibration/bunker" "$ROOT/calibration/fwmini"
+cp -n "$REPO/agt_field_test_bringup/config/fwmini_mid360_candidate.yaml" \
+  "$ROOT/calibration/fwmini/fwmini_mid360_candidate.yaml"
 python3 "$REPO/scripts/fetch_locked.py"
 python3 "$REPO/scripts/apply_mapping_calibration.py"
 python3 "$REPO/scripts/audit.py" > "$ROOT/reports/dependency_audit.json"

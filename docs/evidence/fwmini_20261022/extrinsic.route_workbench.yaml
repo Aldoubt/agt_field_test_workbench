@@ -1,0 +1,17 @@
+schema_version: 1
+status: SPIN_FIT_CANDIDATE_NOT_FIELD_VERIFIED
+parent_frame: base_link
+child_frame: livox_frame
+translation_m: [0.146725, 0.002608, 0.37704]
+rotation_rpy_rad: [0.0, 0.2152, 0.0]
+provenance:
+  x_y: FAST-LIO2 planar rotation-center fit; assumes fitted center equals base_link origin
+  z: CAD lidar-center height 0.44704 m minus base_link wheel-radius height 0.070 m
+  pitch: static FAST-LIO2 median; positive pitch points the sensor x-axis forward-down
+assumptions:
+  - existing FAST-LIO2 t_il is valid for this MID360/IMU assembly
+  - steering rotation center equals base_link origin in XY
+review_note: >-
+  The fitted x offset is about 147 mm and conflicts with the earlier description
+  that the LiDAR sits at chassis center. Verify the steering-center to base_link
+  offset before treating this transform as calibrated.

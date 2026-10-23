@@ -53,6 +53,6 @@ Bunker 和 FW-mini 的底盘单独启动时，入口只接入低速手动 comman
 
 导航仓库依赖锁分别使用 Livox driver `4a1def9`、FAST-LIO2 `f516daa`、Batch-LIO `fe4a9cb`；建图仓库使用 Livox `13eb05e`、FAST-LIO2/PGO fork `7f664a6`、Batch-LIO fork `7ceb276`。统一 `.repos` 选择建图 Livox/FAST-LIO2 和导航 Batch-LIO，每个 ROS 包仅有一份源码。V3 的 FAST-LIO2 导航适配器与此 fork 的组合已通过 Humble 编译，仍需 rosbag 运行验证；默认导航配置保持 Batch-LIO。V3 原 `hardware.launch.py` 引用 `bunker_base`，而现有底盘仓库的包名是 `agt_bunker_base`；新入口直接启动已编译的 `agt_bunker_base`，不调用该旧硬件入口。
 
-FW-mini 厂家 `yhs_can_control` 与 `yhs_can_interfaces` 位于其独立仓库，`package.xml` 许可仍为 TODO；集成仓库没有复制厂家源码。FW-mini 的 Humble 软件包已编译，CAN 反馈、底盘运动和 MID360 安装 TF 均未验收，因此其定位路径在新 launch 中阻断；基础描述和 sensor-only 建图入口可用。V3 的持续校正已具有 tracker → LocalizationManager 的候选应用路径和门控，新 launch 在启用定位时默认开 `enable_map_tracking`，但还没有本次实测的 A/B rosbag 结果或结构化逐候选日志证据。
+FW-mini 厂家 `yhs_can_control` 与 `yhs_can_interfaces` 位于其独立仓库，`package.xml` 许可仍为 TODO；集成仓库没有复制厂家源码。FW-mini 的 Humble 软件包已编译，已恢复 10 月 21～22 日 MID360 外参候选并接入 RSP、建图和受监督定位；候选可用于传感器测试、标定录包、离线建图和定位观察。正式自主导航仍等待定位、几何和运动安全验收。[外参来源、启动方式、现场升级和本轮 Humble 测试](docs/fwmini_mid360_integration.md)。V3 的持续校正已具有 tracker → LocalizationManager 的候选应用路径和门控，新 launch 在启用定位时默认开 `enable_map_tracking`，但还没有本次实测的 A/B rosbag 结果或结构化逐候选日志证据。
 
 完整审计、验证状态、周六现场清单见 [`docs/field_delivery.md`](docs/field_delivery.md)。

@@ -13,6 +13,7 @@ import time
 import uuid
 
 import yaml
+from .fwmini import resolve_profile, load_profile, require_mode, digest
 
 ROOT = Path(__file__).resolve().parents[3]
 REPO = ROOT / 'src/agt_field_test_workbench'
@@ -229,7 +230,7 @@ class Jobs:
             write_json(self.root / 'runs' / run_id / 'run.json', record)
             return record
 
-    def start_mapping(self, bag, robot, calibration=None, live=False, livox_config=None):
+    def start_mapping(self, bag, robot, calibration=None, live=False, livox_config=None, mount_profile=None):
         if not ros_ready():
             raise ValueError('ROS Humble unified overlay not built')
         if robot not in ('bunker', 'fwmini'):
@@ -248,6 +249,13 @@ class Jobs:
         output = self.root / 'maps' / run_id
         cmd = ['python3', str(REPO / 'scripts/mapping_pipeline.py'),
                '--robot', robot, '--output', str(output)]
+        mount_metadata = None
+        if robot == 'fwmini':
+            mount = resolve_profile(self.root, mount_profile)
+            profile = load_profile(mount)
+            require_mode(profile, 'sensor_mapping' if live else 'offline_mapping')
+            cmd += ['--mount-profile', str(mount)]
+            mount_metadata = {'path': str(mount), 'calibration_sha256': digest(profile), 'status': profile['status']}
         if live:
             if not livox_config or not Path(livox_config).is_file():
                 raise ValueError('live sensor-only mapping requires an existing Livox IP config for this robot')
@@ -265,15 +273,26 @@ class Jobs:
                          {'robot': robot, 'bag': str(source) if source else None,
                           'output': str(output), 'calibration': calibration,
                           'calibration_sha256': calibration_sha,
+                          'mount_profile': mount_metadata,
                           'versions': source_versions(self.root),
                           'ros_domain_id': 89, 'sensor_only': live,
                           'raw_bag': str(output / 'raw_bag') if live else None}, env)
 
-    def start_recorder(self, template, robot, calibration=None, map_version=None, label=''):
+    def start_recorder(self, template, robot, calibration=None, map_version=None, label='', mount_profile=None):
         if template not in TEMPLATES or robot not in ('bunker', 'fwmini'):
             raise ValueError('unknown template or robot')
         if not ros_ready():
             raise ValueError('ROS Humble unified overlay not built')
+        mount_metadata = None
+        if robot == 'fwmini':
+            mount = resolve_profile(self.root, mount_profile)
+            profile = load_profile(mount)
+            require_mode(profile, 'calibration_recording')
+            # Recorder observes an already running sensor profile; never adds a
+            # second RSP to a live robot's domain.
+            ros_call(['ros2', 'run', 'agt_field_test_bringup', 'fwmini_tf_contract.py',
+                      '--profile', str(mount), '--preflight'], timeout=13)
+            mount_metadata = {'path': str(mount), 'calibration_sha256': digest(profile), 'status': profile['status']}
         free = shutil.disk_usage(self.root).free
         if free < 2 * 1024**3:
             raise ValueError(f'only {free // 1024**3} GiB free; require at least 2 GiB')
@@ -299,6 +318,7 @@ class Jobs:
                          'offered_qos': qos,
                          'missing_topics': [t for t in desired if t not in actual],
                          'calibration': calibration, 'map_version': map_version,
+                         'mount_profile': mount_metadata,
                          'label': label[:100], 'versions': versions,
                          'ros_domain_id': os.environ.get('ROS_DOMAIN_ID', '0')})
 

@@ -1,0 +1,16 @@
+{
+  "robot": "fwmini",
+  "verification_scope": "PHYSICAL_MOUNT",
+  "sensor_id": "",
+  "calibration_sha256": "",
+  "operator": "",
+  "observed_at": "",
+  "checks": {
+    "mount_direction": "NOT_RUN",
+    "rotation_center": "NOT_RUN",
+    "repeatability": "NOT_RUN",
+    "geometry": "NOT_RUN",
+    "tf_ownership": "NOT_RUN"
+  },
+  "observations": {}
+}

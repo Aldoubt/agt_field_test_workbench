@@ -16,6 +16,7 @@ import subprocess
 from .maps import Maps
 from .cloud import sample_pcd
 from .runtime import Jobs, ROOT, REPO, TEMPLATES, status, write_json
+from .fwmini import profiles, resolve_profile, verify_profile
 
 STATIC = REPO / 'workbench/static'
 JOBS = Jobs()
@@ -54,6 +55,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, MAPS.list())
             if self.path == '/api/templates':
                 return self.response(200, TEMPLATES)
+            if self.path == '/api/fwmini/mounts':
+                return self.response(200, profiles(ROOT))
             if self.path.startswith('/api/calibrations/'):
                 return self.response(200, calibrations(self.path.rsplit('/', 1)[-1]))
             match = re.fullmatch(r'/api/maps/([^/]+)/preview', self.path)
@@ -113,11 +116,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, JOBS.start_mapping(
                     payload.get('bag'), payload.get('robot', 'bunker'),
                     payload.get('calibration'), bool(payload.get('live')),
-                    payload.get('livox_config')))
+                    payload.get('livox_config'), payload.get('mount_profile')))
             if self.path == '/api/recording/start':
                 return self.response(200, JOBS.start_recorder(
                     payload.get('template'), payload.get('robot', 'bunker'),
-                    payload.get('calibration'), payload.get('map_version'), payload.get('label', '')))
+                    payload.get('calibration'), payload.get('map_version'), payload.get('label', ''),
+                    payload.get('mount_profile')))
+            if self.path == '/api/fwmini/mounts/verify':
+                source = resolve_profile(ROOT, payload.get('profile'))
+                report = Path(payload['report']).expanduser()
+                report = (ROOT/report).resolve() if not report.is_absolute() else report.resolve()
+                if not any(report.is_relative_to(ROOT/p) for p in ('runs', 'reports')):
+                    raise ValueError('verification report must be in runs/ or reports/')
+                stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+                target = ROOT/'calibration/fwmini'/f'fwmini_mid360_verified_{stamp}.yaml'
+                verify_profile(source, report, payload['sensor_id'], target)
+                return self.response(200, {'path': str(target), 'status': 'VERIFIED'})
             match = re.fullmatch(r'/api/jobs/([^/]+)/stop', self.path)
             if match:
                 return self.response(200, JOBS.stop(match.group(1)))

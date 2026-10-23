@@ -6,12 +6,72 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import signal
+import time
+import shutil
 
 REPO = Path(__file__).resolve().parents[1]
 ROOT = REPO.parent.parent
 sys.path.insert(0, str(REPO))
 from workbench.maps import Maps  # noqa: E402
 from workbench.runtime import check_bag, write_json  # noqa: E402
+from workbench.fwmini import resolve_profile, load_profile, require_mode, digest, sha256  # noqa: E402
+
+
+def stop_child(process):
+    if process is not None and process.poll() is None:
+        process.send_signal(signal.SIGINT)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            process.wait(timeout=5)
+
+
+def run_mapping(command, args):
+    """Own the selected mount in the mapping domain for this job's lifetime."""
+    if args.robot != 'fwmini':
+        return subprocess.call(command), None
+    mount = resolve_profile(ROOT, args.mount_profile)
+    profile = load_profile(mount)
+    require_mode(profile, 'sensor_mapping' if args.live else 'offline_mapping')
+    directory = ROOT/'runs'/(Path(args.output).name+'_fwmini_mount')
+    directory.mkdir(parents=True, exist_ok=False)
+    snapshot = directory/'mount.yaml'
+    shutil.copyfile(mount, snapshot)
+    ready = directory/'tf_ready.json'
+    launch = ['bash', str(REPO/'scripts/ros_exec.sh'), 'ros2', 'launch', 'agt_field_test_bringup',
+              'field_test.launch.py', 'robot:=fwmini', 'enable_chassis:=false', 'enable_mid360:=false',
+              f'fwmini_mount_file:={snapshot}', f'fwmini_tf_report:={ready}',
+              'fwmini_mode:='+('sensor_mapping' if args.live else 'offline_mapping'),
+              'use_sim_time:='+('false' if args.live else 'true')]
+    internal_config = Path(os.environ.get('AGT_FIELD_TEST_FASTLIO_CONFIG', str(
+        ROOT/'src/agt-lio-pgo-mapping/bringup/agt_mapping_bringup/config/fastlio2_mid360.yaml')))
+    internal_snapshot = directory/'fastlio.yaml'
+    shutil.copyfile(internal_config, internal_snapshot)
+    launch += [f'fwmini_internal_config:={internal_snapshot}']
+    env = dict(os.environ, ROS_DOMAIN_ID='89', AGT_FIELD_TEST_FASTLIO_CONFIG=str(internal_snapshot))
+    tf_process = mapping_process = None
+    try:
+        with (directory/'tf.log').open('w') as log:
+            tf_process = subprocess.Popen(launch, env=env, stdout=log, stderr=subprocess.STDOUT)
+            deadline = time.monotonic()+15
+            while not ready.is_file():
+                if tf_process.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeError(f'FW-mini mount TF preflight failed; see {directory}/tf.log')
+                time.sleep(0.1)
+            mapping_process = subprocess.Popen(command, env=env)
+            while mapping_process.poll() is None:
+                if tf_process.poll() is not None:
+                    raise RuntimeError('FW-mini mount TF guard stopped during mapping')
+                time.sleep(0.1)
+            metadata = {'path': str(snapshot), 'calibration_sha256': digest(profile),
+                        'status': profile['status'], 'tf_report': str(ready),
+                        'internal_config': str(internal_snapshot), 'internal_sha256': sha256(internal_snapshot)}
+            return mapping_process.returncode, metadata
+    finally:
+        stop_child(mapping_process)
+        stop_child(tf_process)
 
 
 def main():
@@ -22,6 +82,7 @@ def main():
     parser.add_argument('--live', action='store_true')
     parser.add_argument('--livox-config')
     parser.add_argument('--calibration')
+    parser.add_argument('--mount-profile')
     args = parser.parse_args()
     output = Path(args.output).resolve()
     mapping = ROOT / 'src/agt-lio-pgo-mapping/scripts/run_mid360_mapping.sh'
@@ -32,7 +93,7 @@ def main():
         command += [args.bag, str(output)]
     command += ['--no-rviz', '--domain-id', '89', '--setup', str(ROOT / 'install/setup.bash')]
     print('Running existing mapping entry point:', command, flush=True)
-    code = subprocess.call(command)
+    code, mount_metadata = run_mapping(command, args)
     if code:
         print(f'Mapping exited {code}; no conversion or acceptance claimed', flush=True)
         return code
@@ -62,7 +123,7 @@ def main():
         return 4
     write_json(output / 'field_test_result.json', {'robot': args.robot, 'calibration': args.calibration,
                'source_bag': args.bag or str(output / 'raw_bag'), 'map_version': version['id'],
-               'raw_bag_integrity': raw_integrity, 'status': 'DRAFT'})
+               'raw_bag_integrity': raw_integrity, 'mount_profile': mount_metadata, 'status': 'DRAFT'})
     print('Map Studio version:', version['id'], flush=True)
     return 0
 

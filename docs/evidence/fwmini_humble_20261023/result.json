@@ -1,0 +1,24 @@
+{
+  "tests": 4,
+  "failures": 0,
+  "errors": 0,
+  "environment": "Ubuntu 22.04 / ROS 2 Humble Docker",
+  "data": "synthetic odometry and launch-only point cloud",
+  "physical_calibration_verified": false,
+  "date": "2026-10-23",
+  "unit_tests": {
+    "tests": 11,
+    "failures": 0,
+    "errors": 0
+  },
+  "targeted_humble_build": "PASS",
+  "javascript_syntax": "PASS",
+  "mapping_tf_orchestration_smoke": "PASS_NO_SENSOR_DATA",
+  "dependency_audit": {
+    "mismatched_sha": [],
+    "duplicate_packages": {},
+    "dirty": []
+  },
+  "humble_test_command": "ROS_DOMAIN_ID=214 bash scripts/ros_exec.sh python3 tests/humble_fwmini_tf.py",
+  "hardware_acceptance": "NOT_RUN"
+}
