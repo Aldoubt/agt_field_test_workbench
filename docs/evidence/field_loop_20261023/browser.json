@@ -1,0 +1,32 @@
+{
+  "state": "PASS",
+  "scope": "SOFTWARE_BROWSER_ONLY",
+  "tabs": 6,
+  "route": {
+    "id": "20261023T114659Z-ea655735",
+    "name": "SYNTHETIC_BROWSER_TEST",
+    "map_id": "20261023T114655Z-f9a5bf10",
+    "map_sha256": "bc464dbb9e5b03063299dc3d07cc67eb6e2c2727967611503e1e42051d0351dd",
+    "map_yaml_sha256": "e5e8fa3986043eb795b7109c14fdbf66ecb6824baf811fdbb8dad562fc1da832",
+    "frame_id": "map",
+    "points": [
+      {
+        "x": -2.1796352583586627,
+        "y": 0.7510638297872347,
+        "yaw": 0,
+        "photo": false
+      },
+      {
+        "x": 2.379635258358663,
+        "y": -0.951063829787234,
+        "yaw": 0,
+        "photo": false
+      }
+    ],
+    "parent": null,
+    "status": "DRAFT",
+    "photo_task_executor": null
+  },
+  "javascript_errors": [],
+  "physical_motion": "NOT_RUN"
+}

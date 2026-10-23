@@ -1,0 +1,26 @@
+test_clean_pinned_checkouts_apply_twice_and_preserve_local_edits (test_control_patch.ControlPatchTests.test_clean_pinned_checkouts_apply_twice_and_preserve_local_edits) ... ok
+test_vendor_ctrl_cmd_encoder_alive_counter_and_bcc_are_unchanged (test_control_patch.ControlPatchTests.test_vendor_ctrl_cmd_encoder_alive_counter_and_bcc_are_unchanged) ... ok
+test_bunker_cannot_be_made_holonomic (test_field_loop.FieldLoop.test_bunker_cannot_be_made_holonomic) ... ok
+test_gps_cannot_be_truth_without_fix_and_alignment (test_field_loop.FieldLoop.test_gps_cannot_be_truth_without_fix_and_alignment) ... ok
+test_missing_physical_trials_remain_not_run (test_field_loop.FieldLoop.test_missing_physical_trials_remain_not_run) ... ok
+test_profile_is_actual_nav_guard_and_smoother_limit (test_field_loop.FieldLoop.test_profile_is_actual_nav_guard_and_smoother_limit) ... ok
+test_relative_goal_uses_robot_heading (test_field_loop.FieldLoop.test_relative_goal_uses_robot_heading) ... ok
+test_backend_internal_parameters_are_not_chassis_mount (test_fwmini_mount.FWminiMountTests.test_backend_internal_parameters_are_not_chassis_mount) ... ok
+test_calibration_http_displays_candidate_and_requires_physical_report (test_fwmini_mount.FWminiMountTests.test_calibration_http_displays_candidate_and_requires_physical_report) ... 127.0.0.1 - - [23/Oct/2026 07:58:25] "GET /api/fwmini/mounts HTTP/1.1" 200 -
+127.0.0.1 - - [23/Oct/2026 07:58:25] "POST /api/fwmini/mounts/verify HTTP/1.1" 400 -
+127.0.0.1 - - [23/Oct/2026 07:58:25] "POST /api/fwmini/mounts/verify HTTP/1.1" 200 -
+ok
+test_candidate_modes_do_not_imply_autonomous_motion (test_fwmini_mount.FWminiMountTests.test_candidate_modes_do_not_imply_autonomous_motion) ... ok
+test_direction_and_nonfinite_values_rejected (test_fwmini_mount.FWminiMountTests.test_direction_and_nonfinite_values_rejected) ... ok
+test_original_evidence_numbers_and_reference_height_preserved (test_fwmini_mount.FWminiMountTests.test_original_evidence_numbers_and_reference_height_preserved) ... ok
+test_report_binding_and_immutable_upgrade (test_fwmini_mount.FWminiMountTests.test_report_binding_and_immutable_upgrade) ... ok
+test_urdf_has_one_mount_and_inverts_internal_imu_transform (test_fwmini_mount.FWminiMountTests.test_urdf_has_one_mount_and_inverts_internal_imu_transform) ... ok
+test_binary_pcd_preview_reads_xyz_offsets (test_workbench.WorkbenchTests.test_binary_pcd_preview_reads_xyz_offsets) ... ok
+test_cancel_only_owned_process_group (test_workbench.WorkbenchTests.test_cancel_only_owned_process_group) ... ok
+test_incomplete_bag_is_never_pass (test_workbench.WorkbenchTests.test_incomplete_bag_is_never_pass) ... ok
+test_map_versions_preserve_parent_and_input (test_workbench.WorkbenchTests.test_map_versions_preserve_parent_and_input) ... ok
+
+----------------------------------------------------------------------
+Ran 18 tests in 1.547s
+
+OK

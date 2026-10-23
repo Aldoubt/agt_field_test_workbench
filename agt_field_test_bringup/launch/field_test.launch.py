@@ -15,6 +15,7 @@ from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from agt_field_test_bringup import profiles, calibration
 from agt_field_test_bringup.fwmini import load_profile, require_mode, robot_description, lio_configs
 
 
@@ -37,9 +38,14 @@ def _configure(context):
     robot = value('robot')
     if robot not in ('bunker', 'fwmini'):
         raise RuntimeError('robot must be bunker or fwmini')
+    workspace = Path(os.environ.get('AGT_FIELD_TEST_WS', str(Path.home()/'agt_field_test_ws')))
+    robot_profile = profiles.load(value('robot_profile_file') or profiles.selected_path(workspace,robot),robot)
+    if value('global_backend') != 'bbs':
+        raise RuntimeError('KISS experimental backend is not validated/available for live sessions; use offline benchmark')
     chassis = value('enable_chassis').lower() == 'true'
     localization = value('enable_localization').lower() == 'true'
     navigation = value('enable_navigation').lower() == 'true'
+    bundle=calibration.load(value('calibration_bundle'),robot) if value('calibration_bundle') else None
     profile = None
     if robot == 'fwmini':
         profile = load_profile(value('fwmini_mount_file'))
@@ -48,29 +54,37 @@ def _configure(context):
             raise RuntimeError('FW-mini localization requires fwmini_mode:=supervised_localization')
         require_mode(profile, 'autonomous_navigation' if navigation else mode,
                      supervised=value('supervised').lower() == 'true')
-    if navigation and (robot != 'bunker' or not chassis or not localization):
+    if navigation and (not chassis or not localization):
         raise RuntimeError('Formal Nav2 currently requires the accepted Bunker profile; FW-mini needs independent Nav2 geometry/localization/motion acceptance')
     if localization and not Path(value('global_map')).is_file():
         raise RuntimeError('enable_localization requires an existing global_map PCD')
+    if navigation:
+        from pathlib import Path as _P
+        import sys
+        sys.path.insert(0,str(workspace/'src/agt_field_test_workbench'))
+        from workbench.safety import report as safety_report
+        nav_map=json.loads((Path(value('map_yaml')).parent/'manifest.json').read_text())
+        safety_report(value('safety_report'),robot,robot_profile['profile_sha256'],nav_map['sha256'],
+                      calibration.digest(bundle) if bundle else __import__('agt_field_test_bringup.fwmini',fromlist=['digest']).digest(profile))
+        if (bundle or profile)['status']!='VERIFIED':raise RuntimeError('VERIFIED mounting calibration required for navigation')
     if robot == 'bunker':
-        nodes = [_include('tracked_chassis_description', 'display.launch.py',
-                          {'start_rviz': 'false'})]
+        nodes = ([Node(package='robot_state_publisher',executable='robot_state_publisher',parameters=[{'robot_description':calibration.description(bundle,value('lio_backend'))}])]
+                 if bundle else [_include('tracked_chassis_description','display.launch.py',{'start_rviz':'false'})])
         if value('enable_mid360').lower() == 'true':
-            nodes.append(_include('livox_ros_driver2', 'msg_MID360_launch.py'))
+            if value('livox_config'):
+                nodes.append(Node(package='livox_ros_driver2',executable='livox_ros_driver2_node',parameters=[{'user_config_path':value('livox_config'),'xfer_format':1,'multi_topic':0,'data_src':0,'publish_freq':10.,'output_data_type':0,'frame_id':'livox_frame','lvx_file_path':'','cmdline_input_bd_code':'livox0000000001'}]))
+            else:nodes.append(_include('livox_ros_driver2','msg_MID360_launch.py'))
         if chassis:
-            nodes.append(_include('agt_bunker_base', 'bunker_base.launch.py'))
+            nodes.append(Node(package='agt_bunker_base', executable='agt_bunker_base_node', parameters=[
+                str(Path(get_package_share_directory('agt_bunker_base'))/'config/bunker.yaml'),
+                {'port_name':robot_profile['can_interface'],'cmd_vel_topic':robot_profile['topics']['driver'],
+                 'odom_topic_name':robot_profile['wheel_odom_topic'],'publish_odom_tf':False,
+                 'control_rate':int(robot_profile['control_hz'])}]))
             if not navigation:
                 # Manual low-speed trials remain possible without global
                 # localization. The guard still enforces timeout and limits.
                 nodes.append(Node(package='agt_base_control', executable='cmd_vel_guard',
-                                  name='agt_cmd_vel_guard', output='screen', parameters=[{
-                                      'kinematic_profile': 'bunker',
-                                      'default_control_mode': 'manual',
-                                      'require_localization_status': False,
-                                      'max_linear_x': 0.05, 'max_reverse_x': 0.03,
-                                      'max_angular_z': 0.15,
-                                      'command_timeout_sec': 0.20,
-                                  }]))
+                                  name='agt_cmd_vel_guard', output='screen', parameters=[profiles.guard(robot_profile)]))
     else:
         if chassis and not Path(value('fwmini_geometry_file')).is_file():
             raise RuntimeError('FW-mini chassis requires a measured fwmini_geometry_file')
@@ -87,23 +101,18 @@ def _configure(context):
                           'robot_description': robot_description(profile, value('fwmini_internal_config') or None),
                           'use_sim_time': value('use_sim_time').lower() == 'true'}])]
         if value('enable_mid360').lower() == 'true':
-            nodes.append(_include('livox_ros_driver2', 'msg_MID360_launch.py'))
+            if value('livox_config'):
+                nodes.append(Node(package='livox_ros_driver2',executable='livox_ros_driver2_node',parameters=[{'user_config_path':value('livox_config'),'xfer_format':1,'multi_topic':0,'data_src':0,'publish_freq':10.,'output_data_type':0,'frame_id':'livox_frame','lvx_file_path':'','cmdline_input_bd_code':'livox0000000001'}]))
+            else:nodes.append(_include('livox_ros_driver2','msg_MID360_launch.py'))
         if chassis:
             # Adapter starts disabled and needs explicit /fwmini/enable_motion.
+            if not navigation:
+                nodes.append(Node(package='agt_base_control',executable='cmd_vel_guard',name='agt_cmd_vel_guard',parameters=[profiles.guard(robot_profile)]))
             nodes.extend([
-                _include('yhs_can_control', 'yhs_can_control.launch.py'),
-                Node(package='agt_base_control', executable='cmd_vel_guard',
-                     name='agt_cmd_vel_guard', output='screen', parameters=[{
-                         'default_control_mode': 'manual',
-                         'require_localization_status': False,
-                         'kinematic_profile': 'fwmini',
-                         'output_topic': '/fwmini/cmd_vel_guarded',
-                         'max_linear_y': 0.03,
-                         'max_linear_x': 0.05, 'max_reverse_x': 0.03,
-                         'max_angular_z': 0.15,
-                         'command_timeout_sec': 0.20,
-                     }]),
-                _include('fwmini_chassis_adapter', 'adapter.launch.py'),
+                Node(package='yhs_can_control',executable='yhs_can_control_node',name='yhs_can_control_node',parameters=[str(Path(get_package_share_directory('yhs_can_control'))/'params/cfg.yaml'),{'can_name':robot_profile['can_interface']}]),
+                Node(package='fwmini_chassis_adapter', executable='fwmini_chassis_adapter_node',
+                     parameters=[{'max_linear_x':robot_profile['forward_mps'], 'max_linear_y':robot_profile['lateral_mps'],
+                                  'max_angular_z':robot_profile['angular_radps'], 'cmd_timeout':robot_profile['command_timeout_sec']}]),
                 Node(package='fwmini_odom_adapter', executable='fwmini_odom_adapter_node',
                      name='fwmini_odom_adapter', output='screen',
                      parameters=[{'publish_tf': False}]),
@@ -120,14 +129,28 @@ def _configure(context):
             fast, batch = lio_configs(profile, get_package_share_directory('agt_navigation_runtime'),
                                      tempfile.mkdtemp(prefix='fwmini_lio_'))
             localization_args.update(fastlio_config=fast, batch_config=batch)
+        if bundle:
+            fast,batch=calibration.configs(bundle,get_package_share_directory('agt_navigation_runtime'),
+                workspace/'src/agt-lio-pgo-mapping/bringup/agt_mapping_bringup/config/fastlio2_mid360.yaml', tempfile.mkdtemp(prefix='field_cal_'))
+            localization_args.update(fastlio_config=fast,batch_config=batch,lidar_topic='/field/aligned/lidar',imu_topic='/field/aligned/imu')
+            localization_nodes.append(Node(package='agt_field_test_bringup',executable='time_align.py',parameters=[bundle['time_sync']]))
+        if value('gps_alignment_file'):
+            from agt_field_test_bringup.gps import load_alignment
+            map_sha=json.loads((Path(value('map_yaml')).parent/'manifest.json').read_text())['sha256']
+            cal_sha=calibration.digest(bundle) if bundle else __import__('agt_field_test_bringup.fwmini',fromlist=['digest']).digest(profile)
+            load_alignment(value('gps_alignment_file'),map_sha,cal_sha)
+            localization_args['global_pose_output']='/field/relocalization/raw_pose'
+            localization_nodes.append(Node(package='agt_field_test_bringup',executable='gps_candidate_gate.py',parameters=[{
+                'alignment_file':value('gps_alignment_file'),'map_sha256':map_sha,'calibration_sha256':cal_sha,
+                'use_sim_time':value('use_sim_time')=='true'}]))
         localization_nodes.append(_include('agt_system_bringup', 'localization.launch.py', localization_args))
         localization_nodes.append(Node(package='agt_field_test_bringup', executable='localization_audit.py',
                           name='agt_field_test_localization_audit', output='screen',
                           parameters=[{'global_map': value('global_map'),
                                        'directory': str(Path(os.environ.get(
                                            'AGT_FIELD_TEST_WS', str(Path.home() / 'agt_field_test_ws'))) / 'runs')}]))
-    if profile:
-        if value('fwmini_mode') in ('sensor_mapping', 'offline_mapping'):
+    if profile or bundle:
+        if profile and value('fwmini_mode') in ('sensor_mapping', 'offline_mapping'):
             lio_config = value('fwmini_internal_config') or str(
                 Path(get_package_share_directory('agt_mapping_bringup'))/'config/fastlio2_mid360.yaml')
             lio_data = yaml.safe_load(Path(lio_config).read_text())
@@ -140,7 +163,8 @@ def _configure(context):
                     'body_to_base_calibration_file': lio_config,
                     'mount_lidar_frame': 'livox_frame', 'mount_base_frame': 'base_link',
                     'use_sim_time': value('use_sim_time').lower() == 'true'}]))
-        arguments = ['--profile', str(Path(value('fwmini_mount_file')).expanduser().resolve())]
+        arguments = (['--bundle',value('calibration_bundle'),'--backend',value('lio_backend')] if bundle else
+                     ['--profile',str(Path(value('fwmini_mount_file')).expanduser().resolve())])
         if value('fwmini_internal_config'):
             arguments += ['--internal-config', value('fwmini_internal_config')]
         preflight_args = arguments + ['--preflight']
@@ -154,7 +178,7 @@ def _configure(context):
         def after_tf(event, _context):
             if event.returncode != 0:
                 return [EmitEvent(event=Shutdown(reason='FW-mini TF preflight failed'))]
-            return [LogInfo(msg=f"FW-mini {profile['status']}: TF checked; observation mode only"),
+            return [LogInfo(msg=f"{robot} {(profile or bundle)['status']}: selected TF checked"),
                     watcher, *localization_nodes]
 
         def guard_exit(event, _context):
@@ -179,7 +203,10 @@ def _configure(context):
             raise RuntimeError('Nav2 map and localization PCD identities differ')
         if _sha256(global_map) != manifest.get('source_pcd_sha256'):
             raise RuntimeError('localization PCD SHA-256 differs from Map Studio provenance')
+        runtime_params = profiles.navigation(robot_profile, Path(get_package_share_directory('agt_system_bringup'))/'config',
+            Path(tempfile.mkdtemp(prefix='field_profile_'))/'navigation.yaml')
         nodes.append(_include('agt_system_bringup', 'navigation.launch.py', {
+            'runtime_params_file':runtime_params,
             'map': str(map_yaml), 'map_id': manifest['id'], 'enable_inspection': 'false'}))
     return nodes
 
@@ -191,6 +218,12 @@ def generate_launch_description():
         mount = Path(get_package_share_directory('agt_field_test_bringup')) / 'config/fwmini_mid360_candidate.yaml'
     return LaunchDescription([
         DeclareLaunchArgument('robot', default_value='bunker'),
+        DeclareLaunchArgument('global_backend', default_value='bbs'),
+        DeclareLaunchArgument('gps_alignment_file', default_value=''),
+        DeclareLaunchArgument('robot_profile_file', default_value=''),
+        DeclareLaunchArgument('calibration_bundle', default_value=''),
+        DeclareLaunchArgument('safety_report', default_value=''),
+        DeclareLaunchArgument('livox_config', default_value=''),
         DeclareLaunchArgument('enable_chassis', default_value='false'),
         DeclareLaunchArgument('enable_mid360', default_value='true'),
         DeclareLaunchArgument('enable_localization', default_value='false'),

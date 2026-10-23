@@ -1,0 +1,122 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-10-23-11-41-49-457393-750018ad1ed4-69546
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [robot_state_publisher-1]: process started with pid [69547]
+[INFO] [fwmini_tf_contract.py-2]: process started with pid [69549]
+[robot_state_publisher-1] [INFO] [1792755709.911921842] [robot_state_publisher]: got segment base_footprint
+[robot_state_publisher-1] [INFO] [1792755709.912004329] [robot_state_publisher]: got segment base_link
+[robot_state_publisher-1] [INFO] [1792755709.912011013] [robot_state_publisher]: got segment imu_link
+[robot_state_publisher-1] [INFO] [1792755709.912015179] [robot_state_publisher]: got segment lidar_link
+[robot_state_publisher-1] [INFO] [1792755709.912019152] [robot_state_publisher]: got segment livox_frame
+[fwmini_tf_contract.py-2] [INFO] [1792755710.953883701] [fwmini_tf_preflight]: FWMINI_TF_READY: selected mount and unique TF owners observed
+[INFO] [fwmini_tf_contract.py-2]: process has finished cleanly [pid 69549]
+[INFO] [launch.user]: bunker CANDIDATE: selected TF checked
+[INFO] [fwmini_tf_contract.py-3]: process started with pid [69571]
+[INFO] [time_align.py-4]: process started with pid [69573]
+[INFO] [lio_node-5]: process started with pid [69575]
+[INFO] [fastlio_adapter-6]: process started with pid [69577]
+[INFO] [livox_format_bridge-7]: process started with pid [69579]
+[INFO] [global_relocalization-8]: process started with pid [69581]
+[INFO] [localization_manager-9]: process started with pid [69583]
+[INFO] [map_tracker-10]: process started with pid [69585]
+[INFO] [localization_audit.py-11]: process started with pid [69597]
+[livox_format_bridge-7] [INFO] [1792755711.243069209] [livox_format_bridge]: Livox bridge mode=custom_to_pointcloud2 /field/aligned/lidar -> /agt/livox/points
+[lio_node-5] [INFO] [1792755711.291288423] [fastlio2.lio_node]: LIO Node Started
+[lio_node-5] [INFO] [1792755711.296771257] [fastlio2.lio_node]: LOAD FROM YAML CONFIG PATH: /tmp/agt_fastlio2_fdcnfx15/fastlio2.yaml
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[ERROR] [localization_audit.py-11]: process has died [pid 69597, exit code 1, cmd '/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/localization_audit.py --ros-args -r __node:=agt_field_test_localization_audit --params-file /tmp/launch_params_blx4fl5o'].
+[ERROR] [fastlio_adapter-6]: process has died [pid 69577, exit code 1, cmd '/home/agent/agt_field_test_ws/install/agt_fastlio_adapter/lib/agt_fastlio_adapter/fastlio_adapter --ros-args -r __node:=agt_fastlio_adapter --params-file /home/agent/agt_field_test_ws/install/agt_fastlio_adapter/share/agt_fastlio_adapter/config/fastlio_navigation_adapter.yaml --params-file /tmp/launch_params_r0te5pdu'].
+[fastlio_adapter-6] Fatal Python error: init_import_site: Failed to import the site module
+[fastlio_adapter-6] Python runtime state: initialized
+[fastlio_adapter-6] Traceback (most recent call last):
+[fastlio_adapter-6]   File "/usr/lib/python3.10/site.py", line 79, in <module>
+[fastlio_adapter-6]     import os
+[fastlio_adapter-6]   File "/usr/lib/python3.10/os.py", line 29, in <module>
+[fastlio_adapter-6]     from _collections_abc import _check_methods
+[fastlio_adapter-6]   File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+[fastlio_adapter-6]   File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+[fastlio_adapter-6]   File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+[fastlio_adapter-6]   File "<frozen importlib._bootstrap_external>", line 879, in exec_module
+[fastlio_adapter-6]   File "<frozen importlib._bootstrap_external>", line 1012, in get_code
+[fastlio_adapter-6]   File "<frozen importlib._bootstrap_external>", line 673, in _compile_bytecode
+[fastlio_adapter-6] KeyboardInterrupt
+[ERROR] [fwmini_tf_contract.py-3]: process has died [pid 69571, exit code 1, cmd '/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/fwmini_tf_contract.py --bundle /home/agent/agt_field_test_ws/src/agt_field_test_workbench/agt_field_test_bringup/config/bunker_calibration_candidate.yaml --backend fastlio2 --ros-args -r __node:=fwmini_tf_watch'].
+[localization_audit.py-11] Fatal Python error: init_import_site: Failed to import the site module
+[localization_audit.py-11] Python runtime state: initialized
+[localization_audit.py-11] Traceback (most recent call last):
+[localization_audit.py-11]   File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+[localization_audit.py-11]   File "<frozen importlib._bootstrap>", line 1002, in _find_and_load_unlocked
+[localization_audit.py-11]   File "<frozen importlib._bootstrap>", line 945, in _find_spec
+[localization_audit.py-11]   File "<frozen importlib._bootstrap_external>", line 1439, in find_spec
+[localization_audit.py-11]   File "<frozen importlib._bootstrap_external>", line 1411, in _get_spec
+[localization_audit.py-11]   File "<frozen importlib._bootstrap_external>", line 1572, in find_spec
+[localization_audit.py-11]   File "<frozen importlib._bootstrap_external>", line 126, in _path_join
+[localization_audit.py-11] KeyboardInterrupt
+[ERROR] [map_tracker-10]: process has died [pid 69585, exit code 1, cmd '/home/agent/agt_field_test_ws/install/agt_map_tracker/lib/agt_map_tracker/map_tracker --ros-args -r __node:=agt_map_tracker --params-file /home/agent/agt_field_test_ws/install/agt_map_tracker/share/agt_map_tracker/config/map_tracker.yaml --params-file /tmp/launch_params_87folmn1'].
+[ERROR] [global_relocalization-8]: process has died [pid 69581, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_global_relocalization/lib/agt_global_relocalization/global_relocalization --ros-args -r __node:=agt_global_relocalization --params-file /home/agent/agt_field_test_ws/install/agt_global_relocalization/share/agt_global_relocalization/config/global_relocalization.yaml --params-file /tmp/launch_params_1tq2bgy1'].
+[ERROR] [localization_manager-9]: process has died [pid 69583, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_localization_manager/lib/agt_localization_manager/localization_manager --ros-args -r __node:=agt_localization_manager --params-file /home/agent/agt_field_test_ws/install/agt_localization_manager/share/agt_localization_manager/config/localization_manager.yaml --params-file /tmp/launch_params_syg8_lek'].
+[ERROR] [time_align.py-4]: process has died [pid 69573, exit code 1, cmd '/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/time_align.py --ros-args --params-file /tmp/launch_params_mnv3k9d8'].
+[global_relocalization-8] Traceback (most recent call last):
+[global_relocalization-8]   File "/home/agent/agt_field_test_ws/install/agt_global_relocalization/lib/agt_global_relocalization/global_relocalization", line 10, in <module>
+[global_relocalization-8]     from importlib.metadata import distribution
+[global_relocalization-8]   File "/usr/lib/python3.10/importlib/metadata/__init__.py", line 17, in <module>
+[global_relocalization-8]     from . import _adapters, _meta
+[global_relocalization-8]   File "/usr/lib/python3.10/importlib/metadata/_adapters.py", line 3, in <module>
+[global_relocalization-8]     import email.message
+[global_relocalization-8]   File "/usr/lib/python3.10/email/message.py", line 15, in <module>
+[global_relocalization-8]     from email import utils
+[global_relocalization-8]   File "/usr/lib/python3.10/email/utils.py", line 40, in <module>
+[global_relocalization-8]     from email.charset import Charset
+[global_relocalization-8]   File "/usr/lib/python3.10/email/charset.py", line 14, in <module>
+[global_relocalization-8]     import email.base64mime
+[global_relocalization-8]   File "/usr/lib/python3.10/email/base64mime.py", line 37, in <module>
+[global_relocalization-8]     from base64 import b64encode
+[global_relocalization-8]   File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+[global_relocalization-8]   File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+[global_relocalization-8]   File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+[global_relocalization-8]   File "<frozen importlib._bootstrap_external>", line 879, in exec_module
+[global_relocalization-8]   File "<frozen importlib._bootstrap_external>", line 1012, in get_code
+[global_relocalization-8]   File "<frozen importlib._bootstrap_external>", line 672, in _compile_bytecode
+[global_relocalization-8] KeyboardInterrupt
+[INFO] [livox_format_bridge-7]: sending signal 'SIGINT' to process[livox_format_bridge-7]
+[INFO] [lio_node-5]: sending signal 'SIGINT' to process[lio_node-5]
+[ERROR] [livox_format_bridge-7]: process has died [pid 69579, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_livox_tools/lib/agt_livox_tools/livox_format_bridge --ros-args -r __node:=livox_format_bridge --params-file /home/agent/agt_field_test_ws/install/agt_livox_tools/share/agt_livox_tools/config/custom_to_pointcloud2.yaml --params-file /tmp/launch_params_aein8von'].
+[INFO] [robot_state_publisher-1]: sending signal 'SIGINT' to process[robot_state_publisher-1]
+[robot_state_publisher-1] [INFO] [1792755711.380310290] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[livox_format_bridge-7] [INFO] [1792755711.380360043] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[time_align.py-4] KeyboardInterrupt
+[fwmini_tf_contract.py-3] Fatal Python error: init_import_site: Failed to import the site module
+[fwmini_tf_contract.py-3] Python runtime state: initialized
+[fwmini_tf_contract.py-3] Traceback (most recent call last):
+[fwmini_tf_contract.py-3]   File "/usr/lib/python3.10/site.py", line 79, in <module>
+[fwmini_tf_contract.py-3]     import os
+[fwmini_tf_contract.py-3]   File "/usr/lib/python3.10/os.py", line 61, in <module>
+[fwmini_tf_contract.py-3]     import posixpath as path
+[fwmini_tf_contract.py-3]   File "/usr/lib/python3.10/posixpath.py", line 28, in <module>
+[fwmini_tf_contract.py-3]     import genericpath
+[fwmini_tf_contract.py-3] KeyboardInterrupt
+[map_tracker-10] Fatal Python error: init_sys_streams: can't initialize sys standard streams
+[map_tracker-10] Python runtime state: core initialized
+[map_tracker-10] Traceback (most recent call last):
+[map_tracker-10]   File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+[map_tracker-10]   File "<frozen importlib._bootstrap>", line 1002, in _find_and_load_unlocked
+[map_tracker-10]   File "<frozen importlib._bootstrap>", line 945, in _find_spec
+[map_tracker-10]   File "<frozen importlib._bootstrap_external>", line 1439, in find_spec
+[map_tracker-10]   File "<frozen importlib._bootstrap_external>", line 1411, in _get_spec
+[map_tracker-10]   File "<frozen importlib._bootstrap_external>", line 1572, in find_spec
+[map_tracker-10] KeyboardInterrupt
+[ERROR] [robot_state_publisher-1]: process has died [pid 69547, exit code -2, cmd '/opt/ros/humble/lib/robot_state_publisher/robot_state_publisher --ros-args --params-file /tmp/launch_params_kfwfhw20'].
+[localization_manager-9] Traceback (most recent call last):
+[localization_manager-9]   File "/home/agent/agt_field_test_ws/install/agt_localization_manager/lib/agt_localization_manager/localization_manager", line 3, in <module>
+[localization_manager-9]     import re
+[localization_manager-9]   File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+[localization_manager-9]   File "<frozen importlib._bootstrap>", line 1002, in _find_and_load_unlocked
+[localization_manager-9]   File "<frozen importlib._bootstrap>", line 945, in _find_spec
+[localization_manager-9]   File "<frozen importlib._bootstrap_external>", line 1439, in find_spec
+[localization_manager-9]   File "<frozen importlib._bootstrap_external>", line 1411, in _get_spec
+[localization_manager-9]   File "<frozen importlib._bootstrap_external>", line 1572, in find_spec
+[localization_manager-9] KeyboardInterrupt
+[lio_node-5] [INFO] [1792755711.393855101] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lio_node-5] [INFO] [1792755711.420697058] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lio_node-5] terminate called after throwing an instance of 'rclcpp::exceptions::RCLError'
+[lio_node-5]   what():  Couldn't initialize rcl timer handle: the given context is not valid, either rcl_init() was not called or rcl_shutdown() was called., at ./src/rcl/guard_condition.c:67
+[ERROR] [lio_node-5]: process has died [pid 69575, exit code -6, cmd '/home/agent/agt_field_test_ws/install/fastlio2/lib/fastlio2/lio_node --ros-args -r __node:=lio_node -r __ns:=/fastlio2 --params-file /tmp/launch_params_d1oe59fi'].

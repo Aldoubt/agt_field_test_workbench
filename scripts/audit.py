@@ -18,7 +18,7 @@ INTEGRATION_PATCH_SHA = {
 
 
 def git(path, *args):
-    return subprocess.run(['git', '-C', str(path), *args], capture_output=True,
+    return subprocess.run(['git', '-c', 'safe.directory='+str(path), '-C', str(path), *args], capture_output=True,
                           text=True, check=True).stdout.rstrip('\n')
 
 
@@ -37,6 +37,8 @@ def main():
                        {line[3:] for line in changes} == set(INTEGRATION_PATCH_SHA) and
                        all(hashlib.sha256((path / name).read_bytes()).hexdigest() == digest
                            for name, digest in INTEGRATION_PATCH_SHA.items()))
+            patched = patched or (relative == 'external/kiss_matcher' and
+                {line[3:] for line in changes} == {'COLCON_IGNORE'} and (path/'COLCON_IGNORE').read_bytes() == b'')
             control_spec = control_patches.get(relative, {})
             patched = patched or (bool(control_spec) and
                 {line[3:] for line in changes} == set(control_spec['files']) and

@@ -9,6 +9,8 @@ import uuid
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+from agt_robot_interfaces.msg import LocalizationStatus,LocalizationMetrics
+from rosidl_runtime_py.convert import message_to_ordereddict
 from tf2_msgs.msg import TFMessage
 
 
@@ -20,12 +22,20 @@ class LocalizationAudit(Node):
         directory = Path(self.get_parameter('directory').value)
         directory.mkdir(parents=True, exist_ok=True)
         map_path = Path(self.get_parameter('global_map').value)
-        self.map_sha256 = hashlib.sha256(map_path.read_bytes()).hexdigest() if map_path.is_file() else None
+        self.map_sha256=None
+        if map_path.is_file():
+            sha=hashlib.sha256()
+            with map_path.open('rb') as stream:
+                for chunk in iter(lambda:stream.read(1024*1024),b''):sha.update(chunk)
+            self.map_sha256=sha.hexdigest()
         name = datetime.now(timezone.utc).strftime('localization_%Y%m%dT%H%M%SZ_') + uuid.uuid4().hex[:8]
         self.path = directory / (name + '.jsonl')
         self.output = self.path.open('x', encoding='utf-8', buffering=1)
         self.create_subscription(String, '/agt/map_tracking/status', self.tracker, 50)
-        self.create_subscription(String, '/agt/relocalization/status', self.manager, 50)
+        self.create_subscription(String, '/agt/relocalization/status', lambda m:self.record_json('global_matcher',m), 50)
+        self.create_subscription(String, '/field/gps/candidate_status', lambda m:self.record_json('gps_candidate',m), 50)
+        self.create_subscription(LocalizationStatus,'/agt/localization/status',lambda m:self.record('manager_status',message_to_ordereddict(m)),50)
+        self.create_subscription(LocalizationMetrics,'/agt/localization/metrics',lambda m:self.record('manager_metrics',message_to_ordereddict(m)),50)
         self.create_subscription(TFMessage, '/tf', self.transforms, 100)
 
     def record(self, kind, data):
@@ -40,12 +50,12 @@ class LocalizationAudit(Node):
             return
         self.record('tracker', payload)
 
-    def manager(self, msg):
+    def record_json(self,kind,msg):
         try:
             payload = json.loads(msg.data)
         except (ValueError, TypeError):
             return
-        self.record('localization_manager', payload)
+        self.record(kind,payload)
 
     def transforms(self, msg):
         for transform in msg.transforms:

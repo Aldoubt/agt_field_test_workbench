@@ -26,8 +26,14 @@ set +u
 source /opt/ros/humble/setup.bash
 set -u
 cd "$ROOT"
+# Upstream manifests contain raw Debian package names and optional C1/camera
+# runtime keys. The field entry disables those capabilities; native libraries
+# below remain required and are checked explicitly, rather than silently skipped.
+for required in libyaml-cpp-dev libeigen3-dev python3-setuptools; do
+  dpkg-query -W -f='${Status}' "$required" | grep -q 'install ok installed' || { echo "Missing $required" >&2; exit 2; }
+done
 rosdep install --from-paths src --ignore-src --rosdistro humble -r -y \
-  --skip-keys 'GTSAM Sophus livox_ros_driver2 catkin'
+  --skip-keys 'GTSAM Sophus livox_ros_driver2 catkin ament_python libyaml-cpp-dev libeigen3-dev camera_gimbal_interfaces agt_navigation_route_runtime autolabor_c1_bringup'
 SDK_PREFIX="$ROOT/work/livox_sdk2_install"
 cmake -S "$ROOT/src/external/Livox-SDK2" -B "$ROOT/work/livox_sdk2_build" \
   -DCMAKE_INSTALL_PREFIX="$SDK_PREFIX"
@@ -60,8 +66,8 @@ set -u
 colcon build --base-paths src --packages-select agt_global_relocalization_native \
   --cmake-args "-DBBS3D_INCLUDE_DIR=$BBS_PREFIX/include" \
   "-DBBS3D_CPU_LIBRARY=$BBS_PREFIX/lib/libcpu_bbs3d.so"
-colcon build --base-paths src --packages-up-to agt_mapping_bringup agt_pcd2grid_exporter agt_field_test_bringup \
+colcon build --base-paths src --packages-up-to agt_asensing_driver agt_mapping_bringup agt_pcd2grid_exporter agt_field_test_bringup \
   --packages-ignore ugv_sdk bunker_base
-colcon test --base-paths src --packages-select fwmini_chassis_adapter agt_field_test_bringup agt_pcd2grid_exporter agt_mapping_bringup \
+colcon test --base-paths src --packages-select agt_asensing_driver fwmini_chassis_adapter agt_field_test_bringup agt_pcd2grid_exporter agt_mapping_bringup \
   --packages-ignore ugv_sdk bunker_base
 colcon test-result --verbose > "$ROOT/reports/colcon_test_result.txt"

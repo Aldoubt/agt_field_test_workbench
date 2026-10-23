@@ -1,0 +1,105 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+test_adapter_independently_rejects_axis_and_stale_epoch (__main__.ControlTests) ... FAIL
+test_bunker_keeps_nonholonomic_constraints (__main__.ControlTests) ... FAIL
+test_disable_stop_estop_authority_and_feedback_expiry_clear_intent (__main__.ControlTests) ... FAIL
+test_guard_rejects_unsupported_axes_and_nonfinite_commands (__main__.ControlTests) ... FAIL
+test_lifecycle_stops_zero_and_foreign_owner_forces_exit (__main__.ControlTests) ... FAIL
+test_mismatched_and_discontinuous_feedback_never_ready (__main__.ControlTests) ... FAIL
+test_modes_stop_before_shift_and_require_new_commands (__main__.ControlTests) ... FAIL
+test_startup_is_disabled_and_single_owner (__main__.ControlTests) ... FAIL
+test_upstream_watchdog_and_feedback_stamp_validation (__main__.ControlTests) ... FAIL
+
+======================================================================
+FAIL: test_adapter_independently_rejects_axis_and_stale_epoch (__main__.ControlTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+    self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 103, in wait
+    self.fail('ROS timeout: '+json.dumps(self.status))
+AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.00991071099997, "output_gear": 0, "feedback_age_sec": 97.393806292, "io_feedback_age_sec": 97.393786738, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+
+======================================================================
+FAIL: test_bunker_keeps_nonholonomic_constraints (__main__.ControlTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+    self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 103, in wait
+    self.fail('ROS timeout: '+json.dumps(self.status))
+AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.00762139699509, "output_gear": 0, "feedback_age_sec": 102.611905594, "io_feedback_age_sec": 102.61188604, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+
+======================================================================
+FAIL: test_disable_stop_estop_authority_and_feedback_expiry_clear_intent (__main__.ControlTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+    self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 103, in wait
+    self.fail('ROS timeout: '+json.dumps(self.status))
+AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.00775386299938, "output_gear": 0, "feedback_age_sec": 109.391572732, "io_feedback_age_sec": 109.391553178, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+
+======================================================================
+FAIL: test_guard_rejects_unsupported_axes_and_nonfinite_commands (__main__.ControlTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+    self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 103, in wait
+    self.fail('ROS timeout: '+json.dumps(self.status))
+AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.00497833699774, "output_gear": 0, "feedback_age_sec": 114.691606389, "io_feedback_age_sec": 114.691586835, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+
+======================================================================
+FAIL: test_lifecycle_stops_zero_and_foreign_owner_forces_exit (__main__.ControlTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+    self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 103, in wait
+    self.fail('ROS timeout: '+json.dumps(self.status))
+AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.0091017779996, "output_gear": 0, "feedback_age_sec": 120.073046593, "io_feedback_age_sec": 120.073027039, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+
+======================================================================
+FAIL: test_mismatched_and_discontinuous_feedback_never_ready (__main__.ControlTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+    self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 103, in wait
+    self.fail('ROS timeout: '+json.dumps(self.status))
+AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.00747718800267, "output_gear": 0, "feedback_age_sec": 125.671112577, "io_feedback_age_sec": 125.671093023, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+
+======================================================================
+FAIL: test_modes_stop_before_shift_and_require_new_commands (__main__.ControlTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+    self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 103, in wait
+    self.fail('ROS timeout: '+json.dumps(self.status))
+AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.00891385700379, "output_gear": 0, "feedback_age_sec": 130.952170624, "io_feedback_age_sec": 130.95215107, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+
+======================================================================
+FAIL: test_startup_is_disabled_and_single_owner (__main__.ControlTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+    self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 103, in wait
+    self.fail('ROS timeout: '+json.dumps(self.status))
+AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.00740619099815, "output_gear": 0, "feedback_age_sec": 136.171739368, "io_feedback_age_sec": 136.171719814, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+
+======================================================================
+FAIL: test_upstream_watchdog_and_feedback_stamp_validation (__main__.ControlTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+    self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 103, in wait
+    self.fail('ROS timeout: '+json.dumps(self.status))
+AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.00720726900181, "output_gear": 0, "feedback_age_sec": 141.392091751, "io_feedback_age_sec": 141.392072197, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+
+----------------------------------------------------------------------
+Ran 9 tests in 49.335s
+
+FAILED (failures=9)

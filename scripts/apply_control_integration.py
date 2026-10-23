@@ -23,7 +23,7 @@ def main():
     # Validate every dependency and file before making any changes.
     for relative, spec in manifest.items():
         root = args.workspace/'src'/relative
-        head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+        head = subprocess.check_output(['git', '-c', 'safe.directory='+str(root), '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
         if head != spec['commit']:
             raise SystemExit(f'{relative}: unexpected HEAD {head}; preserved')
         names = []

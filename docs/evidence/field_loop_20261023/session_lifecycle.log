@@ -1,0 +1,2 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+{"state": "PASS", "scope": "HUMBLE_SOFTWARE_NO_CAN_NO_SENSOR", "job_id": "20261023T082604Z-f39d7e71", "session_id": "20261023T082604Z-56a66f4f", "checks": ["unique job identity", "actual bridge RPC", "RSP launch", "owned process stop", "session pointer cleared"], "physical_motion": "NOT_RUN"}

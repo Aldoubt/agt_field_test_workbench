@@ -1,0 +1,312 @@
+Control integration applied; pinned HEADs preserved
+session_launch.py fd7a0625da99d1ee4f30dbc1db5dab98dc1afe7d24bab01756167463aa09e74c
+live_launch.py 64240ebe9b23971f30dabb386688aa7a5a33b92b5d0dc945c6451cbd2d54492b
+#All required rosdeps installed successfully
+ERROR: the following packages/stacks could not have their rosdep keys resolved
+to system dependencies:
+agt_rviz_patrol: Cannot locate rosdep definition for [agt_navigation_map_runtime]
+agt_system_bringup: Cannot locate rosdep definition for [agt_robot_hmi]
+agt_spatial_map_core: Cannot locate rosdep definition for [libpcl-dev]
+agt_mapping_bringup: Cannot locate rosdep definition for [agt_robot_bringup]
+agt_map_studio: Cannot locate rosdep definition for [libgl-dev]
+agt_pcd2grid_exporter: Cannot locate rosdep definition for [libpcl-dev]
+Continuing to install resolvable dependencies...
+-- main project dir: /home/agent/agt_field_test_ws/src/external/Livox-SDK2
+-- main project dir: /home/agent/agt_field_test_ws/src/external/Livox-SDK2/samples
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/agent/agt_field_test_ws/work/livox_sdk2_build
+Consolidate compiler generated dependencies of target livox_lidar_sdk_static
+Consolidate compiler generated dependencies of target livox_lidar_sdk_shared
+[ 40%] Built target livox_lidar_sdk_static
+[ 81%] Built target livox_lidar_sdk_shared
+Consolidate compiler generated dependencies of target livox_lidar_quick_start
+Consolidate compiler generated dependencies of target multi_lidars_upgrade
+[ 83%] Built target livox_lidar_quick_start
+[ 85%] Built target multi_lidars_upgrade
+Consolidate compiler generated dependencies of target logger
+Consolidate compiler generated dependencies of target debug_point_cloud
+[ 87%] Built target logger
+[ 90%] Built target debug_point_cloud
+Consolidate compiler generated dependencies of target lidar_cmd_observer
+Consolidate compiler generated dependencies of target livox_lidar_rmc_time_sync
+[ 92%] Built target lidar_cmd_observer
+Consolidate compiler generated dependencies of target livox_lidar_ip_set
+[ 95%] Built target livox_lidar_rmc_time_sync
+[ 97%] Built target livox_lidar_ip_set
+Consolidate compiler generated dependencies of target livox_lidar_info_get
+[100%] Built target livox_lidar_info_get
+-- Install configuration: ""
+-- Up-to-date: /home/agent/agt_field_test_ws/work/livox_sdk2_install/lib/liblivox_lidar_sdk_static.a
+-- Up-to-date: /home/agent/agt_field_test_ws/work/livox_sdk2_install/include/livox_lidar_def.h
+-- Up-to-date: /home/agent/agt_field_test_ws/work/livox_sdk2_install/include/livox_lidar_api.h
+-- Up-to-date: /home/agent/agt_field_test_ws/work/livox_sdk2_install/include/livox_lidar_cfg.h
+-- Up-to-date: /home/agent/agt_field_test_ws/work/livox_sdk2_install/lib/liblivox_lidar_sdk_shared.so
+-- num_entries in thirdparty/Eigen: 0
+-- Use EIGEN3_INCLUDE_DIR
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/agent/agt_field_test_ws/work/bbs3d_build
+Consolidate compiler generated dependencies of target cpu_bbs3d
+[100%] Built target cpu_bbs3d
+-- Install configuration: "Release"
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/lib/libcpu_bbs3d.so
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/discrete_transformation
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/discrete_transformation/discrete_transformation.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/cpu_bbs3d
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/cpu_bbs3d/voxelmaps.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/cpu_bbs3d/bbs3d.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/pointcloud_iof
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/pointcloud_iof/pcd_loader_without_pcl.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/pointcloud_iof/pcd_loader.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/pointcloud_iof/filter.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/pointcloud_iof/pcd_io.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/pointcloud_iof/pcl_eigen_converter.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/pointcloud_iof/gravity_alignment.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/gpu_bbs3d
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/gpu_bbs3d/voxelmaps.cuh
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/gpu_bbs3d/stream_manager
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/gpu_bbs3d/stream_manager/check_error.cuh
+-- Up-to-date: /home/agent/agt_field_test_ws/work/bbs3d_install/include/gpu_bbs3d/bbs3d.cuh
+-- Build package with cmake
+-- Tests will not be built
+-- Project will be installed to /home/agent/agt_field_test_ws/work/ugv_sdk_install with 'make install'
+--  - To install LIB components to /home/agent/agt_field_test_ws/work/ugv_sdk_install/lib
+--  - To install BIN components to /home/agent/agt_field_test_ws/work/ugv_sdk_install/bin
+--  - To install INCLUDE components to /home/agent/agt_field_test_ws/work/ugv_sdk_install/include
+--  - To install CMAKE components to /home/agent/agt_field_test_ws/work/ugv_sdk_install/share/cmake/ugv_sdk
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/agent/agt_field_test_ws/work/ugv_sdk_build
+Consolidate compiler generated dependencies of target ugv_sdk
+[ 44%] Built target ugv_sdk
+Consolidate compiler generated dependencies of target demo_scout_robot
+Consolidate compiler generated dependencies of target demo_scout_mini_omni_robot
+[ 51%] Built target demo_scout_robot
+[ 58%] Built target demo_scout_mini_omni_robot
+Consolidate compiler generated dependencies of target demo_tracer_robot
+Consolidate compiler generated dependencies of target demo_ranger_robot
+[ 65%] Built target demo_tracer_robot
+[ 72%] Built target demo_ranger_robot
+Consolidate compiler generated dependencies of target demo_bunker_robot
+Consolidate compiler generated dependencies of target demo_hunter_robot
+[ 79%] Built target demo_bunker_robot
+[ 86%] Built target demo_hunter_robot
+Consolidate compiler generated dependencies of target demo_protocol_detector
+Consolidate compiler generated dependencies of target demo_robot_version
+[ 93%] Built target demo_protocol_detector
+[100%] Built target demo_robot_version
+-- Install configuration: "Release"
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/lib/libugv_sdk.a
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/async_port
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/async_port/ring_buffer.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/async_port/async_can.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/async_port/async_serial.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/parser_base.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/protocol_v1
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/protocol_v1/agilex_msg_parser_v1.h
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/protocol_v1/protocol_v1_parser.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/protocol_v1/robot_limits.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/robot_base
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/robot_base/scout_base.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/robot_base/ranger_base.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/robot_base/agilex_base.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/robot_base/hunter_base.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/robot_base/bunker_base.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/robot_base/titan_base.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/robot_base/tracer_base.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface/agilex_types.h
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface/scout_interface.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface/titan_interface.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface/bunker_interface.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface/agilex_message.h
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface/tracer_interface.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface/ranger_interface.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface/hunter_interface.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/interface/robot_common_interface.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/protocol_v2
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/details/protocol_v2/protocol_v2_parser.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/mobile_robot
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/mobile_robot/bunker_robot.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/mobile_robot/titan_robot.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/mobile_robot/ranger_robot.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/mobile_robot/tracer_robot.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/mobile_robot/scout_robot.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/mobile_robot/hunter_robot.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/utilities
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/include/ugv_sdk/utilities/protocol_detector.hpp
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/lib/cmake/ugv_sdk/ugv_sdkTargets.cmake
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/lib/cmake/ugv_sdk/ugv_sdkTargets-release.cmake
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/lib/cmake/ugv_sdk/ugv_sdkConfig.cmake
+-- Up-to-date: /home/agent/agt_field_test_ws/work/ugv_sdk_install/lib/cmake/ugv_sdk/ugv_sdkConfigVersion.cmake
+Starting >>> livox_ros_driver2
+--- stderr: livox_ros_driver2
+/usr/include/apr-1.0
+apr-1
+---
+Finished <<< livox_ros_driver2 [3.49s]
+
+Summary: 1 package finished [3.93s]
+  1 package had stderr output: livox_ros_driver2
+Starting >>> small_gicp
+Finished <<< small_gicp [0.13s]
+
+Summary: 1 package finished [0.71s]
+Starting >>> sophus
+Finished <<< sophus [0.13s]
+
+Summary: 1 package finished [0.55s]
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+Starting >>> agt_global_relocalization_native
+--- stderr: agt_global_relocalization_native
+** WARNING ** io features related to pcap will be disabled
+** WARNING ** io features related to png will be disabled
+---Finished <<< agt_global_relocalization_native [1.06s]
+
+
+Summary: 1 package finished [1.50s]
+  1 package had stderr output: agt_global_relocalization_native
+Starting >>> agt_robot_interfaces
+Starting >>> livox_ros_driver2
+Starting >>> bunker_msgs
+Finished <<< bunker_msgs [1.80s]
+Starting >>> yhs_can_interfaces
+Finished <<< agt_robot_interfaces [1.96s]
+Starting >>> sophus
+Finished <<< sophus [0.31s]
+Starting >>> agt_base_control
+Finished <<< yhs_can_interfaces [1.55s]
+Starting >>> agt_batch_lio_adapter
+Finished <<< agt_base_control [2.04s]
+Starting >>> agt_map_converter
+Finished <<< agt_batch_lio_adapter [1.91s]
+Starting >>> agt_mapping_artifacts
+Finished <<< agt_map_converter [2.27s]
+Starting >>> fwmini_interfaces
+Finished <<< agt_mapping_artifacts [1.60s]
+Starting >>> agt_asensing_driver
+Finished <<< fwmini_interfaces [2.06s]
+Starting >>> agt_global_relocalization_native
+Finished <<< agt_asensing_driver [1.88s]
+Starting >>> agt_mapping_backend_api
+--- stderr: livox_ros_driver2
+/usr/include/apr-1.0
+apr-1
+---
+Finished <<< livox_ros_driver2 [10.6s]
+Starting >>> fastlio2
+Finished <<< agt_mapping_backend_api [1.89s]
+Starting >>> agt_navigation_interfaces
+Finished <<< fastlio2 [0.57s]
+Starting >>> agt_rviz_route_tools
+Finished <<< agt_global_relocalization_native [3.20s]
+--- stderr: agt_global_relocalization_native
+** WARNING ** io features related to pcap will be disabled
+** WARNING ** io features related to png will be disabled
+---
+Starting >>> interface
+Finished <<< agt_rviz_route_tools [0.74s]
+Starting >>> agt_map_manager
+Finished <<< agt_navigation_interfaces [2.29s]
+Starting >>> apriltag_detector_adapter
+Finished <<< apriltag_detector_adapter [0.42s]
+Starting >>> batch_lio
+Finished <<< interface [1.57s]
+Starting >>> ros2_livox_simulation
+Finished <<< batch_lio [0.45s]
+Starting >>> agt_fastlio_adapter
+Finished <<< ros2_livox_simulation [0.45s]
+Starting >>> fwmini_chassis_adapter
+Finished <<< agt_map_manager [2.33s]
+Starting >>> agt_mapping_frontend_api
+Finished <<< agt_mapping_frontend_api [0.22s]
+Starting >>> agt_mapping_interfaces
+Finished <<< fwmini_chassis_adapter [0.64s]
+Starting >>> agt_nav2_bringup
+Finished <<< agt_nav2_bringup [0.17s]
+Starting >>> agt_pcd2grid_exporter
+Finished <<< agt_mapping_interfaces [0.24s]
+Starting >>> agt_pointcloud_preprocessor
+Finished <<< agt_pcd2grid_exporter [0.49s]
+Starting >>> agt_sim_odometry_adapter
+Finished <<< agt_pointcloud_preprocessor [0.51s]
+Starting >>> fwmini_description
+Finished <<< agt_fastlio_adapter [1.71s]
+Starting >>> fwmini_perception
+Finished <<< fwmini_description [0.47s]
+Starting >>> tracked_chassis_description
+Finished <<< fwmini_perception [0.21s]
+Starting >>> agt_capability_camera
+Finished <<< tracked_chassis_description [0.46s]
+Starting >>> agt_demo_task
+Finished <<< agt_sim_odometry_adapter [1.72s]
+Starting >>> agt_livox_tools
+Finished <<< agt_livox_tools [0.38s]
+Starting >>> agt_localization_manager
+Finished <<< agt_capability_camera [2.20s]
+Finished <<< agt_demo_task [1.81s]
+Starting >>> agt_map_tracker
+Starting >>> agt_rtk_manager
+Finished <<< agt_localization_manager [2.31s]
+Starting >>> agt_spatial_map_core
+Finished <<< agt_rtk_manager [1.89s]
+Starting >>> pgo
+Finished <<< agt_spatial_map_core [0.86s]
+Starting >>> agt_gazebo_sim
+Finished <<< pgo [0.61s]
+Starting >>> agt_global_relocalization
+Finished <<< agt_map_tracker [2.86s]
+Starting >>> agt_rviz_patrol
+Finished <<< agt_global_relocalization [1.88s]
+Starting >>> agt_navigation_runtime
+Finished <<< agt_gazebo_sim [2.40s]
+Starting >>> tag_follow_controller
+Finished <<< tag_follow_controller [0.37s]
+Starting >>> agt_bunker_base
+Finished <<< agt_bunker_base [0.22s]
+Starting >>> agt_fastlio_backend
+Finished <<< agt_rviz_patrol [2.53s]
+Starting >>> agt_mapping_core
+Finished <<< agt_fastlio_backend [0.64s]
+Starting >>> agt_mapping_exporter
+Finished <<< agt_navigation_runtime [1.79s]
+Starting >>> agt_mid360_adapter
+Finished <<< agt_mid360_adapter [0.64s]
+Starting >>> fwmini_odom_adapter
+Finished <<< fwmini_odom_adapter [0.29s]
+Starting >>> yhs_can_control
+Finished <<< yhs_can_control [0.26s]
+Starting >>> agt_map_studio
+Finished <<< agt_mapping_core [1.73s]
+Starting >>> agt_pgo_backend
+Finished <<< agt_pgo_backend [0.70s]
+Starting >>> agt_system_bringup
+Finished <<< agt_mapping_exporter [2.58s]
+Starting >>> fwmini_bringup
+Finished <<< agt_system_bringup [0.86s]
+Finished <<< fwmini_bringup [0.45s]
+Starting >>> agt_field_test_bringup
+Finished <<< agt_map_studio [2.29s]
+Starting >>> agt_mapping_bringup
+Finished <<< agt_field_test_bringup [1.16s]
+Finished <<< agt_mapping_bringup [1.35s]
+
+Summary: 58 packages finished [29.5s]
+  2 packages had stderr output: agt_global_relocalization_native livox_ros_driver2
+Starting >>> agt_asensing_driver
+Starting >>> agt_pcd2grid_exporter
+Starting >>> fwmini_chassis_adapter
+Finished <<< agt_pcd2grid_exporter [0.93s]
+Starting >>> agt_mapping_bringup
+Finished <<< agt_asensing_driver [1.55s]
+Finished <<< agt_mapping_bringup [1.99s]
+[Processing: fwmini_chassis_adapter]
+Finished <<< fwmini_chassis_adapter [34.6s]
+Starting >>> agt_field_test_bringup
+Finished <<< agt_field_test_bringup [0.10s]
+
+Summary: 5 packages finished [35.4s]

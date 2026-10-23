@@ -28,10 +28,39 @@ def stop_child(process):
             process.wait(timeout=5)
 
 
+ACTIVE_MAPPING = None
+
+def finish_mapping(*_):
+    if ACTIVE_MAPPING and ACTIVE_MAPPING.poll() is None: ACTIVE_MAPPING.send_signal(signal.SIGUSR1)
+
+signal.signal(signal.SIGUSR1, finish_mapping)
+
 def run_mapping(command, args):
+    global ACTIVE_MAPPING
     """Own the selected mount in the mapping domain for this job's lifetime."""
+    if os.environ.get('FIELD_REUSE_RUNTIME')=='1':
+        ACTIVE_MAPPING=subprocess.Popen(command,env=os.environ.copy())
+        try:return ACTIVE_MAPPING.wait(),{'reuse_runtime':True,'calibration':os.environ.get('FIELD_CALIBRATION_BUNDLE')}
+        finally:stop_child(ACTIVE_MAPPING)
     if args.robot != 'fwmini':
-        return subprocess.call(command), None
+        bundle=os.environ.get('FIELD_CALIBRATION_BUNDLE')
+        tf_process=None
+        env=dict(os.environ,ROS_DOMAIN_ID=os.environ.get('FIELD_MAPPING_DOMAIN','89'))
+        try:
+            if bundle:
+                command_tf=['bash',str(REPO/'scripts/ros_exec.sh'),'ros2','launch','agt_field_test_bringup','field_test.launch.py',
+                    'robot:=bunker','enable_chassis:=false','enable_mid360:=false','calibration_bundle:='+bundle]
+                tf_process=subprocess.Popen(command_tf,env=env,start_new_session=True)
+                time.sleep(.5)
+                subprocess.run(['bash',str(REPO/'scripts/ros_exec.sh'),'ros2','run','agt_field_test_bringup','fwmini_tf_contract.py',
+                    '--bundle',bundle,'--preflight'],env=env,check=True,timeout=15)
+            ACTIVE_MAPPING=subprocess.Popen(command,env=env)
+            while ACTIVE_MAPPING.poll() is None:
+                if tf_process and tf_process.poll() is not None:raise RuntimeError('Bunker TF guard stopped')
+                time.sleep(.1)
+            return ACTIVE_MAPPING.returncode,{'bundle':bundle}
+        finally:
+            stop_child(ACTIVE_MAPPING);stop_child(tf_process)
     mount = resolve_profile(ROOT, args.mount_profile)
     profile = load_profile(mount)
     require_mode(profile, 'sensor_mapping' if args.live else 'offline_mapping')
@@ -50,17 +79,18 @@ def run_mapping(command, args):
     internal_snapshot = directory/'fastlio.yaml'
     shutil.copyfile(internal_config, internal_snapshot)
     launch += [f'fwmini_internal_config:={internal_snapshot}']
-    env = dict(os.environ, ROS_DOMAIN_ID='89', AGT_FIELD_TEST_FASTLIO_CONFIG=str(internal_snapshot))
+    env = dict(os.environ, ROS_DOMAIN_ID=os.environ.get('FIELD_MAPPING_DOMAIN','89'), AGT_FIELD_TEST_FASTLIO_CONFIG=str(internal_snapshot))
     tf_process = mapping_process = None
     try:
         with (directory/'tf.log').open('w') as log:
-            tf_process = subprocess.Popen(launch, env=env, stdout=log, stderr=subprocess.STDOUT)
+            tf_process = subprocess.Popen(launch, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             deadline = time.monotonic()+15
             while not ready.is_file():
                 if tf_process.poll() is not None or time.monotonic() > deadline:
                     raise RuntimeError(f'FW-mini mount TF preflight failed; see {directory}/tf.log')
                 time.sleep(0.1)
             mapping_process = subprocess.Popen(command, env=env)
+            ACTIVE_MAPPING = mapping_process
             while mapping_process.poll() is None:
                 if tf_process.poll() is not None:
                     raise RuntimeError('FW-mini mount TF guard stopped during mapping')
@@ -83,6 +113,7 @@ def main():
     parser.add_argument('--livox-config')
     parser.add_argument('--calibration')
     parser.add_argument('--mount-profile')
+    parser.add_argument('--backend',choices=['fastlio','pgo_experiment'],default='fastlio')
     args = parser.parse_args()
     output = Path(args.output).resolve()
     mapping = ROOT / 'src/agt-lio-pgo-mapping/scripts/run_mid360_mapping.sh'
@@ -92,7 +123,17 @@ def main():
     else:
         command += [args.bag, str(output)]
     command += ['--no-rviz', '--domain-id', '89', '--setup', str(ROOT / 'install/setup.bash')]
-    print('Running existing mapping entry point:', command, flush=True)
+    if args.backend == 'fastlio':
+        config = os.environ.get('AGT_FIELD_TEST_FASTLIO_CONFIG', str(ROOT/'src/agt-lio-pgo-mapping/bringup/agt_mapping_bringup/config/fastlio2_mid360.yaml'))
+        command = ['bash',str(REPO/'scripts/ros_exec.sh'),'python3',str(REPO/'scripts/no_pgo_mapping.py'),
+                   '--output',str(output),'--config',config,'--imu-offset',os.environ.get('FIELD_IMU_OFFSET','0'),
+                   '--lidar-offset',os.environ.get('FIELD_LIDAR_OFFSET','0')]
+        if args.robot=='bunker' or os.environ.get('FIELD_REUSE_RUNTIME')=='1':command += ['--base-adapter']
+        if args.live:
+            command += ['--live','--livox-config',args.livox_config or '']
+            if os.environ.get('FIELD_REUSE_RUNTIME')=='1':command += ['--reuse-sensors']
+        else:command += ['--bag',args.bag]
+    print('Running selected mapping backend:', command, flush=True)
     code, mount_metadata = run_mapping(command, args)
     if code:
         print(f'Mapping exited {code}; no conversion or acceptance claimed', flush=True)
@@ -105,22 +146,14 @@ def main():
     if not package.is_dir():
         print(f'Mapping package missing: {package}', file=sys.stderr)
         return 3
-    grid = output / 'map_grid'
-    projection = ROOT / 'src/agt-lio-pgo-mapping/exporters/agt_pcd2grid_exporter/config/projection.yaml'
-    converter = ['bash', str(REPO / 'scripts/ros_exec.sh'), 'ros2', 'run',
-                 'agt_pcd2grid_exporter', 'pcd2grid_exporter', '--package', str(package),
-                 '--config', str(projection), '--output', str(grid)]
-    print('Converting verified PCD package:', converter, flush=True)
-    code = subprocess.call(converter)
-    if code:
-        print(f'PCD-to-grid conversion exited {code}; 3D package preserved', file=sys.stderr)
-        return code
-    try:
-        version = Maps(ROOT).import_yaml(grid / 'map.yaml',
-                                         calibration=args.calibration, source_bag=args.bag)
-    except (ValueError, KeyError, OSError) as exc:
-        print(f'2D map import failed: {exc}; grid preserved', file=sys.stderr)
-        return 4
+    from workbench.artifacts import Clouds
+    clouds=Clouds(ROOT)
+    calibration_meta=dict(robot=args.robot,legacy_id=args.calibration,mount=mount_metadata,internal_config=os.environ.get('AGT_FIELD_TEST_FASTLIO_CONFIG'))
+    if calibration_meta['internal_config']:calibration_meta['internal_sha256']=sha256(Path(calibration_meta['internal_config']))
+    if os.environ.get('FIELD_CALIBRATION_BUNDLE'):
+        bundle_path=Path(os.environ['FIELD_CALIBRATION_BUNDLE']);calibration_meta.update(bundle=str(bundle_path),bundle_sha256=sha256(bundle_path))
+    cloud=clouds.import_pcd(package/'map.pcd',calibration=calibration_meta,bag=args.bag or str(output/'raw_bag'))
+    version=clouds.grid(cloud['id'], {})
     write_json(output / 'field_test_result.json', {'robot': args.robot, 'calibration': args.calibration,
                'source_bag': args.bag or str(output / 'raw_bag'), 'map_version': version['id'],
                'raw_bag_integrity': raw_integrity, 'mount_profile': mount_metadata, 'status': 'DRAFT'})

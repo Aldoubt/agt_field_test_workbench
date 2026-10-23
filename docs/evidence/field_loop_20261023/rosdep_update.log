@@ -1,0 +1,31 @@
+Warning: running 'rosdep update' as root is not recommended.
+  You should run 'sudo rosdep fix-permissions' and invoke 'rosdep update' again without sudo.
+reading in sources list data from /etc/ros/rosdep/sources.list.d
+Hit https://raw.githubusercontent.com/ros/rosdistro/master/rosdep/osx-homebrew.yaml
+Hit https://raw.githubusercontent.com/ros/rosdistro/master/rosdep/base.yaml
+Hit https://raw.githubusercontent.com/ros/rosdistro/master/rosdep/python.yaml
+Hit https://raw.githubusercontent.com/ros/rosdistro/master/rosdep/ruby.yaml
+Hit https://raw.githubusercontent.com/ros/rosdistro/master/releases/fuerte.yaml
+Query rosdistro index https://raw.githubusercontent.com/ros/rosdistro/master/index-v4.yaml
+Skip distro "ardent" different from requested "humble"
+Skip distro "bouncy" different from requested "humble"
+Skip distro "crystal" different from requested "humble"
+Skip distro "dashing" different from requested "humble"
+Skip distro "eloquent" different from requested "humble"
+Skip distro "foxy" different from requested "humble"
+Skip distro "galactic" different from requested "humble"
+Skip distro "groovy" different from requested "humble"
+Add distro "humble"
+Skip distro "hydro" different from requested "humble"
+Skip distro "indigo" different from requested "humble"
+Skip distro "iron" different from requested "humble"
+Skip distro "jade" different from requested "humble"
+Skip distro "jazzy" different from requested "humble"
+Skip distro "kilted" different from requested "humble"
+Skip distro "kinetic" different from requested "humble"
+Skip distro "lunar" different from requested "humble"
+Skip distro "lyrical" different from requested "humble"
+Skip distro "melodic" different from requested "humble"
+Skip distro "noetic" different from requested "humble"
+Skip distro "rolling" different from requested "humble"
+updated cache in /root/.ros/rosdep/sources.cache

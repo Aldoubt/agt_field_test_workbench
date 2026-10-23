@@ -1,0 +1,15 @@
+{
+  "scope": "CONFIGURATION_ONLY_NO_MOTION",
+  "original": "/home/agent/agt_field_test_ws/config/robots/fwmini.yaml",
+  "original_sha256": "2b3b17b10e594e495e4175276000e0cdbf07b4c7af6098ff97bd167db9f1b670",
+  "selected_version": "/home/agent/agt_field_test_ws/config/robots/fwmini_20261023T114655Z-8a73b5d1.yaml",
+  "selected_sha256": "03402df37c85be9826e77fe99db371da706a662a43161b3d570966f59bb4b93f",
+  "original_preserved": true,
+  "limits": {
+    "forward_mps": 0.05,
+    "reverse_mps": 0.03,
+    "angular_radps": 0.15,
+    "lateral_mps": 0.03
+  },
+  "physical_geometry": "NOT_RUN"
+}

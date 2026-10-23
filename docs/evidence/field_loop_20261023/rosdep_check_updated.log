@@ -1,0 +1,121 @@
+ERROR[agt_mapping_exporter]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_rviz_patrol]: Cannot locate rosdep definition for [agt_navigation_route_runtime]
+	rosdep key : agt_navigation_route_runtime
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_map_studio]: Cannot locate rosdep definition for [libyaml-cpp-dev]
+	rosdep key : libyaml-cpp-dev
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_operator_console]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_spatial_map_core]: Cannot locate rosdep definition for [libyaml-cpp-dev]
+	rosdep key : libyaml-cpp-dev
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_mapping_core]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_localization_ros]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_rtk_manager]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_system_bringup]: Cannot locate rosdep definition for [autolabor_c1_bringup]
+	rosdep key : autolabor_c1_bringup
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_mapping_artifacts]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_mapping_bringup]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_map_refinement_core]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_navigation_runtime]: Cannot locate rosdep definition for [camera_gimbal_interfaces]
+	rosdep key : camera_gimbal_interfaces
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_pointcloud_tools]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_localization_core]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_pcd2grid_exporter]: Cannot locate rosdep definition for [libyaml-cpp-dev]
+	rosdep key : libyaml-cpp-dev
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[click_loc]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_simulation_bringup]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[batch_lio]: Cannot locate rosdep definition for [libeigen3-dev]
+	rosdep key : libeigen3-dev
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+ERROR[agt_map_editor]: Cannot locate rosdep definition for [ament_python]
+	rosdep key : ament_python
+	OS name    : ubuntu
+	OS version : jammy
+	Data:
+<no data>
+All system dependencies have been satisfied

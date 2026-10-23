@@ -55,6 +55,8 @@ class HumbleTFTests(unittest.TestCase):
             rclpy.shutdown()
 
     def spawn(self, command, name):
+        if 'field_test.launch.py' in command:
+            command=[*command,'robot_profile_file:='+str(ROOT/'src/agt_field_test_workbench/templates/config/robots/fwmini.yaml')]
         path = REPORTS/(self._testMethodName+'_'+name+'.log')
         handle = path.open('w')
         self.handles.append(handle)

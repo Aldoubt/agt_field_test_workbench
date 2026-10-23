@@ -1,0 +1,53 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-10-23-11-41-52-515730-750018ad1ed4-69623
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [time_align.py-1]: process started with pid [69624]
+[INFO] [mid360_adapter_node-2]: process started with pid [69626]
+[INFO] [lio_node-3]: process started with pid [69628]
+[INFO] [lio_artifact-4]: process started with pid [69630]
+[mid360_adapter_node-2] [INFO] [1792755712.602141613] [mid360_adapter_node]: MID360 adapter: /field/aligned/lidar -> /mapping/sensor/cloud; frame override: <input frame>
+[lio_node-3] [INFO] [1792755712.610708394] [fastlio2.fastlio_mapping]: LIO Node Started
+[lio_node-3] [INFO] [1792755712.611894516] [fastlio2.fastlio_mapping]: LOAD FROM YAML CONFIG PATH: /tmp/tmp09rnunwy/fastlio.yaml
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [lio_artifact-4]: sending signal 'SIGINT' to process[lio_artifact-4]
+[INFO] [lio_node-3]: sending signal 'SIGINT' to process[lio_node-3]
+[INFO] [mid360_adapter_node-2]: sending signal 'SIGINT' to process[mid360_adapter_node-2]
+[INFO] [time_align.py-1]: sending signal 'SIGINT' to process[time_align.py-1]
+[ERROR] [lio_artifact-4]: process has died [pid 69630, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/lio_artifact --ros-args --params-file /tmp/launch_params_4je4dst0'].
+[time_align.py-1] Traceback (most recent call last):
+[time_align.py-1]   File "/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/time_align.py", line 43, in <module>
+[time_align.py-1]     if __name__=='__main__':main()
+[time_align.py-1]   File "/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/time_align.py", line 34, in main
+[time_align.py-1]     rclpy.init(signal_handler_options=SignalHandlerOptions.NO);node=Align();running=[True]
+[time_align.py-1]   File "/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/time_align.py", line 14, in __init__
+[time_align.py-1]     super().__init__('field_time_align')
+[time_align.py-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 199, in __init__
+[lio_node-3] [INFO] [1792755713.012367133] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[time_align.py-1]     self._parameter_event_publisher = self.create_publisher(
+[time_align.py-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/node.py", line 1296, in create_publisher
+[time_align.py-1]     check_is_valid_msg_type(msg_type)
+[time_align.py-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/type_support.py", line 35, in check_is_valid_msg_type
+[time_align.py-1]     check_for_type_support(msg_type)
+[time_align.py-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/type_support.py", line 29, in check_for_type_support
+[time_align.py-1]     msg_or_srv_type.__class__.__import_type_support__()
+[time_align.py-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rcl_interfaces/msg/_parameter_event.py", line 28, in __import_type_support__
+[time_align.py-1]     from rosidl_generator_py import import_type_support
+[time_align.py-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_generator_py/__init__.py", line 23, in <module>
+[time_align.py-1]     from .generate_py_impl import generate_py
+[time_align.py-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_generator_py/generate_py_impl.py", line 21, in <module>
+[time_align.py-1]     from rosidl_cmake import convert_camel_case_to_lower_case_underscore
+[time_align.py-1]   File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_cmake/__init__.py", line 22, in <module>
+[time_align.py-1]     import em
+[time_align.py-1]   File "/usr/lib/python3/dist-packages/em.py", line 28, in <module>
+[time_align.py-1]     from StringIO import StringIO
+[time_align.py-1]   File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+[time_align.py-1]   File "<frozen importlib._bootstrap>", line 1002, in _find_and_load_unlocked
+[time_align.py-1]   File "<frozen importlib._bootstrap>", line 945, in _find_spec
+[time_align.py-1]   File "<frozen importlib._bootstrap_external>", line 1439, in find_spec
+[time_align.py-1]   File "<frozen importlib._bootstrap_external>", line 1408, in _get_spec
+[time_align.py-1] KeyboardInterrupt
+[mid360_adapter_node-2] [INFO] [1792755713.012720992] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lio_artifact-4] [INFO] [1792755713.015509735] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lio_node-3] [INFO] [1792755713.037661359] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[ERROR] [mid360_adapter_node-2]: process has died [pid 69626, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_mid360_adapter/lib/agt_mid360_adapter/mid360_adapter_node --ros-args --params-file /tmp/launch_params_wl6kgqve'].
+[ERROR] [time_align.py-1]: process has died [pid 69624, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/time_align.py --ros-args --params-file /tmp/launch_params_q5hx9b1s'].
+[INFO] [lio_node-3]: process has finished cleanly [pid 69628]

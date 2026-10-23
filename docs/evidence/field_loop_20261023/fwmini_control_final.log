@@ -1,0 +1,15 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+test_adapter_independently_rejects_axis_and_stale_epoch (__main__.ControlTests) ... ok
+test_bunker_keeps_nonholonomic_constraints (__main__.ControlTests) ... ok
+test_disable_stop_estop_authority_and_feedback_expiry_clear_intent (__main__.ControlTests) ... ok
+test_guard_rejects_unsupported_axes_and_nonfinite_commands (__main__.ControlTests) ... ok
+test_lifecycle_stops_zero_and_foreign_owner_forces_exit (__main__.ControlTests) ... ok
+test_mismatched_and_discontinuous_feedback_never_ready (__main__.ControlTests) ... ok
+test_modes_stop_before_shift_and_require_new_commands (__main__.ControlTests) ... ok
+test_startup_is_disabled_and_single_owner (__main__.ControlTests) ... ok
+test_upstream_watchdog_and_feedback_stamp_validation (__main__.ControlTests) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 52.874s
+
+OK

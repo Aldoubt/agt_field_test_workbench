@@ -1,0 +1,9 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+test_bunker_guard_feedback_deadman_and_no_replay (__main__.HumbleLoop) ... ok
+test_no_pgo_export_and_full_resolution_clean (__main__.HumbleLoop) ... ok
+test_timestamp_policy_reaches_dds (__main__.HumbleLoop) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 3.632s
+
+OK

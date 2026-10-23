@@ -1,0 +1,144 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+Starting >>> agt_pcd2grid_exporter
+Starting >>> agt_asensing_driver
+Starting >>> fwmini_chassis_adapter
+Finished <<< agt_pcd2grid_exporter [1.31s]
+Starting >>> agt_mapping_bringup
+Finished <<< agt_asensing_driver [1.43s]
+Finished <<< agt_mapping_bringup [5.11s]
+--- stderr: fwmini_chassis_adapter
+Errors while running CTest
+Output from these tests are in: /home/agent/agt_field_test_ws/build/fwmini_chassis_adapter/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.
+---
+Finished <<< fwmini_chassis_adapter [6.53s]	[ with test failures ]
+
+Summary: 4 packages finished [7.62s]
+  1 package had stderr output: fwmini_chassis_adapter
+  1 package had test failures: fwmini_chassis_adapter
+build/fwmini_chassis_adapter/Testing/20261023-0803/Test.xml: 2 tests, 0 errors, 1 failure, 0 skipped
+- ros_control
+  <<< failure message
+    test_adapter_independently_rejects_axis_and_stale_epoch (__main__.ControlTests) ... FAIL
+    test_bunker_keeps_nonholonomic_constraints (__main__.ControlTests) ... ERROR
+    test_disable_stop_estop_authority_and_feedback_expiry_clear_intent (__main__.ControlTests) ... ERROR
+    test_guard_rejects_unsupported_axes_and_nonfinite_commands (__main__.ControlTests) ... ERROR
+    test_lifecycle_stops_zero_and_foreign_owner_forces_exit (__main__.ControlTests) ... ERROR
+    test_mismatched_and_discontinuous_feedback_never_ready (__main__.ControlTests) ... ERROR
+    test_modes_stop_before_shift_and_require_new_commands (__main__.ControlTests) ... ERROR
+    test_startup_is_disabled_and_single_owner (__main__.ControlTests) ... ERROR
+    test_upstream_watchdog_and_feedback_stamp_validation (__main__.ControlTests) ... ERROR
+    
+    ======================================================================
+    ERROR: test_bunker_keeps_nonholonomic_constraints (__main__.ControlTests)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 27, in setUp
+        rclpy.init()
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 88, in init
+        context.init(args, domain_id=domain_id)
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 70, in init
+        raise RuntimeError('Context.init() must only be called once')
+    RuntimeError: Context.init() must only be called once
+    
+    ======================================================================
+    ERROR: test_disable_stop_estop_authority_and_feedback_expiry_clear_intent (__main__.ControlTests)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 27, in setUp
+        rclpy.init()
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 88, in init
+        context.init(args, domain_id=domain_id)
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 70, in init
+        raise RuntimeError('Context.init() must only be called once')
+    RuntimeError: Context.init() must only be called once
+    
+    ======================================================================
+    ERROR: test_guard_rejects_unsupported_axes_and_nonfinite_commands (__main__.ControlTests)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 27, in setUp
+        rclpy.init()
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 88, in init
+        context.init(args, domain_id=domain_id)
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 70, in init
+        raise RuntimeError('Context.init() must only be called once')
+    RuntimeError: Context.init() must only be called once
+    
+    ======================================================================
+    ERROR: test_lifecycle_stops_zero_and_foreign_owner_forces_exit (__main__.ControlTests)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 27, in setUp
+        rclpy.init()
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 88, in init
+        context.init(args, domain_id=domain_id)
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 70, in init
+        raise RuntimeError('Context.init() must only be called once')
+    RuntimeError: Context.init() must only be called once
+    
+    ======================================================================
+    ERROR: test_mismatched_and_discontinuous_feedback_never_ready (__main__.ControlTests)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 27, in setUp
+        rclpy.init()
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 88, in init
+        context.init(args, domain_id=domain_id)
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 70, in init
+        raise RuntimeError('Context.init() must only be called once')
+    RuntimeError: Context.init() must only be called once
+    
+    ======================================================================
+    ERROR: test_modes_stop_before_shift_and_require_new_commands (__main__.ControlTests)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 27, in setUp
+        rclpy.init()
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 88, in init
+        context.init(args, domain_id=domain_id)
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 70, in init
+        raise RuntimeError('Context.init() must only be called once')
+    RuntimeError: Context.init() must only be called once
+    
+    ======================================================================
+    ERROR: test_startup_is_disabled_and_single_owner (__main__.ControlTests)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 27, in setUp
+        rclpy.init()
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 88, in init
+        context.init(args, domain_id=domain_id)
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 70, in init
+        raise RuntimeError('Context.init() must only be called once')
+    RuntimeError: Context.init() must only be called once
+    
+    ======================================================================
+    ERROR: test_upstream_watchdog_and_feedback_stamp_validation (__main__.ControlTests)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 27, in setUp
+        rclpy.init()
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/__init__.py", line 88, in init
+        context.init(args, domain_id=domain_id)
+      File "/opt/ros/humble/local/lib/python3.10/dist-packages/rclpy/context.py", line 70, in init
+        raise RuntimeError('Context.init() must only be called once')
+    RuntimeError: Context.init() must only be called once
+    
+    ======================================================================
+    FAIL: test_adapter_independently_rejects_axis_and_stale_epoch (__main__.ControlTests)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 58, in setUp
+        self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+      File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/humble_fwmini_control.py", line 102, in wait
+        self.fail('ROS timeout: '+json.dumps(self.status))
+    AssertionError: ROS timeout: {"state": "FAULT", "requested_mode": "none", "target_gear": 0, "actual_gear": 0, "guard_epoch_seen": 53544511948847, "guard_feedback_age_sec": 0.00592144700204, "output_gear": 0, "feedback_age_sec": 0.0106976160023, "io_feedback_age_sec": 0.0106785230018, "motion_allowed": false, "command_mps_radps": [0, 0, 0], "epoch": 53544511948847, "reason": "invalid_ctrl_feedback_stamp", "last_mode_switch_result": "NOT_REQUESTED"}
+    
+    ----------------------------------------------------------------------
+    Ran 9 tests in 5.323s
+    
+    FAILED (failures=1, errors=8)
+  >>>
+
+Summary: 135 tests, 0 errors, 1 failure, 0 skipped

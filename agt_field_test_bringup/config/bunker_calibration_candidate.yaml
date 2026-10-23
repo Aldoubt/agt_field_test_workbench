@@ -1,0 +1,76 @@
+schema_version: 2
+kind: robot_calibration_bundle
+robot: bunker
+version: bunker_imported_baseline_20261023
+status: CANDIDATE
+sensor_id: UNRECORDED
+source:
+  repository: Aldoubt/agt_chassis_description
+  commit: 75b838ce9af0d8da7c403d6683b34f4e4268f687
+  file: config/field_acceptance.yaml
+  sha256: b71cc5d637856663d9b9d8316ba6642b6300da80a4e9457c4affa125ce5ebc21
+  prior_acceptance_scope: stationary_relocalization
+  import_date: '2026-10-23'
+  new_physical_measurement: false
+base_link_height_m: 0.2
+mount:
+  parent: base_link
+  child: livox_frame
+  xyz:
+  - 0.406074739840648
+  - 0.0
+  - 0.727468117997015
+  rpy:
+  - 0.0
+  - 0.226892802759063
+  - 0.0
+internal:
+  fastlio2:
+    rotation:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    translation:
+    - -0.011
+    - -0.02329
+    - 0.04412
+    source: locked FAST-LIO mapping YAML
+  batch_lio:
+    rotation:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    translation:
+    - 0.011
+    - 0.02329
+    - -0.04412
+    source: locked Batch-LIO YAML; signs preserved independently
+rtk_arm:
+  enabled: false
+  status: UNMEASURED
+  xyz: null
+time_sync:
+  imu_offset_sec: 0.0
+  lidar_offset_sec: 0.0
+  status: UNVERIFIED
+  convention: corrected timestamp = raw timestamp + offset; Livox timebase shifted
+    equally
+pending:
+- sensor identity
+- static/rotation/straight/figure-eight repeated measurements
+- PTP/phc2sys evidence
+- backend internal direction and units
+- antenna lever arm
+- offline replay

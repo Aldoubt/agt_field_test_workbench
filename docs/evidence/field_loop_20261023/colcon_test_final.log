@@ -1,0 +1,12 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+Starting >>> agt_asensing_driver
+Finished <<< agt_asensing_driver [0.35s]
+Starting >>> agt_pcd2grid_exporter
+Finished <<< agt_pcd2grid_exporter [0.24s]
+Starting >>> fwmini_chassis_adapter
+Finished <<< fwmini_chassis_adapter [32.7s]
+Starting >>> agt_mapping_bringup
+Finished <<< agt_mapping_bringup [1.66s]
+
+Summary: 4 packages finished [35.5s]
+Summary: 135 tests, 0 errors, 0 failures, 0 skipped

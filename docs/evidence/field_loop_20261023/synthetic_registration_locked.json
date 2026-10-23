@@ -1,0 +1,220 @@
+{
+  "scope": "OFFLINE_PCD_REGISTRATION",
+  "spec": {
+    "scope": "SYNTHETIC_ONLY",
+    "query_frame": "mapping_body",
+    "calibration_sha256": "0b07ea8e96682987332608ada74d89e6552b14d18181361180fa433daae9525c",
+    "map": "/home/agent/agt_field_test_ws/work/synthetic_registration/map.pcd",
+    "queries": [
+      {
+        "pcd": "/home/agent/agt_field_test_ws/work/synthetic_registration/query.pcd"
+      }
+    ],
+    "timeout_sec": 5,
+    "top_k": 2,
+    "tile_width_m": 30,
+    "tile_stride_m": 15
+  },
+  "results": [
+    {
+      "success": true,
+      "x": 0.997846,
+      "y": -0.496979,
+      "z": 0.104795,
+      "qx": -0.000533473,
+      "qy": -0.000172226,
+      "qz": -0.000528252,
+      "qw": 1,
+      "coarse_x": 0.75,
+      "coarse_y": -0.75,
+      "coarse_z": 0,
+      "coarse_qx": -0.0130896,
+      "coarse_qy": 0,
+      "coarse_qz": 0,
+      "coarse_qw": 0.999914,
+      "score": 0.987825,
+      "fitness": 0.0307245,
+      "overlap": 1,
+      "bbs_score": 0.979708,
+      "bbs_elapsed_ms": 517.247,
+      "bbs_assets_loaded": false,
+      "gicp_target_points": 2557,
+      "gicp_full_map_fallback": false,
+      "exit_code": 0,
+      "elapsed_sec": 0.7795616459989105,
+      "cpu_sec": 1.316429,
+      "backend": "bbs",
+      "query_sha256": "ae131e0045eda560571b2447c9a5302a65b1268185017d335e60a688b68133fd",
+      "map_sha256": "046423b79e166f159872d7a20405e6d4ba0924a10602df35072ae0b32022edbd",
+      "calibration_sha256": "0b07ea8e96682987332608ada74d89e6552b14d18181361180fa433daae9525c",
+      "accuracy_state": "NOT_RUN"
+    },
+    {
+      "success": true,
+      "constraint_mode": "full_se3",
+      "max_roll_delta_deg": 10,
+      "max_pitch_delta_deg": 10,
+      "roll_delta_deg": 0.676234,
+      "pitch_delta_deg": 1.04497,
+      "gravity_prior_clipped": false,
+      "x": 0.999583,
+      "y": -0.501513,
+      "z": 0.101328,
+      "qx": -0.000183065,
+      "qy": 7.16718e-05,
+      "qz": -7.93529e-05,
+      "qw": 1,
+      "fitness": 0.014713,
+      "overlap": 1,
+      "hessian_eigenvalues": [
+        93551.2,
+        95805.4,
+        139667,
+        1432640.0,
+        1520390.0,
+        1875670.0
+      ],
+      "hessian_condition_number": 20.0497,
+      "hessian_degenerate": false,
+      "map_points": 3301,
+      "query_points": 3351,
+      "exit_code": 0,
+      "elapsed_sec": 1.061062499997206,
+      "cpu_sec": 1.7629800000000002,
+      "tile_center": [
+        -3.9993512630462646,
+        -2.997249126434326
+      ],
+      "rank": 0,
+      "coarse_xyz": [
+        0.9433996154694237,
+        -0.5129684764442712,
+        0.10441580026527338
+      ],
+      "coarse_quaternion": [
+        -0.0062130498829223,
+        -0.008959035730698393,
+        -0.014383031061103594,
+        0.9998371177884045
+      ],
+      "coarse_elapsed_sec": 0.4813640759966802,
+      "rotation_inliers": 93,
+      "final_inliers": 79,
+      "candidates": [
+        {
+          "success": true,
+          "constraint_mode": "full_se3",
+          "max_roll_delta_deg": 10,
+          "max_pitch_delta_deg": 10,
+          "roll_delta_deg": 0.676234,
+          "pitch_delta_deg": 1.04497,
+          "gravity_prior_clipped": false,
+          "x": 0.999583,
+          "y": -0.501513,
+          "z": 0.101328,
+          "qx": -0.000183065,
+          "qy": 7.16718e-05,
+          "qz": -7.93529e-05,
+          "qw": 1,
+          "fitness": 0.014713,
+          "overlap": 1,
+          "hessian_eigenvalues": [
+            93551.2,
+            95805.4,
+            139667,
+            1432640.0,
+            1520390.0,
+            1875670.0
+          ],
+          "hessian_condition_number": 20.0497,
+          "hessian_degenerate": false,
+          "map_points": 3301,
+          "query_points": 3351,
+          "exit_code": 0,
+          "elapsed_sec": 0.30953175400645705,
+          "cpu_sec": 0.43614799999999987,
+          "tile_center": [
+            -3.9993512630462646,
+            -2.997249126434326
+          ],
+          "rank": 0,
+          "coarse_xyz": [
+            0.9433996154694237,
+            -0.5129684764442712,
+            0.10441580026527338
+          ],
+          "coarse_quaternion": [
+            -0.0062130498829223,
+            -0.008959035730698393,
+            -0.014383031061103594,
+            0.9998371177884045
+          ],
+          "coarse_elapsed_sec": 0.4813640759966802,
+          "rotation_inliers": 93,
+          "final_inliers": 79
+        },
+        {
+          "success": true,
+          "constraint_mode": "full_se3",
+          "max_roll_delta_deg": 10,
+          "max_pitch_delta_deg": 10,
+          "roll_delta_deg": 0.676234,
+          "pitch_delta_deg": 1.04497,
+          "gravity_prior_clipped": false,
+          "x": 0.999583,
+          "y": -0.501513,
+          "z": 0.101328,
+          "qx": -0.000183065,
+          "qy": 7.16718e-05,
+          "qz": -7.93529e-05,
+          "qw": 1,
+          "fitness": 0.014713,
+          "overlap": 1,
+          "hessian_eigenvalues": [
+            93551.2,
+            95805.4,
+            139667,
+            1432640.0,
+            1520390.0,
+            1875670.0
+          ],
+          "hessian_condition_number": 20.0497,
+          "hessian_degenerate": false,
+          "map_points": 3301,
+          "query_points": 3351,
+          "exit_code": 0,
+          "elapsed_sec": 0.311390091002977,
+          "cpu_sec": 0.43101700000000004,
+          "tile_center": [
+            -3.9993512630462646,
+            12.002750873565674
+          ],
+          "rank": 1,
+          "coarse_xyz": [
+            0.9433996154694237,
+            -0.5129684764442712,
+            0.10441580026527338
+          ],
+          "coarse_quaternion": [
+            -0.0062130498829223,
+            -0.008959035730698393,
+            -0.014383031061103594,
+            0.9998371177884045
+          ],
+          "coarse_elapsed_sec": 0.4976319749985123,
+          "rotation_inliers": 93,
+          "final_inliers": 79
+        }
+      ],
+      "accept_reason": "quality_and_ambiguity_gate",
+      "backend": "kiss",
+      "query_sha256": "ae131e0045eda560571b2447c9a5302a65b1268185017d335e60a688b68133fd",
+      "map_sha256": "046423b79e166f159872d7a20405e6d4ba0924a10602df35072ae0b32022edbd",
+      "calibration_sha256": "0b07ea8e96682987332608ada74d89e6552b14d18181361180fa433daae9525c",
+      "accuracy_state": "NOT_RUN"
+    }
+  ],
+  "real_bag": "NOT_RUN",
+  "tracker_ab": "NOT_RUN",
+  "map_odom_continuity": "NOT_RUN"
+}

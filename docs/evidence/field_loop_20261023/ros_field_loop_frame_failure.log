@@ -1,0 +1,22 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+test_bunker_bundle_reaches_robot_state_publisher (__main__.HumbleLoop) ... ok
+test_bunker_guard_feedback_deadman_and_no_replay (__main__.HumbleLoop) ... ok
+test_bunker_localization_query_and_lio_use_aligned_sensor (__main__.HumbleLoop) ... FAIL
+test_no_pgo_export_and_full_resolution_clean (__main__.HumbleLoop) ... ok
+test_no_pgo_launch_graph_has_aligned_inputs_and_no_chassis (__main__.HumbleLoop) ... ok
+test_timestamp_policy_reaches_dds (__main__.HumbleLoop) ... ok
+
+======================================================================
+FAIL: test_bunker_localization_query_and_lio_use_aligned_sensor (__main__.HumbleLoop)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/ros_field_loop.py", line 127, in test_bunker_localization_query_and_lio_use_aligned_sensor
+    self.wait(lambda:any(n=='livox_format_bridge' for n,ns in self.node.get_node_names_and_namespaces()),15)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/ros_field_loop.py", line 29, in wait
+    self.fail('DDS condition timed out')
+AssertionError: DDS condition timed out
+
+----------------------------------------------------------------------
+Ran 6 tests in 21.809s
+
+FAILED (failures=1)

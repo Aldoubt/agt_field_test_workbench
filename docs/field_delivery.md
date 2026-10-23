@@ -1,3 +1,5 @@
+> **历史记录。** 本轮最新默认无 PGO、网页运动门禁与测试状态以 [双底盘闭环交付](field_loop_delivery.md) 和 [操作手册](workbench_operator_manual.md) 为准；下文保留旧轮次证据。
+
 # AGT Field Test Workbench 交付与现场验收记录
 
 记录日期：2026-10-23（用户本地时间 Asia/Shanghai）。现场清单日期：周六 2026-10-24。

@@ -1,0 +1,18 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+test_bunker_localization_query_and_lio_use_aligned_sensor (__main__.HumbleLoop) ... ok
+test_no_pgo_launch_graph_has_aligned_inputs_and_no_chassis (__main__.HumbleLoop) ... FAIL
+
+======================================================================
+FAIL: test_no_pgo_launch_graph_has_aligned_inputs_and_no_chassis (__main__.HumbleLoop)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/ros_field_loop.py", line 90, in test_no_pgo_launch_graph_has_aligned_inputs_and_no_chassis
+    self.wait(lambda:all(topic in [n for n,t in self.node.get_subscriber_names_and_types_by_node('lio_node','/fastlio2')] for topic in ('/field/aligned/imu','/mapping/sensor/livox')),10)
+  File "/home/agent/agt_field_test_ws/src/agt_field_test_workbench/tests/ros_field_loop.py", line 32, in wait
+    self.fail('DDS condition timed out')
+AssertionError: DDS condition timed out
+
+----------------------------------------------------------------------
+Ran 2 tests in 13.223s
+
+FAILED (failures=1)

@@ -23,8 +23,13 @@ ROS_SETUP = Path('/opt/ros/humble/setup.bash')
 INSTALL = ROOT / 'install/setup.bash'
 
 TEMPLATES = {
+    'motion_diagnostic':['/cmd_vel_nav','/cmd_vel','/cmd_vel_smoothed','/agt/hmi/cmd_vel','/mux/cmd_vel',
+        '/fwmini/cmd_vel_guarded','/ctrl_cmd','/chassis_info_fb','/fwmini/io_fb','/fwmini/control_status','/bunker_status',
+        '/wheel/odom','/agt/odometry/local','/tf','/tf_static', '/field/map_pose', '/field/aligned/lidar', '/field/aligned/imu','/livox/lidar','/livox/imu','/agt/livox/points',
+        '/agt/localization/status','/agt/localization/metrics','/agt/map_tracking/status','/agt/map_tracking/pose','/field/gps/candidate_status',
+        '/local_costmap/costmap','/local_costmap/published_footprint','/plan','/ins/navsatfix','/ins/status','/ins/imu'],
     'calibration': ['/livox/lidar', '/livox/imu', '/tf', '/tf_static'],
-    'mapping': ['/livox/lidar', '/livox/imu', '/tf', '/tf_static', '/wheel/odom'],
+    'mapping': ['/livox/lidar', '/livox/imu', '/tf', '/tf_static', '/field/map_pose', '/field/aligned/lidar', '/field/aligned/imu', '/wheel/odom'],
     'localization': ['/agt/odometry/local', '/agt/localization/status', '/agt/localization/metrics',
                      '/agt/map_tracking/status', '/agt/map_tracking/pose', '/tf', '/tf_static'],
     'chassis_motion': ['/wheel/odom', '/cmd_vel', '/mux/cmd_vel', '/ctrl_cmd', '/chassis_info_fb',
@@ -47,10 +52,13 @@ def write_json(path, value):
     temporary.replace(path)
 
 
-def source_versions(root):
-    return {p.name: subprocess.run(['git', '-C', str(p), 'rev-parse', 'HEAD'],
-                                   capture_output=True, text=True).stdout.strip()
-            for p in (Path(root) / 'src').iterdir() if (p / '.git').exists()}
+def source_versions(root=ROOT):
+    lock=yaml.safe_load((Path(root)/'src/agt_field_test_workbench/dependencies/field_test.repos').read_text())['repositories']
+    result={}
+    for name in ['agt_field_test_workbench',*lock]:
+        path=Path(root)/'src'/name
+        result[name]=subprocess.run(['git','-c','safe.directory='+str(path),'-C',str(path),'rev-parse','HEAD'],capture_output=True,text=True).stdout.strip() or 'UNAVAILABLE'
+    return result
 
 
 def ros_ready():
@@ -123,6 +131,7 @@ class Jobs:
         self.jobs = {}
 
     def _new(self, kind, command, meta, env=None):
+        if set(meta)&{'id','kind','state','pid','log','command','started_at'}:raise ValueError('reserved job metadata field')
         with self.lock:
             history = self.list()
             if any(item['state'] == 'ORPHANED' and
@@ -174,9 +183,9 @@ class Jobs:
                         if record['integrity']['state'] != 'PASS':
                             record['state'] = 'INCOMPLETE'
                     elif item['kind'].startswith('mapping'):
-                        result = Path(record['output']) / 'field_test_result.json'
-                        if result.is_file():
-                            record['result'] = json.loads(result.read_text())
+                        result_path = Path(record['output']) / 'field_test_result.json'
+                        if result_path.is_file():
+                            record['result'] = json.loads(result_path.read_text())
                     write_json(self.root / 'runs' / record['id'] / 'run.json', record)
                 item['state'] = record['state']
                 result.append(dict(record, duration_sec=round(time.time() - process_start(record), 1)
@@ -200,6 +209,14 @@ class Jobs:
                     write_json(manifest, record)
                 result.append(record)
             return sorted(result, key=lambda record: record['id'], reverse=True)
+
+    def finish_mapping(self, run_id):
+        with self.lock:
+            item=self.jobs.get(run_id)
+            if not item or item['kind']!='mapping_live' or item['process'].poll() is not None:
+                raise ValueError('running live mapping required')
+            os.kill(item['process'].pid,signal.SIGUSR1)
+            return dict(item['record'],finishing=True)
 
     def stop_all(self):
         for item in self.list():
@@ -230,11 +247,13 @@ class Jobs:
             write_json(self.root / 'runs' / run_id / 'run.json', record)
             return record
 
-    def start_mapping(self, bag, robot, calibration=None, live=False, livox_config=None, mount_profile=None):
+    def start_mapping(self, bag, robot, calibration=None, live=False, livox_config=None, mount_profile=None, backend="fastlio", calibration_bundle=None):
         if not ros_ready():
             raise ValueError('ROS Humble unified overlay not built')
         if robot not in ('bunker', 'fwmini'):
             raise ValueError('unknown robot')
+        if backend not in ('fastlio','pgo_experiment'):raise ValueError('unknown mapping backend')
+        if live and backend=='pgo_experiment':raise ValueError('PGO experiment is offline-only; use FAST-LIO for live mapping')
         source = Path(bag).expanduser().resolve() if bag else None
         if not live and (source is None or not (source / 'metadata.yaml').is_file()):
             raise ValueError('existing rosbag2 directory with metadata.yaml required')
@@ -245,28 +264,53 @@ class Jobs:
         else:
             config = None
             calibration_sha = None
+        session_path=self.root/'work/current_session.json'
+        current=json.loads(session_path.read_text()) if session_path.is_file() else None
+        live_session=next((j for j in self.list() if j['kind']=='field_session' and j['state']=='RUNNING'),None)
+        if live and not live_session:raise ValueError('start a sensors/manual session in Robot Setup before live mapping')
+        if live and live_session and (current['robot']!=robot or current['task'] in ('localization','navigation')):
+            raise ValueError('live mapping needs the same robot in sensors/manual mode; stop localization first')
         run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]
         output = self.root / 'maps' / run_id
         cmd = ['python3', str(REPO / 'scripts/mapping_pipeline.py'),
-               '--robot', robot, '--output', str(output)]
+               '--robot', robot, '--output', str(output), '--backend', backend]
         mount_metadata = None
         if robot == 'fwmini':
             mount = resolve_profile(self.root, mount_profile)
             profile = load_profile(mount)
             require_mode(profile, 'sensor_mapping' if live else 'offline_mapping')
+            if live and live_session and digest(profile)!=current['calibration_sha256']:raise ValueError('FW-mini mount differs from running TF')
             cmd += ['--mount-profile', str(mount)]
             mount_metadata = {'path': str(mount), 'calibration_sha256': digest(profile), 'status': profile['status']}
         if live:
-            if not livox_config or not Path(livox_config).is_file():
+            if not (live_session and live) and (not livox_config or not Path(livox_config).is_file()):
                 raise ValueError('live sensor-only mapping requires an existing Livox IP config for this robot')
             # This upstream profile starts MID360 only. It does not start either
             # chassis, avoiding the legacy Bunker hardware launch dependency.
-            cmd += ['--live', '--livox-config', str(Path(livox_config).resolve())]
+            cmd += ['--live', '--livox-config', str(Path(livox_config).resolve()) if livox_config else '']
         else:
             cmd += ['--bag', str(source)]
         if calibration:
             cmd += ['--calibration', calibration]
         env = {'AGT_FIELD_TEST_ROBOT': robot + '_sensor_only'} if live else {}
+        if live and live_session:
+            env.update(FIELD_REUSE_RUNTIME='1',FIELD_MAPPING_DOMAIN=os.environ.get('ROS_DOMAIN_ID','0'),ROS_DOMAIN_ID=os.environ.get('ROS_DOMAIN_ID','0'))
+        if robot=='bunker':
+            from agt_field_test_bringup import calibration as bundle_cal
+            bundle_path=Path(calibration_bundle or self.root/'calibration/bunker/bunker_calibration_candidate.yaml').resolve()
+            if not bundle_path.is_relative_to((self.root/'calibration/bunker').resolve()):raise ValueError('workspace Bunker calibration required')
+            bundle=bundle_cal.load(bundle_path,robot)
+            if live and live_session and bundle_cal.digest(bundle)!=current['calibration_sha256']:raise ValueError('live mapping calibration differs from active TF; restart session')
+            parameters=yaml.safe_load((self.root/'src/agt-lio-pgo-mapping/bringup/agt_mapping_bringup/config/fastlio2_mid360.yaml').read_text())
+            parameters.update(r_il=bundle['internal']['fastlio2']['rotation'],t_il=bundle['internal']['fastlio2']['translation'],esti_il=False)
+            if config:
+                override=yaml.safe_load(config.read_text())
+                if live and live_session and (override['r_il']!=parameters['r_il'] or override['t_il']!=parameters['t_il']):raise ValueError('internal calibration differs from running TF')
+                parameters=override
+            folder=self.root/'runs'/('mapping_config_'+run_id);folder.mkdir(parents=True)
+            config=folder/'fastlio.yaml';config.write_text(yaml.safe_dump(parameters,sort_keys=False))
+            calibration_sha=bundle_cal.digest(bundle)
+            env.update(FIELD_CALIBRATION_BUNDLE=str(bundle_path),FIELD_IMU_OFFSET=str(bundle['time_sync']['imu_offset_sec']),FIELD_LIDAR_OFFSET=str(bundle['time_sync']['lidar_offset_sec']))
         if config:
             env['AGT_FIELD_TEST_FASTLIO_CONFIG'] = str(config)
         return self._new('mapping_live' if live else 'mapping_bag', cmd,
@@ -275,7 +319,7 @@ class Jobs:
                           'calibration_sha256': calibration_sha,
                           'mount_profile': mount_metadata,
                           'versions': source_versions(self.root),
-                          'ros_domain_id': 89, 'sensor_only': live,
+                          'ros_domain_id': int(env.get('FIELD_MAPPING_DOMAIN','89')), 'sensor_only': live and not bool(live_session), 'reuse_runtime':bool(live and live_session), 'backend':backend,
                           'raw_bag': str(output / 'raw_bag') if live else None}, env)
 
     def start_recorder(self, template, robot, calibration=None, map_version=None, label='', mount_profile=None):

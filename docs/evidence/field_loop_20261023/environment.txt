@@ -1,0 +1,20 @@
+PRETTY_NAME="Ubuntu 22.04.5 LTS"
+NAME="Ubuntu"
+VERSION_ID="22.04"
+VERSION="22.04.5 LTS (Jammy Jellyfish)"
+VERSION_CODENAME=jammy
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=jammy
+Python 3.10.12
+cmake version 3.22.1
+libeigen3-dev	3.4.0-2ubuntu2
+libpcl-dev	1.12.1+dfsg-3build1
+libtbb-dev:amd64	2021.5.0-7ubuntu2
+ros-humble-navigation2	1.1.20-1jammy.20260916.003813
+ros-humble-rclpy	3.3.22-1jammy.20260907.213431
+ros-humble-ros-base	0.10.0-1jammy.20260915.225919

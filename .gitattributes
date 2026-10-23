@@ -1,1 +1,4 @@
 patches/*.patch -whitespace
+
+# Preserve tool output verbatim, including upstream whitespace.
+docs/evidence/field_loop_20261023/*.log -whitespace

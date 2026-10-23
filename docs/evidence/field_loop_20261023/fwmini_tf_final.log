@@ -1,0 +1,15 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+Starting >>> agt_field_test_bringup
+Finished <<< agt_field_test_bringup [3.34s]
+
+Summary: 1 package finished [7.70s]
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+test_candidate_navigation_and_unsupervised_localization_are_blocked (__main__.HumbleTFTests) ... ok
+test_mapping_tf_and_real_adapter_apply_mount_once_then_reject_duplicate (__main__.HumbleTFTests) ... ok
+test_missing_tf_fails_real_preflight (__main__.HumbleTFTests) ... ok
+test_supervised_localization_launch_starts_after_actual_tf_preflight (__main__.HumbleTFTests) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 18.683s
+
+OK

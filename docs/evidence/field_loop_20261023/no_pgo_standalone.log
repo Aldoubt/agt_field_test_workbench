@@ -1,0 +1,23 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-10-23-11-41-05-567728-750018ad1ed4-69261
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [time_align.py-1]: process started with pid [69279]
+[INFO] [mid360_adapter_node-2]: process started with pid [69281]
+[INFO] [lio_node-3]: process started with pid [69283]
+[INFO] [lio_artifact-4]: process started with pid [69285]
+[mid360_adapter_node-2] [INFO] [1792755665.650043134] [mid360_adapter_node]: MID360 adapter: /field/aligned/lidar -> /mapping/sensor/cloud; frame override: <input frame>
+[lio_node-3] [INFO] [1792755665.703623858] [fastlio2.lio_node]: LIO Node Started
+[lio_node-3] [INFO] [1792755665.704104338] [fastlio2.lio_node]: LOAD FROM YAML CONFIG PATH: /home/agent/agt_field_test_ws/src/agt-lio-pgo-mapping/bringup/agt_mapping_bringup/config/fastlio2_mid360.yaml
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [lio_artifact-4]: sending signal 'SIGINT' to process[lio_artifact-4]
+[INFO] [lio_node-3]: sending signal 'SIGINT' to process[lio_node-3]
+[INFO] [mid360_adapter_node-2]: sending signal 'SIGINT' to process[mid360_adapter_node-2]
+[INFO] [time_align.py-1]: sending signal 'SIGINT' to process[time_align.py-1]
+[lio_artifact-4] [INFO] [1792755684.906882895] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[ERROR] [lio_artifact-4]: process has died [pid 69285, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/lio_artifact --ros-args --params-file /tmp/launch_params_4fx6ihas'].
+[lio_node-3] [INFO] [1792755684.908729280] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[ERROR] [mid360_adapter_node-2]: process has died [pid 69281, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_mid360_adapter/lib/agt_mid360_adapter/mid360_adapter_node --ros-args --params-file /tmp/launch_params_lhz2z124'].
+[mid360_adapter_node-2] [INFO] [1792755684.908524235] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[lio_node-3] [INFO] [1792755684.958752001] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[ERROR] [time_align.py-1]: process has died [pid 69279, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/time_align.py --ros-args --params-file /tmp/launch_params_dsxpeouj'].
+[INFO] [lio_node-3]: process has finished cleanly [pid 69283]

@@ -1,0 +1,10 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+test_expiring_jog_and_closed_lease_cannot_replay (__main__.RPCIntegration) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.783s
+
+OK
+[INFO] [1792755788.027184830] [rosbag2_storage]: Opened database '/tmp/tmpe5ymjnvg/bag/bag_0.db3' for READ_WRITE.
+[INFO] [1792755789.775425255] [rosbag2_storage]: Opened database '/tmp/tmpe5ymjnvg/bag/bag_0.db3' for READ_ONLY.
+{"max_map_odom_translation_step_m": 0.1, "max_map_odom_yaw_step_rad": 0.0, "angular_response_delay_sec": 0.0, "oscillation_hz": 0.6000000000000001, "angular_rmse_radps": 0.000259944293573022, "wheel_lio_heading_change_rmse_rad": 0.0, "max_lateral_error_m": 0.039999275587594224}

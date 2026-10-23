@@ -47,7 +47,23 @@
     "files": {
       "bringup/agt_base_control/agt_base_control/cmd_vel_guard.py": {
         "before": "179459cc433de2c56f36a3907dc22cd8cbfd023e919897a8959ea2c7ee00340b",
-        "after": "dda6ba449043e6e12bf92905af7064ccb0d1cba0bebda565e788121721e1c788"
+        "after": "068d0284d4c208336dccfb59ea8be461c39a82cf25986aff0d3a6a0c7f05a4bd"
+      },
+      "bringup/agt_base_control/package.xml": {
+        "before": "53e243a149cb04f5415d69ddb2dfb4ae4c71fddc9956c2787f2e1954609b9600",
+        "after": "521fef7a01eeee809d02ccfe58e9f1a7df3951be05f71d8a93cf2257d8eda5db"
+      },
+      "bringup/agt_system_bringup/launch/localization.launch.py": {
+        "before": "1d25436ee4f014dfbf3811dea0e2147aadc9f788241789b6d047034ebaff932e",
+        "after": "fa8360e4652447d7c29f54d52b4801c8938d978a67f6222ce21e80f2915d1cb3"
+      },
+      "bringup/agt_system_bringup/launch/navigation.launch.py": {
+        "before": "7e379b20447737557e8a56bf7eb59c76bdda4cff63c395a55bc936d94e27fc4b",
+        "after": "af29be4c0902690dd773e0c2b542d96d392ed3f5176e8e20f1b10e87e87becc7"
+      },
+      "navigation/localization/agt_global_relocalization/launch/global_relocalization.launch.py": {
+        "before": "d7a5d09e90bd9debc4758ae388dcafc1d708f7857e82b210d3a014a47168a3e8",
+        "after": "024399d8e479b77ccdcdf8c7b0ceb781be3234827d85e3b97057e7795bfa42cd"
       }
     }
   }

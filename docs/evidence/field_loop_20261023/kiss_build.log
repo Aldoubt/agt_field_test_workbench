@@ -1,0 +1,92 @@
+Processing ./src/external/kiss_matcher/python
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: kiss_matcher
+  Building wheel for kiss_matcher (pyproject.toml): started
+  Building wheel for kiss_matcher (pyproject.toml): finished with status 'error'
+  error: subprocess-exited-with-error
+  
+  × Building wheel for kiss_matcher (pyproject.toml) did not run successfully.
+  │ exit code: 1
+  ╰─> [75 lines of output]
+      *** scikit-build-core 1.1.1 using CMake 3.22.1 (wheel)
+      *** Configuring CMake...
+      loading initial cache file /tmp/tmpt1qnd6fo/build/CMakeInit.txt
+      -- The C compiler identification is GNU 11.4.0
+      -- The CXX compiler identification is GNU 11.4.0
+      -- Detecting C compiler ABI info
+      -- Detecting C compiler ABI info - done
+      -- Check for working C compiler: /usr/bin/x86_64-linux-gnu-gcc - skipped
+      -- Detecting C compile features
+      -- Detecting C compile features - done
+      -- Detecting CXX compiler ABI info
+      -- Detecting CXX compiler ABI info - done
+      -- Check for working CXX compiler: /usr/bin/x86_64-linux-gnu-g++ - skipped
+      -- Detecting CXX compile features
+      -- Detecting CXX compile features - done
+      -- Python Interpreter Version: .
+      -- pybind11 v3.2.0
+      -- Found Python: /usr/bin/python3 (found suitable version "3.10.12", minimum required is "3.9") found components: Interpreter Development.Module Development.Embed
+      Using compatibility mode for Python, set PYBIND11_FINDPYTHON to NEW/OLD to silence this message
+      -- Performing Test HAS_FLTO_AUTO
+      -- Performing Test HAS_FLTO_AUTO - Success
+      -- Found Python: /usr/bin/python3 (found version "3.10.12") found components: Interpreter Development.Module
+      -- Building with Scikit-Build
+      -- Install KISS-Matcher using local C++ files...
+      
+      ██╗  ██╗██╗███████╗███████╗
+      ██║ ██╔╝██║██╔════╝██╔════╝
+      █████╔╝ ██║███████╗███████╗█████╗
+      ██╔═██╗ ██║╚════██║╚════██║╚════╝
+      ██║  ██╗██║███████║███████║
+      ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝
+      
+      ███╗   ███╗ █████╗ ████████╗ ██████╗██╗  ██╗███████╗██████╗
+      ████╗ ████║██╔══██╗╚══██╔══╝██╔════╝██║  ██║██╔════╝██╔══██╗
+      ██╔████╔██║███████║   ██║   ██║     ███████║█████╗  ██████╔╝
+      ██║╚██╔╝██║██╔══██║   ██║   ██║     ██╔══██║██╔══╝  ██╔══██╗
+      ██║ ╚═╝ ██║██║  ██║   ██║   ╚██████╗██║  ██║███████╗██║  ██║
+      ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+      
+      -- Looking for pthread.h
+      -- Looking for pthread.h - found
+      -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+      -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+      -- Found Threads: TRUE
+      -- Checking for one of the modules 'hwloc'
+      -- Looking for getcontext
+      -- Looking for getcontext - found
+      -- IPO enabled
+      -- GNU Assembler version: 2.38  (2038)
+      -- The tbbbind_2_5 target will be configured using the HWLOC 2.7.0
+      -- Found flann: /usr/include
+      -- Found OpenMP_C: -fopenmp (found version "4.5")
+      -- Found OpenMP_CXX: -fopenmp (found version "4.5")
+      -- Found OpenMP: TRUE (found version "4.5")
+      -- Configuring done
+      CMake Error in /home/agent/agt_field_test_ws/src/external/kiss_matcher/cpp/kiss_matcher/CMakeLists.txt:
+        Imported target "robin::robin" includes non-existent path
+      
+          "/home/agent/agt_field_test_ws/work/kiss_deps/robin-build/include"
+      
+        in its INTERFACE_INCLUDE_DIRECTORIES.  Possible reasons include:
+      
+        * The path was deleted, renamed, or moved to another location.
+      
+        * An install or uninstall procedure did not complete successfully.
+      
+        * The installation package was faulty and references files it does not
+        provide.
+      
+      
+      
+      -- Generating done
+      CMake Generate step failed.  Build files cannot be regenerated correctly.
+      
+      *** CMake configuration failed
+      [end of output]
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+  ERROR: Failed building wheel for kiss_matcher
+ERROR: Could not build wheels for kiss_matcher, which is required to install pyproject.toml-based projects
+Failed to build kiss_matcher

@@ -59,3 +59,11 @@ repositories:
     type: git
     url: https://github.com/Livox-SDK/Livox-SDK2.git
     version: 08f523c930b2f0ba1e98a6afaa8d7476bf479908
+  agt_ins_driver:
+    type: git
+    url: https://github.com/Aldoubt/agt_ins_driver.git
+    version: 52bd413c9f9cb643970dec00bb11366f35db0453
+  external/kiss_matcher:
+    type: git
+    url: https://github.com/MIT-SPARK/KISS-Matcher.git
+    version: 8b58b118e00c7a5a22448741f8d956d638a44ae2

@@ -1,0 +1,16 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+Starting >>> agt_base_control
+Starting >>> agt_global_relocalization
+Finished <<< agt_base_control [2.08s]
+Finished <<< agt_global_relocalization [2.38s]
+Starting >>> agt_system_bringup
+Finished <<< agt_system_bringup [0.26s]
+Starting >>> agt_field_test_bringup
+Finished <<< agt_field_test_bringup [29.3s]
+--- stderr: agt_field_test_bringup
+** WARNING ** io features related to pcap will be disabled
+** WARNING ** io features related to png will be disabled
+---
+
+Summary: 4 packages finished [32.9s]
+  1 package had stderr output: agt_field_test_bringup

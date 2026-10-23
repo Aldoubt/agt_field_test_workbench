@@ -133,7 +133,7 @@ class Maps:
         meta = yaml.safe_load((self.directory / parent / 'map.yaml').read_text())
         lineage = {k: original.get(k) for k in
                    ('source_yaml', 'source_pgm_sha256', 'source_pcd', 'source_pcd_sha256',
-                    'source_bag', 'calibration')}
+                    'source_bag', 'source_bag_sha256', 'calibration', 'cloud_id', 'projection')}
         lineage['parent'] = parent
         lineage['keepout_polygons_px'] = polygons
         return self._save(width, height, pixels, meta, lineage, status)

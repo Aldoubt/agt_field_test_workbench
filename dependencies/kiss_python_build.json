@@ -1,0 +1,9 @@
+{
+  "kiss_matcher_sha": "8b58b118e00c7a5a22448741f8d956d638a44ae2",
+  "pybind11_sha": "fdec8c350aa0c7fbb552ec70d8176f8a13eb0561",
+  "robin_url": "https://codeload.github.com/MIT-SPARK/ROBIN/tar.gz/refs/tags/v.1.2.7",
+  "robin_archive_sha256": "45b9bfbfea4e5773ba60ad6336773e986b6b5a806f208b95e4c13f774ec92e35",
+  "pmc_sha": "4bbd40ababd8e925c4e1845c509173afe766b443",
+  "atomic_queue_sha": "d9d66b6d20d74042da481ed5504fa81c0d79c8ae",
+  "xenium_sha": "1c449ae953ce2a440b0d16c5ed1181d2754860ab"
+}

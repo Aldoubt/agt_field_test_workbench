@@ -19,7 +19,7 @@ OWNER_NEW = ("'mapping_sensor_owner': os.environ.get('AGT_FIELD_TEST_ROBOT', 'yh
 
 
 def main():
-    head = subprocess.check_output(['git', '-C', str(REPO), 'rev-parse', 'HEAD'], text=True).strip()
+    head = subprocess.check_output(['git', '-c', 'safe.directory='+str(REPO), '-C', str(REPO), 'rev-parse', 'HEAD'], text=True).strip()
     if head != EXPECTED:
         raise SystemExit(f'mapping HEAD {head} differs from pinned {EXPECTED}')
     for relative in ('session_launch.py', 'live_launch.py'):

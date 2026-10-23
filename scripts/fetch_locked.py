@@ -16,15 +16,19 @@ def main():
     for relative, spec in yaml.safe_load((ROOT / '.repos').read_text())['repositories'].items():
         path = ROOT / 'src' / relative
         if path.exists():
-            actual = subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
+            actual = subprocess.check_output(['git', '-c', 'safe.directory='+str(path), '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
             if actual != spec['version']:
                 raise SystemExit(f'{relative}: HEAD {actual} != locked {spec["version"]}; preserved')
+            if relative == 'external/kiss_matcher':
+                (path/'COLCON_IGNORE').touch(exist_ok=True)
             continue
         path.mkdir(parents=True)
         run('git', 'init', '-q', str(path))
         run('git', 'remote', 'add', 'origin', spec['url'], cwd=path)
         run('git', 'fetch', '-q', '--depth', '1', 'origin', spec['version'], cwd=path)
         run('git', 'checkout', '-q', '--detach', 'FETCH_HEAD', cwd=path)
+        if relative == 'external/kiss_matcher':
+            (path/'COLCON_IGNORE').touch(exist_ok=True)
         print(f'Fetched {relative} {spec["version"]}')
 
 

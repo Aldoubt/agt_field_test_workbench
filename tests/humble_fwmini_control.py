@@ -46,7 +46,6 @@ class ControlTests(unittest.TestCase):
         self.manual = self.node.create_publisher(Twist, '/agt/hmi/cmd_vel', 10)
         self.raw = self.node.create_publisher(Twist, '/cmd_vel', 10)
         self.external = self.node.create_publisher(Bool, '/fwmini/external_stop', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
-        self.timer = self.node.create_timer(.02, self.feedback)
         self.adapter = self.spawn(['ros2', 'run', 'fwmini_chassis_adapter', 'fwmini_chassis_adapter_node',
                                    '--ros-args', '-p', 'switch_timeout:=1.2'], 'adapter')
         self.guard = self.spawn(['ros2', 'run', 'agt_base_control', 'cmd_vel_guard', '--ros-args',
@@ -55,7 +54,9 @@ class ControlTests(unittest.TestCase):
                                 '-p', 'command_timeout_sec:=0.2', '-p', 'max_linear_x:=0.05',
                                 '-p', 'max_reverse_x:=0.03', '-p', 'max_linear_y:=0.03',
                                 '-p', 'max_angular_z:=0.15'], 'guard')
+        self.addCleanup(self.cleanup)
         self.wait(lambda: self.status.get('state') == 'DISABLED' and self.node.count_publishers('/fwmini/cmd_vel_guarded') == 1)
+        self.timer = self.node.create_timer(.02, self.feedback)
         self.spin(.15)
 
     def spawn(self, command, label):
@@ -362,12 +363,15 @@ class ControlTests(unittest.TestCase):
         self.wait(lambda: publisher.get_subscription_count() > 0 and outputs)
         end = time.monotonic()+.25
         while time.monotonic() < end:
-            publisher.publish(self.velocity(.05, .03, .1))
+            publisher.publish(self.velocity(.05, 0., .1))
             self.spin(.02)
         self.assertTrue(any(m.linear.x > 0 and m.angular.z > 0 for m in outputs))
         self.assertTrue(all(m.linear.y == 0 for m in outputs))
+        publisher.publish(self.velocity(.05,.03,.1));self.spin(.05)
+        self.assertEqual(outputs[-1].linear.x,0.)
+        self.assertEqual(outputs[-1].angular.z,0.)
 
-    def tearDown(self):
+    def cleanup(self):
         failed_shutdowns = []
         for process in reversed(self.processes):
             if process.poll() is None:

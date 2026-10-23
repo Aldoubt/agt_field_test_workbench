@@ -1,0 +1,18 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+Starting >>> agt_field_test_bringup
+Finished <<< agt_field_test_bringup [0.70s]
+
+Summary: 1 package finished [1.18s]
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+test_bunker_bundle_reaches_robot_state_publisher (__main__.HumbleLoop) ... ok
+test_bunker_guard_feedback_deadman_and_no_replay (__main__.HumbleLoop) ... ok
+test_bunker_localization_query_and_lio_use_aligned_sensor (__main__.HumbleLoop) ... ok
+test_no_pgo_export_and_full_resolution_clean (__main__.HumbleLoop) ... ok
+test_no_pgo_launch_graph_has_aligned_inputs_and_no_chassis (__main__.HumbleLoop) ... ok
+test_raw_bag_recorder_subscribes_before_processing (__main__.HumbleLoop) ... ok
+test_timestamp_policy_reaches_dds (__main__.HumbleLoop) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 9.054s
+
+OK

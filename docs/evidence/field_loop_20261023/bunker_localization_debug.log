@@ -1,0 +1,23 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-10-23-08-30-52-050365-750018ad1ed4-68144
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [robot_state_publisher-1]: process started with pid [68162]
+[INFO] [fwmini_tf_contract.py-2]: process started with pid [68164]
+[robot_state_publisher-1] [INFO] [1792744252.152379698] [robot_state_publisher]: got segment base_footprint
+[robot_state_publisher-1] [INFO] [1792744252.152471949] [robot_state_publisher]: got segment base_link
+[robot_state_publisher-1] [INFO] [1792744252.152478513] [robot_state_publisher]: got segment imu_link
+[robot_state_publisher-1] [INFO] [1792744252.152482448] [robot_state_publisher]: got segment lidar_link
+[robot_state_publisher-1] [INFO] [1792744252.152486337] [robot_state_publisher]: got segment livox_frame
+[fwmini_tf_contract.py-2] [INFO] [1792744253.272281558] [fwmini_tf_preflight]: FWMINI_TF_READY: selected mount and unique TF owners observed
+[INFO] [fwmini_tf_contract.py-2]: process has finished cleanly [pid 68164]
+[INFO] [launch.user]: bunker CANDIDATE: selected TF checked
+[ERROR] [launch]: Caught exception in launch (see debug for traceback): FAST-LIO2 navigation requires world_frame=odom, body_frame=body
+[INFO] [robot_state_publisher-1]: sending signal 'SIGINT' to process[robot_state_publisher-1]
+[robot_state_publisher-1] [INFO] [1792744253.396035650] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [fwmini_tf_contract.py-3]: process started with pid [68186]
+[INFO] [time_align.py-4]: process started with pid [68188]
+[INFO] [fwmini_tf_contract.py-3]: sending signal 'SIGINT' to process[fwmini_tf_contract.py-3]
+[INFO] [time_align.py-4]: sending signal 'SIGINT' to process[time_align.py-4]
+[ERROR] [time_align.py-4]: process has died [pid 68188, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/time_align.py --ros-args --params-file /tmp/launch_params_938md2jp'].
+[ERROR] [fwmini_tf_contract.py-3]: process has died [pid 68186, exit code -2, cmd '/home/agent/agt_field_test_ws/install/agt_field_test_bringup/lib/agt_field_test_bringup/fwmini_tf_contract.py --bundle /home/agent/agt_field_test_ws/src/agt_field_test_workbench/agt_field_test_bringup/config/bunker_calibration_candidate.yaml --backend fastlio2 --ros-args -r __node:=fwmini_tf_watch'].
+[INFO] [robot_state_publisher-1]: process has finished cleanly [pid 68162]

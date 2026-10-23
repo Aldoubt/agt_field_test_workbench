@@ -1,0 +1,14 @@
+Processing ./src/external/kiss_matcher/python
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: kiss_matcher
+  Building wheel for kiss_matcher (pyproject.toml): started
+  Building wheel for kiss_matcher (pyproject.toml): still running...
+  Building wheel for kiss_matcher (pyproject.toml): still running...
+  Building wheel for kiss_matcher (pyproject.toml): finished with status 'done'
+  Created wheel for kiss_matcher: filename=kiss_matcher-1.0.2-cp310-cp310-linux_x86_64.whl size=1267982 sha256=859adc1f26434831fe9b6ead67a712a1fb38af786c28e2ff6f277a3429d29ec9
+  Stored in directory: /tmp/pip-ephem-wheel-cache-bsze1zhr/wheels/21/3b/26/a681e29b22c667bf4ccf789dce9ecae1531f71435c8f91fda7
+Successfully built kiss_matcher
+Installing collected packages: kiss_matcher
+Successfully installed kiss_matcher-1.0.2
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv

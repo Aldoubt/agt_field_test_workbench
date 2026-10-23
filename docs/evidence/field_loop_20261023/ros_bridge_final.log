@@ -1,0 +1,7 @@
+not found: "/home/agent/agt_field_test_ws/install/bunker_base/share/bunker_base/local_setup.bash"
+test_expiring_jog_and_closed_lease_cannot_replay (__main__.RPCIntegration) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.935s
+
+OK

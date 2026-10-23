@@ -15,12 +15,21 @@ import subprocess
 
 from .maps import Maps
 from .cloud import sample_pcd
+from .artifacts import Clouds
+from .routes import Routes
+from .session import Sessions,rpc
+from .calibrations import Bundles
+from .acceptance import navigation as acceptance_navigation,ap50
 from .runtime import Jobs, ROOT, REPO, TEMPLATES, status, write_json
 from .fwmini import profiles, resolve_profile, verify_profile
 
 STATIC = REPO / 'workbench/static'
 JOBS = Jobs()
 MAPS = Maps()
+CLOUDS = Clouds()
+ROUTES = Routes()
+SESSIONS = Sessions(JOBS)
+BUNDLES = Bundles()
 
 
 def calibrations(robot):
@@ -47,6 +56,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            if self.path == '/api/profiles':
+                from .profiles import list_profiles
+                return self.response(200,list_profiles(ROOT))
+            if self.path == '/api/clouds':return self.response(200,CLOUDS.list())
+            if self.path == '/api/routes':return self.response(200,ROUTES.list())
+            if self.path == '/api/live':
+                try:SESSIONS.bridge();return self.response(200,rpc(ROOT,'status'))
+                except (OSError,ValueError) as exc:return self.response(200,{'state':'ROS_BRIDGE_UNAVAILABLE','reason':str(exc),'session':SESSIONS.current()})
+            match=re.fullmatch(r'/api/bundles/(bunker|fwmini)',self.path)
+            if match:return self.response(200,BUNDLES.list(match.group(1)))
+            match=re.fullmatch(r'/api/clouds/([^/]+)/preview',self.path)
+            if match:return self.response(200,sample_pcd(CLOUDS.get(match.group(1))['pcd']))
             if self.path == '/api/status':
                 return self.response(200, status())
             if self.path == '/api/jobs':
@@ -106,17 +127,85 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, KeyError, TypeError) as exc:
             self.response(400, {'error': str(exc)})
 
     def do_POST(self):
         try:
+            origin=self.headers.get('Origin')
+            if origin and origin not in ('http://'+self.headers.get('Host',''), 'https://'+self.headers.get('Host','')):
+                raise ValueError('cross-origin mutations are not allowed')
+            if self.headers.get('Content-Type','').split(';')[0]!='application/json':raise ValueError('application/json required')
             payload = self.body()
+            match=re.fullmatch(r'/api/profiles/(bunker|fwmini)',self.path)
+            if match:
+                if any(j['kind']=='field_session' and j['state'] in ('RUNNING','ORPHANED') for j in JOBS.list()):raise ValueError('stop the active session before selecting a new profile')
+                from .profiles import save
+                return self.response(200,save(ROOT,match.group(1),payload['profile']))
+            if self.path=='/api/reports/read':
+                file=Path(payload['path']).expanduser();file=(ROOT/file).resolve() if not file.is_absolute() else file.resolve()
+                if not any(file.is_relative_to((ROOT/p).resolve()) for p in ('runs','reports')) or file.suffix!='.json':raise ValueError('workspace JSON report required')
+                return self.response(200,json.loads(file.read_text()))
+            if self.path=='/api/diagnostics/time':
+                from .maps import _new_id
+                interface=payload.get('interface','eth0')
+                if not re.fullmatch(r'[A-Za-z0-9_.:-]{1,40}',interface):raise ValueError('invalid interface')
+                output=ROOT/'reports'/('time_'+_new_id()+'.json')
+                return self.response(200,JOBS._new('time_diagnostics',['python3',str(REPO/'scripts/diagnose_time.py'),'--interface',interface,'--output',str(output)],{'output':str(output)}))
+            if self.path=='/api/ins/start':
+                from .runtime import ros_ready
+                from .maps import _new_id
+                import yaml
+                if not ros_ready():raise ValueError('Humble workspace required')
+                if any(j['kind']=='ins_observation' and j['state'] in ('RUNNING','ORPHANED') for j in JOBS.list()):raise ValueError('INS observation already running')
+                port=Path(payload.get('port','/dev/ttyUSB0')).resolve();baud=payload.get('baudrate',230400)
+                if not str(port).startswith('/dev/') or not port.is_char_device() or baud not in (115200,230400,460800,921600):raise ValueError('connected serial device and supported configured baud required')
+                cfg=ROOT/'runs'/('ins_'+_new_id())/'driver.yaml';cfg.parent.mkdir(parents=True)
+                cfg.write_text(yaml.safe_dump({'agt_asensing_driver':{'ros__parameters':dict(port=str(port),baudrate=baud,ins_frame_id='ins_link',gnss_frame_id='rtk_antenna_link',use_device_orientation_in_imu=False,rtk_fixed_types=[4])}}))
+                return self.response(200,JOBS._new('ins_observation',['bash',str(REPO/'scripts/ros_exec.sh'),'ros2','run','agt_asensing_driver','asensing_node','--ros-args','-r','__node:=agt_asensing_driver','--params-file',str(cfg)],{'config':str(cfg),'scope':'HARDWARE_OBSERVATION_ONLY'}))
+            if self.path=='/api/clouds/import':return self.response(200,CLOUDS.import_pcd(payload['path'],payload.get('calibration'),payload.get('bag')))
+            match=re.fullmatch(r'/api/clouds/([^/]+)/(clean|project)',self.path)
+            if match:
+                return self.response(200,CLOUDS.clean(match.group(1),payload['operations']) if match.group(2)=='clean' else CLOUDS.grid(match.group(1),payload.get('projection',{})))
+            if self.path=='/api/routes':return self.response(200,ROUTES.save(payload['map_id'],payload['points'],payload.get('name',''),payload.get('parent')))
+            if self.path=='/api/session/start':return self.response(200,SESSIONS.start(payload))
+            if self.path=='/api/session/stop':return self.response(200,SESSIONS.stop())
+            match=re.fullmatch(r'/api/control/(distance|route|goal|jog|stop|mode|relocalize)',self.path)
+            if match:return self.response(200,rpc(ROOT,match.group(1),payload))
+            match=re.fullmatch(r'/api/bundles/(bunker|fwmini)',self.path)
+            if match:return self.response(200,BUNDLES.save(match.group(1),payload['bundle']))
+            if self.path=='/api/bundles/verify':return self.response(200,BUNDLES.verify(payload['source'],payload['report']))
+            if self.path=='/api/reports/acceptance':
+                from .maps import _new_id
+                result={'navigation':acceptance_navigation(payload.get('trials',[])),
+                    'recognition':ap50(payload.get('ground_truth',[]),payload.get('predictions',[]),payload.get('images',{}),payload.get('model',{})),
+                    'physical_execution':'NOT_RUN' if not payload.get('trials') else 'USER_EVIDENCE', 'dependencies':__import__('workbench.runtime',fromlist=['source_versions']).source_versions(ROOT)}
+                ident='acceptance_'+_new_id();target=ROOT/'reports'/(ident+'.json');inputs=ROOT/'reports'/(ident+'.inputs.json')
+                write_json(inputs,payload);result['inputs']=dict(path=str(inputs),sha256=__import__('workbench.maps',fromlist=['hash_file']).hash_file(inputs))
+                write_json(target,result)
+                return self.response(200,dict(result,path=str(target)))
+            if self.path in ('/api/experiments/benchmark','/api/experiments/tracker_ab'):
+                from .maps import _new_id
+                folder=ROOT/'reports'/('experiment_'+_new_id())
+                if self.path.endswith('benchmark'):
+                    spec=ROOT/'runs'/('experiment_'+_new_id())/'spec.json';write_json(spec,payload['spec'])
+                    command=['python3',str(REPO/'scripts/localization_benchmark.py'),'--spec',str(spec),'--output',str(folder)]
+                else:
+                    command=['python3',str(REPO/'scripts/localization_ab.py'),'--bag',str(Path(payload['bag']).resolve()),'--map-id',payload['map_id'],'--robot',payload['robot'],'--calibration',str(Path(payload['calibration']).resolve()),'--output',str(folder)]
+                return self.response(200,JOBS._new('offline_experiment',['bash',str(REPO/'scripts/ros_exec.sh'),*command],{'output':str(folder),'scope':'OFFLINE_ONLY'}))
+            if self.path=='/api/diagnostics/analyze':
+                bag=Path(payload['bag']).expanduser().resolve()
+                if not (bag/'metadata.yaml').is_file():raise ValueError('existing bag required')
+                from .maps import _new_id
+                output=ROOT/'reports'/('motion_'+_new_id())
+                return self.response(200,JOBS._new('motion_analysis',['bash',str(REPO/'scripts/ros_exec.sh'),'python3',str(REPO/'scripts/analyze_bag.py'),'--bag',str(bag),'--output',str(output)],{'output':str(output)}))
+            match=re.fullmatch(r'/api/jobs/([^/]+)/finish',self.path)
+            if match:return self.response(200,JOBS.finish_mapping(match.group(1)))
             if self.path == '/api/mapping/start':
                 return self.response(200, JOBS.start_mapping(
                     payload.get('bag'), payload.get('robot', 'bunker'),
                     payload.get('calibration'), bool(payload.get('live')),
-                    payload.get('livox_config'), payload.get('mount_profile')))
+                    payload.get('livox_config'), payload.get('mount_profile'),payload.get('backend','fastlio'),payload.get('calibration_bundle')))
             if self.path == '/api/recording/start':
                 return self.response(200, JOBS.start_recorder(
                     payload.get('template'), payload.get('robot', 'bunker'),
