@@ -1,0 +1,20 @@
+robot: bunker
+points_topic: /glim_rosnode/map
+live_points_topic: /glim_rosnode/aligned_points
+map_topic: /map
+odom_topic: /odom
+raw_lidar_topic: /livox/lidar
+imu_topic: /livox/imu
+# The default is NOT /cmd_vel; route this through an independently verified velocity guard.
+command_topic: /agt/studio/cmd_vel
+safety_permitted_topic: /agt/safety/motion_permitted
+obstacle_clear_topic: /agt/safety/obstacle_clear
+max_linear_mps: 0.10
+max_angular_rps: 0.25
+max_acceleration_mps2: 0.15
+odom_max_age_s: 0.35
+safety_max_age_s: 0.35
+motion_timeout_s: 20.0
+bag_root: ~/agt_studio_runs
+# Absolute path to a valid GLIM config directory. The app will not invent extrinsics.
+glim_config_path: ''
