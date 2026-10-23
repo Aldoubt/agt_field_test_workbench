@@ -17,11 +17,11 @@ DEFAULT_CONFIG = {
     'robot':'bunker', 'points_topic':'/glim_rosnode/map',
     'live_points_topic':'/glim_rosnode/aligned_points', 'map_topic':'/map',
     'odom_topic':'/odom', 'raw_lidar_topic':'/livox/lidar', 'imu_topic':'/livox/imu',
-    'command_topic':'/agt/studio/cmd_vel',
+    'drive_action':'/drive_on_heading', 'spin_action':'/spin',
+    'live_motion_enabled':False,'drive_speed_mps':.08,'allow_reverse':False,
     'safety_permitted_topic':'/agt/safety/motion_permitted',
-    'obstacle_clear_topic':'/agt/safety/obstacle_clear',
     'max_linear_mps':0.10, 'max_angular_rps':0.25, 'max_acceleration_mps2':0.15,
-    'odom_max_age_s':0.35, 'safety_max_age_s':0.35,
+    'guard_max_age_s':1.5,
     'motion_timeout_s':20.0, 'bag_root':'~/agt_studio_runs', 'glim_config_path':''}
 
 STYLE = '''
@@ -262,7 +262,7 @@ class Studio(QMainWindow):
             b.clicked.connect(lambda on,n=i:self._set_page(n))
             s.addWidget(b);self.pages[name]=b
         s.addStretch(1)
-        s.addWidget(text_label('ROS 2 HUMBLE   ·   v0.1.0'))
+        s.addWidget(text_label('ROS 2 HUMBLE   ·   v0.1.1'))
         s.addWidget(text_label('真实运动默认禁止'))
 
     def _topbar(self,layout):
@@ -290,8 +290,8 @@ class Studio(QMainWindow):
         self.dash_message=text_label('等待 ROS 反馈与传感器数据')
         c.addWidget(self.dash_message)
         for name,description in [('GLIM','/glim_rosnode/map  /  /glim_rosnode/aligned_points'),
-                                  ('里程计','/odom'),('运动安全','双路 ROS Bool 必须新鲜且为 true'),
-                                  ('控制出口',self.cfg['command_topic'])]:
+                                  ('里程计','/odom'),('运动安全','独立 Motion Guard + Nav2 局部碰撞检查'),
+                                  ('控制出口','Nav2 DriveOnHeading / Spin Actions')]:
             c.addWidget(text_label(f'{name}    ·    {description}'))
         l.addStretch()
 
@@ -340,7 +340,7 @@ class Studio(QMainWindow):
 
     def _page_motion(self):
         l=self._page_shell();l.addWidget(text_label('运动标定','title'))
-        l.addWidget(text_label('局部里程计闭环运动 · 与 Nav2 全局导航独立 · 双路安全许可失效即零速'))
+        l.addWidget(text_label('Nav2 Behavior Server 执行定距与旋转；复用 rolling costmap + footprint 碰撞检查，Qt 不直接发速度'))
         c=card(l,'定距与转角');form=QHBoxLayout();c.addLayout(form)
         self.distance=QDoubleSpinBox();self.distance.setRange(.02,5.0);self.distance.setDecimals(2)
         self.distance.setSingleStep(.1);self.distance.setValue(.5);self.distance.setSuffix(' m');form.addWidget(self.distance)
@@ -355,12 +355,12 @@ class Studio(QMainWindow):
         self.arm=QCheckBox('人工使能本次运动测试（关闭立即停车）')
         guard.addWidget(self.ack);guard.addWidget(self.arm)
         self.arm.stateChanged.connect(self._arm_changed)
-        self.guard_text=text_label('门禁：等待里程计、许可和障碍保护反馈')
+        self.guard_text=text_label('门禁：等待 Nav2 Behavior Server 与独立运动许可')
         guard.addWidget(self.guard_text)
         info=card(l,'实时反馈')
         self.odom_label=text_label('里程计：未收到');info.addWidget(self.odom_label)
         self.progress_label=text_label('任务：停止');info.addWidget(self.progress_label)
-        info.addWidget(text_label('速度输出：'+self.cfg['command_topic']+'；此主题默认不会直接驱动底盘。'))
+        info.addWidget(text_label('工作台不直接发送 /cmd_vel；速度必须经 Collision Monitor / Motion Guard 和底盘超时停车。'))
         l.addStretch()
 
     def _page_logs(self):
@@ -387,9 +387,9 @@ class Studio(QMainWindow):
         self.status.setText('● ROS 已连接' if online else '● 连接断开')
         self.status.setStyleSheet('color:#55c9a9' if online else 'color:#ec9c83')
         od=s.get('odom')
-        self.odom_label.setText('里程计  X={:.2f}  Y={:.2f}  Yaw={:.1f}°'.format(od[0],od[1],math.degrees(od[2])) if od else '里程计：未收到')
+        self.odom_label.setText('里程计（仅显示） X={:.2f} Y={:.2f} Yaw={:.1f}° | 距上次接收 {:.1f}s'.format(od[0],od[1],math.degrees(od[2]),s.get('odom_age_s') or 0) if od else '里程计：未收到（不影响 Qt 运行）')
         guards=s.get('guards',{})
-        names={'odom':'里程计','motion_guard':'运动许可','obstacle_clear':'障碍保护','operator':'人工使能'}
+        names={'nav2_behaviors':'Nav2行为','motion_guard':'外部运动许可','operator':'人工使能','configuration':'实车锁'}
         self.guard_text.setText('    '.join(('✓' if guards.get(k) else '×')+n for k,n in names.items()))
         self.guard_text.setStyleSheet('color:#65bda9' if all(guards.values()) and guards else 'color:#e8b178')
         kind=s.get('moving')
@@ -464,7 +464,7 @@ class Studio(QMainWindow):
             self.bag.terminate();self.bag_btn.setText('开始录包');return
         root=Path(str(self.cfg['bag_root'])).expanduser();root.mkdir(parents=True,exist_ok=True)
         output=root/('studio_'+datetime.now().strftime('%Y%m%d_%H%M%S'))
-        topics=[self.cfg['raw_lidar_topic'],self.cfg['imu_topic'],self.cfg['odom_topic'],self.cfg['command_topic'],self.cfg['safety_permitted_topic'],self.cfg['obstacle_clear_topic'],'/cmd_vel','/tf','/tf_static']
+        topics=[self.cfg['raw_lidar_topic'],self.cfg['imu_topic'],self.cfg['odom_topic'],self.cfg['safety_permitted_topic'],'/cmd_vel','/tf','/tf_static']
         topics=list(dict.fromkeys(topics))
         self.bag=self._proc('ros2',['bag','record','-o',str(output),*topics],'rosbag2')
         if self.bag:self.bag_btn.setText('停止录包')
