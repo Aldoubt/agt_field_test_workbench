@@ -40,7 +40,7 @@
 
 1. 工控机 `git clone`、`bash scripts/init_workspace.sh`、`bash scripts/build_humble.sh`；保存 `reports/dependency_audit.json`、`reports/colcon_test_result.txt` 和完整构建日志。若厂家包构建失败，先记录错误，不启动运动。
 2. 检查 MID360 IP/主机网卡、静止 IMU 单位/重力/频率/时间戳；用 Calibration 页或 Recorder 的 `calibration` 模板录包。记录传感器序列号和 Bunker/FW-mini 各自安装外参。
-3. 验证实体急停、遥控接管、厂家控制模式、CAN 波特率和反馈新鲜度。Bunker 检查 `/wheel/odom`；FW-mini 检查 `/chassis_info_fb`、`/wheel/odom`，确认其预览几何已替换为实测 YAML。逐车核对指令超时和停车。未经这些 PASS，不调用 `/fwmini/enable_motion` 或发布速度。
+3. 验证实体急停、遥控接管、厂家控制模式、CAN 波特率和反馈新鲜度。Bunker 检查 `/wheel/odom`；FW-mini 检查 `/chassis_info_fb`、`/wheel/odom`，确认其预览几何已替换为实测 YAML。逐车核对指令超时和停车。未经这些 PASS，不调用 `/fwmini/enable_motion` 或发布速度。FW-mini 另须按 [4T4D/横移控制交付](fwmini_ctrl_cmd_delivery.md)完成架轮零速档位确认，READY 后才允许显式 enable；0 档零速不代表已验证物理制动。
 4. 仅在受控区域、低速监督下测试 0.05 m/s 直行/停车；核对实际制动距离、轮速和 `odom→base` 发布者。先停止前一底盘实例再切换；推荐用 `scripts/run_field_test.sh` 的独占锁。
 5. Recorder 选择 `mapping`，或 Mapping 页选择实机建图（后者自动录一次 raw bag，不叠加第二路录制）。检查 `metadata.yaml`、消息数量和缺失话题。随后用同一 raw bag 离线重跑 FAST-LIO2 + PGO。
 6. 以新标定版本重建地图。检查 `map_package` 的 PCD/轨迹/校验清单和 `map_grid/map.pgm`、`map.yaml`；在 Map Studio 预览 3D/2D、编辑并保存新版本。保留源 PCD 和 bag 不变；未验收先标 `DRAFT` 或 `PROVISIONAL`。

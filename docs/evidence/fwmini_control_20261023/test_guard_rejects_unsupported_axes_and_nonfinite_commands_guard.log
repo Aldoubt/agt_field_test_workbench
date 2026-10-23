@@ -1,0 +1,5 @@
+[INFO] [1792739149.807530876] [agt_cmd_vel_guard]: cmd_vel guard: nav=/cmd_vel_smoothed, manual=/agt/hmi/cmd_vel -> /fwmini/cmd_vel_guarded @ 50.0 Hz; default mode=manual; motion is fail-closed on LocalizationStatus
+[WARN] [1792739150.176583965] [agt_cmd_vel_guard]: FW-mini command rejected: unsupported_velocity_axis
+[WARN] [1792739150.556598701] [agt_cmd_vel_guard]: FW-mini command rejected: unsupported_velocity_axis
+[WARN] [1792739150.916778761] [agt_cmd_vel_guard]: FW-mini command rejected: nonfinite_command
+[WARN] [1792739151.296453185] [agt_cmd_vel_guard]: FW-mini command rejected: nonfinite_command

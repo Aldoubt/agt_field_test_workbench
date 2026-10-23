@@ -64,6 +64,7 @@ def _configure(context):
                 # localization. The guard still enforces timeout and limits.
                 nodes.append(Node(package='agt_base_control', executable='cmd_vel_guard',
                                   name='agt_cmd_vel_guard', output='screen', parameters=[{
+                                      'kinematic_profile': 'bunker',
                                       'default_control_mode': 'manual',
                                       'require_localization_status': False,
                                       'max_linear_x': 0.05, 'max_reverse_x': 0.03,
@@ -95,7 +96,9 @@ def _configure(context):
                      name='agt_cmd_vel_guard', output='screen', parameters=[{
                          'default_control_mode': 'manual',
                          'require_localization_status': False,
-                         'output_topic': '/cmd_vel',
+                         'kinematic_profile': 'fwmini',
+                         'output_topic': '/fwmini/cmd_vel_guarded',
+                         'max_linear_y': 0.03,
                          'max_linear_x': 0.05, 'max_reverse_x': 0.03,
                          'max_angular_z': 0.15,
                          'command_timeout_sec': 0.20,

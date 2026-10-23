@@ -1,0 +1,54 @@
+{
+  "fwmini_navigation_lab": {
+    "commit": "34ac35650452027f6f8efde0e3c4ace6ca526a9f",
+    "patch": "patches/fwmini_ctrl_cmd.patch",
+    "files": {
+      "src/fwmini_chassis_adapter/CMakeLists.txt": {
+        "before": "317640e572214f1eedf518c557d2a31e8a6b114572b16bb7da777aa4fc033626",
+        "after": "f066e52ea97d962987805c78b59807bf9fa378a7c1c9e9ee2a03651a4ca27ed5"
+      },
+      "src/fwmini_chassis_adapter/config/cmd_adapter.yaml": {
+        "before": "614f3d3d095a3aa6780ae9eb19f1aad3e54941324eafe9f4432698df1309e711",
+        "after": "44cd2496598917f82beac3fa3550bdc0413313fbde9b78b95e9b50232c555f65"
+      },
+      "src/fwmini_chassis_adapter/include/fwmini_chassis_adapter/core.hpp": {
+        "before": "ae86ea3012ec062990be0c82003f79f1af5307413a30b19fd9bbed342b0ca0f6",
+        "after": "47bd48e761b2493a587d9a80f9c3ef561b88b5134d5a91fa3c3b5eef76ad6b60"
+      },
+      "src/fwmini_chassis_adapter/package.xml": {
+        "before": "86761eb6a1281e5b91525c1f88744f4192e64e2035bdc57401d21eaa22d77de0",
+        "after": "1335b114c60006bc17289b0b431cfdaeba40f48036cc0c620be6c8fbc1a2c1c0"
+      },
+      "src/fwmini_chassis_adapter/src/node.cpp": {
+        "before": "03e4ea5df6f1eecc7f0c4a7f2d596c928430869bc413b762a443e0356c5d81ec",
+        "after": "876cf2a177a06aa7c5234c0cfc0d322a05430748fc17f2e4200adfb4be8027e9"
+      },
+      "src/fwmini_chassis_adapter/test/test_core.cpp": {
+        "before": "4ec9004cf693d8061670a1e06b6cfec9c839521dfb34bbee85b444a30d73dc0d",
+        "after": "a47c50a2c601a9b0431189c75057a64e55270ee45f54ce511055ec752c17ed56"
+      },
+      "src/fwmini_chassis_adapter/test/test_ros.py": {
+        "before": "72ada85ec2b3a3f2a3f71a41e5c5dac9edfeaed94508007311a1c881a2d543f0",
+        "after": "32da2319b786e277a1d9b1ed63e11b1d86177fbc75d462ad3a1583b932e89cbe"
+      },
+      "vendor/FW-mini-ros2/yhs_can_control/include/yhs_can_control/yhs_can_control_node.hpp": {
+        "before": "0b990b38881e1b58b407743dfbb505724324d8f513544adbfec4db74c3d5e0d0",
+        "after": "41555ae4746297ff95c8ba42bf1400b3bcc15a1643192479ef3530fc70c8cdb8"
+      },
+      "vendor/FW-mini-ros2/yhs_can_control/src/yhs_can_control_node.cpp": {
+        "before": "81359a6009840830ba826c5128de866a28f01681344a4042f8ef294706788eec",
+        "after": "0a01e1585848da9052a1b0fca527846b8af95fb47eea0d38d04216d37c2b28f1"
+      }
+    }
+  },
+  "agt_navigation_v3": {
+    "commit": "b3a60487dff973c6326aca2ca2e9db1e78daeaaa",
+    "patch": "patches/fwmini_guard.patch",
+    "files": {
+      "bringup/agt_base_control/agt_base_control/cmd_vel_guard.py": {
+        "before": "179459cc433de2c56f36a3907dc22cd8cbfd023e919897a8959ea2c7ee00340b",
+        "after": "dda6ba449043e6e12bf92905af7064ccb0d1cba0bebda565e788121721e1c788"
+      }
+    }
+  }
+}

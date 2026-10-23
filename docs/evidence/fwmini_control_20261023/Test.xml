@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Site BuildName="(empty)"
+	BuildStamp="20261023-0705-Experimental"
+	Name="750018ad1ed4"
+	Generator="ctest-3.22.1"
+	CompilerName="/usr/bin/c++"
+	CompilerVersion="11.4.0"
+	OSName="Linux"
+	Hostname="750018ad1ed4"
+	OSRelease="6.18.55"
+	OSVersion="#1 SMP Wed Oct 14 19:45:18 UTC 2026"
+	OSPlatform="x86_64"
+	Is64Bits="1"
+	VendorString="GenuineIntel"
+	VendorID="Intel Corporation"
+	FamilyID="6"
+	ModelID="106"
+	ProcessorCacheSize="49152"
+	NumberOfLogicalCPU="3"
+	NumberOfPhysicalCPU="3"
+	TotalVirtualMemory="0"
+	TotalPhysicalMemory="9968"
+	LogicalProcessorsPerPhysical="1"
+	ProcessorClockFrequency="2793.44"
+	>
+	<Testing>
+		<StartDateTime>Oct 23 07:05 UTC</StartDateTime>
+		<StartTestTime>1792739135</StartTestTime>
+		<TestList>
+			<Test>./core</Test>
+			<Test>./ros_control</Test>
+		</TestList>
+		<Test Status="passed">
+			<Name>core</Name>
+			<Path>.</Path>
+			<FullName>./core</FullName>
+			<FullCommandLine>/home/agent/agt_field_test_ws/build/fwmini_chassis_adapter/test_core</FullCommandLine>
+			<Results>
+				<NamedMeasurement type="numeric/double" name="Execution Time">
+					<Value>0.00640028</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="numeric/double" name="Processors">
+					<Value>1</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Completion Status">
+					<Value>Completed</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Command Line">
+					<Value>/home/agent/agt_field_test_ws/build/fwmini_chassis_adapter/test_core</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Environment">
+					<Value>#CTEST_RESOURCE_GROUP_COUNT=</Value>
+				</NamedMeasurement>
+				<Measurement>
+					<Value>PASS: startup, modes 6/8, stop-before-shift, feedback streak, timeouts, axes, epochs, disable, estop, authority, units
+</Value>
+				</Measurement>
+			</Results>
+		</Test>
+		<Test Status="passed">
+			<Name>ros_control</Name>
+			<Path>.</Path>
+			<FullName>./ros_control</FullName>
+			<FullCommandLine>/usr/bin/python3 "/home/agent/agt_field_test_ws/src/fwmini_navigation_lab/src/fwmini_chassis_adapter/test/test_ros.py"</FullCommandLine>
+			<Results>
+				<NamedMeasurement type="numeric/double" name="Execution Time">
+					<Value>32.6467</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="numeric/double" name="Processors">
+					<Value>1</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Completion Status">
+					<Value>Completed</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Command Line">
+					<Value>/usr/bin/python3 "/home/agent/agt_field_test_ws/src/fwmini_navigation_lab/src/fwmini_chassis_adapter/test/test_ros.py"</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Environment">
+					<Value>#CTEST_RESOURCE_GROUP_COUNT=</Value>
+				</NamedMeasurement>
+				<Measurement>
+					<Value>test_adapter_independently_rejects_axis_and_stale_epoch (__main__.ControlTests) ... ok
+test_bunker_keeps_nonholonomic_constraints (__main__.ControlTests) ... ok
+test_disable_stop_estop_authority_and_feedback_expiry_clear_intent (__main__.ControlTests) ... ok
+test_guard_rejects_unsupported_axes_and_nonfinite_commands (__main__.ControlTests) ... ok
+test_lifecycle_stops_zero_and_foreign_owner_forces_exit (__main__.ControlTests) ... ok
+test_mismatched_and_discontinuous_feedback_never_ready (__main__.ControlTests) ... ok
+test_modes_stop_before_shift_and_require_new_commands (__main__.ControlTests) ... ok
+test_startup_is_disabled_and_single_owner (__main__.ControlTests) ... ok
+test_upstream_watchdog_and_feedback_stamp_validation (__main__.ControlTests) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 32.267s
+
+OK
+</Value>
+				</Measurement>
+			</Results>
+		</Test>
+		<EndDateTime>Oct 23 07:06 UTC</EndDateTime>
+		<EndTestTime>1792739168</EndTestTime>
+		<ElapsedMinutes>0</ElapsedMinutes>
+	</Testing>
+</Site>

@@ -1,0 +1,48 @@
+Start testing: Oct 23 07:05 UTC
+----------------------------------------------------------
+1/2 Testing: core
+1/2 Test: core
+Command: "/home/agent/agt_field_test_ws/build/fwmini_chassis_adapter/test_core"
+Directory: /home/agent/agt_field_test_ws/build/fwmini_chassis_adapter
+"core" start time: Oct 23 07:05 UTC
+Output:
+----------------------------------------------------------
+PASS: startup, modes 6/8, stop-before-shift, feedback streak, timeouts, axes, epochs, disable, estop, authority, units
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"core" end time: Oct 23 07:05 UTC
+"core" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/2 Testing: ros_control
+2/2 Test: ros_control
+Command: "/usr/bin/python3" "/home/agent/agt_field_test_ws/src/fwmini_navigation_lab/src/fwmini_chassis_adapter/test/test_ros.py"
+Directory: /home/agent/agt_field_test_ws/build/fwmini_chassis_adapter
+"ros_control" start time: Oct 23 07:05 UTC
+Output:
+----------------------------------------------------------
+test_adapter_independently_rejects_axis_and_stale_epoch (__main__.ControlTests) ... ok
+test_bunker_keeps_nonholonomic_constraints (__main__.ControlTests) ... ok
+test_disable_stop_estop_authority_and_feedback_expiry_clear_intent (__main__.ControlTests) ... ok
+test_guard_rejects_unsupported_axes_and_nonfinite_commands (__main__.ControlTests) ... ok
+test_lifecycle_stops_zero_and_foreign_owner_forces_exit (__main__.ControlTests) ... ok
+test_mismatched_and_discontinuous_feedback_never_ready (__main__.ControlTests) ... ok
+test_modes_stop_before_shift_and_require_new_commands (__main__.ControlTests) ... ok
+test_startup_is_disabled_and_single_owner (__main__.ControlTests) ... ok
+test_upstream_watchdog_and_feedback_stamp_validation (__main__.ControlTests) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 32.267s
+
+OK
+<end of output>
+Test time =  32.65 sec
+----------------------------------------------------------
+Test Passed.
+"ros_control" end time: Oct 23 07:06 UTC
+"ros_control" time elapsed: 00:00:32
+----------------------------------------------------------
+
+End testing: Oct 23 07:06 UTC

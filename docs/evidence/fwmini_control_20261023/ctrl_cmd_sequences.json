@@ -1,0 +1,95 @@
+{
+  "test_adapter_independently_rejects_axis_and_stale_epoch.jsonl.gz": {
+    "messages": 92,
+    "uncompressed_sha256": "6388e7bab253f17513dc8342b2750c2f1bda83a6e59aa8a09c678720224afe7b",
+    "compressed_sha256": "d8bf3422a8079e11a991089a8d0abef327dc6e535f3e0d4869f595ef3d69feb8",
+    "observed_gears": [
+      0,
+      6,
+      8
+    ],
+    "median_nonzero_command_interval_sec": null
+  },
+  "test_bunker_keeps_nonholonomic_constraints.jsonl.gz": {
+    "messages": 100,
+    "uncompressed_sha256": "5ad5c0369c0bf046175cb80c8fb11a5957786367dc30543f9e8e96dcb8abf214",
+    "compressed_sha256": "243c649ec25fb87b030d4d42b2401da5561b82bde8f1e163f2376611cce75bac",
+    "observed_gears": [
+      0
+    ],
+    "median_nonzero_command_interval_sec": null
+  },
+  "test_disable_stop_estop_authority_and_feedback_expiry_clear_intent.jsonl.gz": {
+    "messages": 476,
+    "uncompressed_sha256": "33671f2a8ee92822c6b50fa7d3924d5dd05e43783c7db21226506f95542ab544",
+    "compressed_sha256": "000c2c53cf08c275cd17afa13f82661f2c6c66a0a360658f7c610bfd61d88629",
+    "observed_gears": [
+      0,
+      8
+    ],
+    "median_nonzero_command_interval_sec": 0.020060613998793997
+  },
+  "test_guard_rejects_unsupported_axes_and_nonfinite_commands.jsonl.gz": {
+    "messages": 134,
+    "uncompressed_sha256": "a4123f9d24f99abec1ad8b9099c48720c9cf1579a954de6a71621a4f5984432c",
+    "compressed_sha256": "0f5faf6943ced81e48b1d6c1f14f6f70405d2e97cae14b9d426788c4e7bb65d1",
+    "observed_gears": [
+      0,
+      6,
+      8
+    ],
+    "median_nonzero_command_interval_sec": null
+  },
+  "test_lifecycle_stops_zero_and_foreign_owner_forces_exit.jsonl.gz": {
+    "messages": 60,
+    "uncompressed_sha256": "cddaa5b8f797c648db31701a785cb4dcd37fe5002b0484059bcb01f975164479",
+    "compressed_sha256": "d676e1833cd5e36d4f25508e85881c595a950a44ecba08a04387af8670d7eba8",
+    "observed_gears": [
+      0,
+      8
+    ],
+    "median_nonzero_command_interval_sec": 0.019775016997300554
+  },
+  "test_mismatched_and_discontinuous_feedback_never_ready.jsonl.gz": {
+    "messages": 131,
+    "uncompressed_sha256": "acb68a1001a1468e8772dbfdfdd1e689f5c5b11350b1190d6bc88e8a36ed5fbe",
+    "compressed_sha256": "3b1158f182953247a5ffad3059a82edd91dc32b16e1ecab9105f6f26ad38ccf2",
+    "observed_gears": [
+      0,
+      6,
+      8
+    ],
+    "median_nonzero_command_interval_sec": null
+  },
+  "test_modes_stop_before_shift_and_require_new_commands.jsonl.gz": {
+    "messages": 241,
+    "uncompressed_sha256": "823eca7e40f044256bb3546ff9e74e68c4e2af54cd51275ab2588d21923de216",
+    "compressed_sha256": "be78047774534694df2d57937906c10cd2b2ec96097f3a6a873070f682316729",
+    "observed_gears": [
+      0,
+      6,
+      8
+    ],
+    "median_nonzero_command_interval_sec": 0.020256567004253156
+  },
+  "test_startup_is_disabled_and_single_owner.jsonl.gz": {
+    "messages": 58,
+    "uncompressed_sha256": "6514674079b41507a85f50c5b4e84b35d08e515a2e1f6728cad4557575381e70",
+    "compressed_sha256": "46d4d10cdba98b8dbf7b79a79de8ac6394fe6c8fb114c70a17440a5b3baa9726",
+    "observed_gears": [
+      0
+    ],
+    "median_nonzero_command_interval_sec": null
+  },
+  "test_upstream_watchdog_and_feedback_stamp_validation.jsonl.gz": {
+    "messages": 93,
+    "uncompressed_sha256": "36a8f25bcb57f7e2fdb45f3fa832946c0b16da6d970132a51a731ad7eb7c35ac",
+    "compressed_sha256": "1a144a159998d34f9813aba7dab79618c7d0456c241f7edc04bd2e0433e997e7",
+    "observed_gears": [
+      0,
+      6,
+      8
+    ],
+    "median_nonzero_command_interval_sec": 0.019979138000053354
+  }
+}

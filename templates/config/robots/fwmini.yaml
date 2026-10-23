@@ -12,8 +12,12 @@ linear_accel_mps2: 0.1
 linear_decel_mps2: 0.2
 control_hz: 50
 can_interface: can0
-can_bitrate: null
+can_bitrate: 500000
 wheel_odom_topic: /wheel/odom
-driver_command_topic: /cmd_vel
+guarded_command_topic: /fwmini/cmd_vel_guarded
+driver_command_topic: /ctrl_cmd
+control_mode_at_startup: disabled
+ctrl_cmd_modes: {four_wheel_steer: 6, lateral: 8}
+lateral_mps: 0.03
 driver_tf_enabled: false
 motion_requires: [vendor_mode_confirmed, physical_estop_checked, remote_takeover_checked, can_feedback_fresh, command_timeout_checked, measured_geometry]

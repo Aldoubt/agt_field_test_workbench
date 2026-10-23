@@ -25,6 +25,7 @@ def git(path, *args):
 def main():
     import yaml
     manifest = yaml.safe_load((ROOT / '.repos').read_text())['repositories']
+    control_patches = json.loads((Path(__file__).resolve().parents[1] / 'patches/control_manifest.json').read_text())
     repos = []
     packages = {}
     for relative, spec in manifest.items():
@@ -36,6 +37,11 @@ def main():
                        {line[3:] for line in changes} == set(INTEGRATION_PATCH_SHA) and
                        all(hashlib.sha256((path / name).read_bytes()).hexdigest() == digest
                            for name, digest in INTEGRATION_PATCH_SHA.items()))
+            control_spec = control_patches.get(relative, {})
+            patched = patched or (bool(control_spec) and
+                {line[3:] for line in changes} == set(control_spec['files']) and
+                all(hashlib.sha256((path/name).read_bytes()).hexdigest() == hashes['after']
+                    for name, hashes in control_spec['files'].items()))
             generated_livox = (relative == 'external/livox_ros_driver2' and
                                {line[3:] for line in changes} in ({'launch/'}, {'package.xml', 'launch/'}) and
                                filecmp.cmp(path / 'package.xml', path / 'package_ROS2.xml', shallow=False) and

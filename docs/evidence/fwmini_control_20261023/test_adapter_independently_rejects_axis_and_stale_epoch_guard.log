@@ -1,0 +1,1 @@
+[INFO] [1792739136.738193083] [agt_cmd_vel_guard]: cmd_vel guard: nav=/cmd_vel_smoothed, manual=/agt/hmi/cmd_vel -> /fwmini/cmd_vel_guarded @ 50.0 Hz; default mode=manual; motion is fail-closed on LocalizationStatus

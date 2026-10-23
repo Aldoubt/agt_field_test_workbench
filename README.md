@@ -37,8 +37,8 @@ bash scripts/run_field_test.sh robot:=bunker enable_chassis:=true \
   map_yaml:=/absolute/path/to/maps/versions/<id>/map.yaml
 ```
 
-同等 ROS 入口：`ros2 launch agt_field_test_bringup field_test.launch.py robot:=bunker|fwmini`。建议使用 `run_field_test.sh`，它用 `flock` 阻止两次脚本启动竞争 CAN。`Ctrl+C` 停止。FW-mini 的底盘适配器启动后仍需显式调用 `/fwmini/enable_motion`；当前未做过现场安全验收，不应启用运动。
-Bunker 和 FW-mini 的底盘单独启动时，入口只接入低速手动 command guard（命令超时 0.20 s），不依赖全局定位；FW-mini 适配器仍默认禁止运动并执行自己的超时。显式 `enable_navigation:=true` 时由 V3 导航入口启动其 guard，并校验 `ACCEPTED` 地图与定位 PCD 的 SHA-256 对应关系。
+同等 ROS 入口：`ros2 launch agt_field_test_bringup field_test.launch.py robot:=bunker|fwmini`。建议使用 `run_field_test.sh`，它用 `flock` 阻止两次脚本启动竞争 CAN。`Ctrl+C` 停止。FW-mini 的底盘适配器默认 0 档零速，须先显式选择 4T4D/横移模式并经连续反馈进入 READY，再调用 `/fwmini/enable_motion`；当前未做过现场安全验收，不应启用运动。
+Bunker 和 FW-mini 的底盘单独启动时，入口只接入低速手动 command guard（命令超时 0.20 s），不依赖全局定位；FW-mini 适配器仍默认禁止运动并执行自己的超时。其 guard 使用独立 `/fwmini/cmd_vel_guarded`，CtrlCmd 6/8 档状态机、无 CAN 测试和实机步骤见 [控制交付](docs/fwmini_ctrl_cmd_delivery.md)。显式 `enable_navigation:=true` 时由 V3 导航入口启动其 guard，并校验 `ACCEPTED` 地图与定位 PCD 的 SHA-256 对应关系。
 
 ## 当前闭环
 

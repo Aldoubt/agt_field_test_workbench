@@ -1,0 +1,746 @@
+diff --git a/src/fwmini_chassis_adapter/CMakeLists.txt b/src/fwmini_chassis_adapter/CMakeLists.txt
+index 0135472..ae6cfa8 100644
+--- a/src/fwmini_chassis_adapter/CMakeLists.txt
++++ b/src/fwmini_chassis_adapter/CMakeLists.txt
+@@ -4,12 +4,13 @@ find_package(ament_cmake REQUIRED)
+ find_package(rclcpp REQUIRED)
+ find_package(geometry_msgs REQUIRED)
+ find_package(std_srvs REQUIRED)
++find_package(std_msgs REQUIRED)
+ find_package(yhs_can_interfaces REQUIRED)
+ add_executable(${PROJECT_NAME}_node src/node.cpp)
+ target_compile_features(${PROJECT_NAME}_node PUBLIC cxx_std_17)
+ target_compile_options(${PROJECT_NAME}_node PRIVATE -Wall -Wextra -Wpedantic)
+ target_include_directories(${PROJECT_NAME}_node PRIVATE include)
+-ament_target_dependencies(${PROJECT_NAME}_node rclcpp geometry_msgs std_srvs yhs_can_interfaces)
++ament_target_dependencies(${PROJECT_NAME}_node rclcpp geometry_msgs std_srvs std_msgs yhs_can_interfaces)
+ install(TARGETS ${PROJECT_NAME}_node DESTINATION lib/${PROJECT_NAME})
+ install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+ if(BUILD_TESTING)
+@@ -18,7 +19,8 @@ if(BUILD_TESTING)
+   target_compile_features(test_core PRIVATE cxx_std_17)
+   target_include_directories(test_core PRIVATE include)
+   add_test(NAME core COMMAND test_core)
+-  find_package(launch_testing_ament_cmake REQUIRED)
+-  add_launch_test(test/test_ros.py TIMEOUT 60)
++  find_package(Python3 REQUIRED COMPONENTS Interpreter)
++  add_test(NAME ros_control COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_ros.py)
++  set_tests_properties(ros_control PROPERTIES TIMEOUT 120)
+ endif()
+ ament_package()
+diff --git a/src/fwmini_chassis_adapter/config/cmd_adapter.yaml b/src/fwmini_chassis_adapter/config/cmd_adapter.yaml
+index cba4ef5..d74ec64 100644
+--- a/src/fwmini_chassis_adapter/config/cmd_adapter.yaml
++++ b/src/fwmini_chassis_adapter/config/cmd_adapter.yaml
+@@ -1,12 +1,15 @@
+ fwmini_chassis_adapter:
+   ros__parameters:
+-    command_topic: /cmd_vel
+-    vendor_command_topic: /ctrl_cmd
+-    max_linear_x: 0.3  # m/s, provisional experiment limits
+-    max_linear_y: 0.3  # m/s
+-    max_angular_z: 0.5 # rad/s
+-    cmd_timeout: 0.2   # steady-clock seconds
++    # Protected input is TwistStamped with a session epoch, never raw /cmd_vel.
++    max_linear_x: 0.05
++    max_linear_y: 0.03
++    max_angular_z: 0.15
++    cmd_timeout: 0.2
++    feedback_timeout: 0.2
++    switch_timeout: 3.0
++    confirm_duration: 0.06
++    confirm_samples: 3
+     publish_rate: 50.0
+-    vendor_linear_unit: mps  # YHS ROS driver packs mm/s internally
++    vendor_linear_unit: mps
+     vendor_angular_unit: degps
+-    control_gear: 0  # Must confirm gear/mode with vendor before physical motion.
++    control_gear: 0  # Always disabled at startup. CtrlCmd modes are selected explicitly: 6 / 8.
+diff --git a/src/fwmini_chassis_adapter/include/fwmini_chassis_adapter/core.hpp b/src/fwmini_chassis_adapter/include/fwmini_chassis_adapter/core.hpp
+index a9abd46..f153c62 100644
+--- a/src/fwmini_chassis_adapter/include/fwmini_chassis_adapter/core.hpp
++++ b/src/fwmini_chassis_adapter/include/fwmini_chassis_adapter/core.hpp
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include <algorithm>
++#include <cstdint>
+ #include <cmath>
+ #include <stdexcept>
+ #include <string>
+@@ -29,41 +30,142 @@ class Units {
+  private:
+   double linear_scale_{1}, angular_scale_{1};
+ };
+-class CommandGate {
++// CtrlCmd V1.0.4 p15: 0 disable, 6 4T4D, 8 lateral (not SteeringCtrlCmd 5/7).
++enum class State { DISABLED, STOPPING, SWITCHING, READY, ACTIVE, FAULT };
++inline const char *name(State state) {
++  switch (state) {
++    case State::DISABLED: return "DISABLED";
++    case State::STOPPING: return "STOPPING";
++    case State::SWITCHING: return "SWITCHING";
++    case State::READY: return "READY";
++    case State::ACTIVE: return "ACTIVE";
++    default: return "FAULT";
++  }
++}
++struct Timing {
++  double feedback_timeout{0.2}, switch_timeout{3.0}, confirm_duration{0.06};
++  int confirm_samples{3};
++};
++class Controller {
+  public:
+-  explicit CommandGate(Limits limits) : limits_(limits) {
+-    for (double value : {limits.x, limits.y, limits.z, limits.timeout})
+-      if (!std::isfinite(value) || value <= 0)
+-        throw std::invalid_argument("limits and cmd_timeout must be finite and positive");
++  explicit Controller(Limits limits = {}, Timing timing = {}) : limits_(limits), timing_(timing) {
++    for (double value : {limits.x, limits.y, limits.z, limits.timeout,
++                        timing.feedback_timeout, timing.switch_timeout, timing.confirm_duration})
++      if (!std::isfinite(value) || value <= 0) throw std::invalid_argument("positive finite limits/timing required");
++    if (timing.confirm_samples < 2 || timing.confirm_duration >= timing.switch_timeout)
++      throw std::invalid_argument("invalid feedback confirmation timing");
++  }
++  State state{State::DISABLED};
++  std::string mode{"none"}, reason{"startup_disabled"}, switch_result{"NOT_REQUESTED"};
++  int target{0}, actual{-1};
++  uint64_t epoch{0};
++  Velocity command{};
++  bool request(const std::string &requested, double now) {
++    if (requested != "four_wheel_steer" && requested != "lateral") { reason="invalid_mode"; return false; }
++    clear();
++    mode=requested; target=(requested == "lateral" ? 8 : 6);
++    state=State::STOPPING; phase_start_=now; reset_streak();
++    switch_result="PENDING_STOP_CONFIRMATION"; reason="waiting_for_stopped_feedback";
++    return true;
+   }
+-  void enable(bool enabled) {
+-    enabled_ = enabled;
+-    received_ = false;  // Never replay a command from before enable/disable.
+-    command_ = {};
++  void disable(const std::string &why="operator_disabled") {
++    if (state == State::STOPPING || state == State::SWITCHING) switch_result="CANCELLED:"+why;
++    clear(); target=0; state=State::DISABLED; reason=why; reset_streak();
+   }
+-  bool receive(Velocity v, double steady_time) {
+-    if (!finite(v) || !std::isfinite(steady_time)) {
+-      received_ = false;
+-      command_ = {};
+-      return false;
++  void fault(const std::string &why) {
++    if (state == State::FAULT) return;  // Preserve the first cause until explicit recovery.
++    if (state != State::FAULT) {
++      if (state == State::STOPPING || state == State::SWITCHING) switch_result="FAILED:"+why;
++      clear(); state=State::FAULT; reset_streak();
+     }
+-    command_ = {std::clamp(v.x, -limits_.x, limits_.x),
+-                std::clamp(v.y, -limits_.y, limits_.y),
+-                std::clamp(v.z, -limits_.z, limits_.z)};
+-    stamp_ = steady_time;
+-    received_ = true;
++    reason=why;
++  }
++  void io(bool estop, bool remote, double now) {
++    io_stamp_=now; io_seen_=true; estop_=estop; remote_=remote;
++    if (estop) fault("emergency_stop");
++    else if (remote) fault("control_authority_lost");
++  }
++  void external_stop(bool stop) {
++    external_stop_=stop;
++    if (stop) fault("external_stop");
++  }
++  void feedback(int gear, Velocity velocity, double now) {
++    if (!finite(velocity)) { fault("nonfinite_feedback"); return; }
++    const bool continuous=feedback_seen_ && now > feedback_stamp_ &&
++                          now-feedback_stamp_ < timing_.feedback_timeout;
++    actual=gear; feedback_stamp_=now; feedback_seen_=true;
++    if (!continuous) reset_streak();
++    if (state == State::DISABLED || state == State::FAULT) return;
++    if (state == State::STOPPING && !io_seen_) return;
++    if (!health(now)) { fault(health_reason(now)); return; }
++    const bool stopped=std::abs(velocity.x)<=0.01 && std::abs(velocity.y)<=0.01 && std::abs(velocity.z)<=0.02;
++    if (state == State::STOPPING || state == State::SWITCHING) {
++      const bool match=stopped && (state == State::STOPPING || actual == target);
++      if (!match) { reset_streak(); return; }
++      if (streak_++ == 0) streak_start_=now;
++      if (streak_ < timing_.confirm_samples || now-streak_start_ < timing_.confirm_duration) return;
++      reset_streak();
++      clear();
++      if (state == State::STOPPING) {
++        state=State::SWITCHING; reason="waiting_for_target_gear"; switch_result="PENDING_GEAR_CONFIRMATION";
++      } else {
++        state=State::READY; reason="ready_requires_explicit_enable"; switch_result="SUCCESS";
++      }
++    } else if (actual != target) fault("gear_mismatch");
++  }
++  bool enable(double now) {
++    tick(now);
++    if (state != State::READY) { if (state != State::FAULT) reason="enable_requires_READY"; return false; }
++    if (!health(now) || actual != target) { fault(health_reason(now)); return false; }
++    clear(); state=State::ACTIVE; enabled_at_=now; command_stamp_=now; reason="waiting_for_new_command";
+     return true;
+   }
+-  Velocity output(double steady_time) const {
+-    const double age = steady_time - stamp_;
+-    if (!enabled_ || !received_ || !std::isfinite(age) ||
+-        age < 0 || age >= limits_.timeout) return {};
+-    return command_;
++  bool receive(Velocity velocity, uint64_t command_epoch, double now) {
++    tick(now);
++    if (command_epoch != epoch || state != State::ACTIVE) return false;
++    if (!finite(velocity)) { fault("nonfinite_command"); return false; }
++    if ((target == 6 && velocity.y != 0.0) || (target == 8 && velocity.z != 0.0)) {
++      fault("unsupported_velocity_axis"); return false;
++    }
++    command={std::clamp(velocity.x,-limits_.x,limits_.x),std::clamp(velocity.y,-limits_.y,limits_.y),
++             std::clamp(velocity.z,-limits_.z,limits_.z)};
++    command_stamp_=now; reason="active";
++    return true;
+   }
++  void tick(double now) {
++    if (state == State::DISABLED || state == State::FAULT) return;
++    if ((state == State::STOPPING || state == State::SWITCHING) && now-phase_start_ >= timing_.switch_timeout) {
++      fault("mode_switch_timeout"); return;
++    }
++    // Before the first valid feedback we remain at gear 0 and never switch.
++    if (state == State::STOPPING && (!feedback_seen_ || !io_seen_)) return;
++    if (!health(now)) { fault(health_reason(now)); return; }
++    if (state == State::ACTIVE && (now-command_stamp_ >= limits_.timeout || now < command_stamp_))
++      fault("command_timeout");
++  }
++  Velocity output() const { return state == State::ACTIVE ? command : Velocity{}; }
++  int output_gear() const { return (state == State::SWITCHING || state == State::READY || state == State::ACTIVE) ? target : 0; }
++  double feedback_age(double now) const { return feedback_seen_ ? now-feedback_stamp_ : -1; }
++  double io_age(double now) const { return io_seen_ ? now-io_stamp_ : -1; }
++  double enabled_at() const { return enabled_at_; }
+  private:
+-  Limits limits_;
+-  bool enabled_{false}, received_{false};
+-  Velocity command_;
+-  double stamp_{0};
++  void clear() { command={}; ++epoch; }
++  void reset_streak() { streak_=0; streak_start_=0; }
++  std::string health_reason(double now) const {
++    if (external_stop_) return "external_stop";
++    if (estop_) return "emergency_stop";
++    if (remote_) return "control_authority_lost";
++    if (!io_seen_ || now-io_stamp_ < 0 || now-io_stamp_ >= timing_.feedback_timeout) return "io_feedback_stale";
++    return "ctrl_feedback_stale";
++  }
++  bool health(double now) const {
++    return !external_stop_ && !estop_ && !remote_ && io_seen_ && feedback_seen_ &&
++      now-io_stamp_ >= 0 && now-io_stamp_ < timing_.feedback_timeout &&
++      now-feedback_stamp_ >= 0 && now-feedback_stamp_ < timing_.feedback_timeout;
++  }
++  Limits limits_; Timing timing_;
++  bool feedback_seen_{false}, io_seen_{false}, estop_{false}, remote_{false}, external_stop_{false};
++  double feedback_stamp_{0}, io_stamp_{0}, phase_start_{0}, streak_start_{0}, command_stamp_{0}, enabled_at_{0};
++  int streak_{0};
+ };
+ }  // namespace fwmini_chassis_adapter
+diff --git a/src/fwmini_chassis_adapter/package.xml b/src/fwmini_chassis_adapter/package.xml
+index f77a13e..4f514fe 100644
+--- a/src/fwmini_chassis_adapter/package.xml
++++ b/src/fwmini_chassis_adapter/package.xml
+@@ -9,6 +9,7 @@
+   <depend>rclcpp</depend>
+   <depend>geometry_msgs</depend>
+   <depend>std_srvs</depend>
++  <depend>std_msgs</depend>
+   <depend>yhs_can_interfaces</depend>
+   <exec_depend>launch</exec_depend>
+   <exec_depend>launch_ros</exec_depend>
+@@ -16,6 +17,7 @@
+   <test_depend>launch_testing_ament_cmake</test_depend>
+   <test_depend>launch_testing</test_depend>
+   <test_depend>rclpy</test_depend>
++  <test_depend>agt_base_control</test_depend>
+   <test_depend>python3-pytest</test_depend>
+   <export><build_type>ament_cmake</build_type></export>
+ </package>
+diff --git a/src/fwmini_chassis_adapter/src/node.cpp b/src/fwmini_chassis_adapter/src/node.cpp
+index 36b1b73..e0405a4 100644
+--- a/src/fwmini_chassis_adapter/src/node.cpp
++++ b/src/fwmini_chassis_adapter/src/node.cpp
+@@ -1,85 +1,192 @@
+ #include <chrono>
+-#include <cstdint>
+-#include <functional>
+-#include <memory>
+-#include <stdexcept>
++#include <csignal>
++#include <atomic>
++#include <cstdlib>
++#include <fcntl.h>
++#include <sys/file.h>
++#include <unistd.h>
++#include <iomanip>
++#include <sstream>
++#include <thread>
+ #include "rclcpp/rclcpp.hpp"
+-#include "geometry_msgs/msg/twist.hpp"
++#include "geometry_msgs/msg/twist_stamped.hpp"
++#include "std_msgs/msg/bool.hpp"
++#include "std_msgs/msg/string.hpp"
+ #include "std_srvs/srv/set_bool.hpp"
++#include "std_srvs/srv/trigger.hpp"
+ #include "yhs_can_interfaces/msg/ctrl_cmd.hpp"
++#include "yhs_can_interfaces/msg/chassis_info_fb.hpp"
++#include "yhs_can_interfaces/msg/io_fb.hpp"
+ #include "fwmini_chassis_adapter/core.hpp"
+ 
+-using namespace std::chrono_literals;
+ namespace fwmini_chassis_adapter {
+ class Adapter : public rclcpp::Node {
+  public:
+   Adapter() : Node("fwmini_chassis_adapter") {
+-    Limits limits{declare_parameter("max_linear_x", 0.3),
+-                  declare_parameter("max_linear_y", 0.3),
+-                  declare_parameter("max_angular_z", 0.5),
+-                  declare_parameter("cmd_timeout", 0.2)};
+-    gate_ = std::make_unique<CommandGate>(limits);
+-    units_ = std::make_unique<Units>(declare_parameter<std::string>("vendor_linear_unit", "mps"),
+-                                    declare_parameter<std::string>("vendor_angular_unit", "degps"));
+-    gear_ = declare_parameter<int>("control_gear", 0);
+-    if (gear_ < 0 || gear_ > 15) throw std::invalid_argument("control_gear must be 0..15");
+-    const double rate = declare_parameter("publish_rate", 50.0);
+-    if (!std::isfinite(rate) || rate < 10 || rate > 1000)
+-      throw std::invalid_argument("publish_rate must be 10..1000 Hz");
+-    pub_ = create_publisher<yhs_can_interfaces::msg::CtrlCmd>(
+-      declare_parameter<std::string>("vendor_command_topic", "/ctrl_cmd"), rclcpp::QoS(1));
+-    sub_ = create_subscription<geometry_msgs::msg::Twist>(
+-      declare_parameter<std::string>("command_topic", "/cmd_vel"), rclcpp::QoS(1),
+-      [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
+-        if (!gate_->receive({msg->linear.x, msg->linear.y, msg->angular.z}, steady_now()))
+-          RCLCPP_WARN(get_logger(), "Rejected non-finite command; output cleared");
++    // Same-host second instances cannot even create a CtrlCmd publisher.
++    const char *domain=std::getenv("ROS_DOMAIN_ID");
++    lock_=::open((std::string("/tmp/fwmini_ctrl_cmd_")+(domain ? domain : "0")+".lock").c_str(), O_CREAT|O_RDWR, 0600);
++    if (lock_ < 0 || ::flock(lock_, LOCK_EX|LOCK_NB) != 0) throw std::runtime_error("another FW-mini CtrlCmd owner exists");
++    Limits limits{declare_parameter("max_linear_x", 0.05), declare_parameter("max_linear_y", 0.03),
++                  declare_parameter("max_angular_z", 0.15), declare_parameter("cmd_timeout", 0.2)};
++    Timing timing{declare_parameter("feedback_timeout", 0.2), declare_parameter("switch_timeout", 3.0),
++                  declare_parameter("confirm_duration", 0.06), static_cast<int>(declare_parameter("confirm_samples", 3))};
++    gate_=std::make_unique<Controller>(limits,timing);
++    gate_->epoch=static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
++    units_=std::make_unique<Units>(declare_parameter<std::string>("vendor_linear_unit","mps"),
++                                  declare_parameter<std::string>("vendor_angular_unit","degps"));
++    if (declare_parameter("control_gear",0) != 0) throw std::invalid_argument("startup control_gear must be 0; use mode-selection services");
++    if (declare_parameter("publish_rate",50.0) != 50.0) throw std::invalid_argument("FW-mini CtrlCmd rate must remain 50 Hz");
++    pub_=create_publisher<yhs_can_interfaces::msg::CtrlCmd>("/ctrl_cmd",rclcpp::QoS(1));
++    status_=create_publisher<std_msgs::msg::String>("/fwmini/control_status",rclcpp::QoS(1).transient_local());
++    sub_=create_subscription<geometry_msgs::msg::TwistStamped>("/fwmini/cmd_vel_guarded",rclcpp::QoS(1),
++      [this](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg) {
++        const auto &v=msg->twist;
++        // Epoch prevents old buffered or in-flight guard messages from being replayed.
++        if (msg->header.frame_id != "fwmini_epoch_"+std::to_string(gate_->epoch)) return;
++        const double age=(now()-rclcpp::Time(msg->header.stamp)).seconds();
++        if (!std::isfinite(age) || age<0 || age>=0.2) { gate_->fault("guard_command_stale"); notify(); return; }
++        last_guard_epoch_=gate_->epoch; last_guard_stamp_=steady_now();
++        if (!std::isfinite(v.linear.z) || !std::isfinite(v.angular.x) || !std::isfinite(v.angular.y) ||
++            v.linear.z != 0 || v.angular.x != 0 || v.angular.y != 0) gate_->fault("unsupported_velocity_axis");
++        else gate_->receive({v.linear.x,v.linear.y,v.angular.z},gate_->epoch,steady_now());
++        notify();
+       });
+-    service_ = create_service<std_srvs::srv::SetBool>("/fwmini/enable_motion",
+-      [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
+-             std::shared_ptr<std_srvs::srv::SetBool::Response> res) {
+-        gate_->enable(req->data);
+-        publish();  // Immediate zero, including when enabling: need a fresh command.
+-        res->success = true;
+-        res->message = req->data ? "Enabled; waiting for fresh cmd_vel" : "Disabled; output zero";
++    feedback_=create_subscription<yhs_can_interfaces::msg::ChassisInfoFb>("/chassis_info_fb",rclcpp::QoS(10),
++      [this](yhs_can_interfaces::msg::ChassisInfoFb::ConstSharedPtr msg) {
++        const auto stamp=rclcpp::Time(msg->header.stamp).nanoseconds();
++        const double age=(now()-rclcpp::Time(msg->header.stamp)).seconds();
++        if (stamp<=last_feedback_stamp_ || age<0 || age>=0.2) { gate_->fault("invalid_ctrl_feedback_stamp"); notify(); return; }
++        last_feedback_stamp_=stamp;
++        const auto &fb=msg->ctrl_fb;
++        // Immediate safety check too, even if independent IO stream has stalled.
++        if (msg->io_fb.io_fb_estop) gate_->fault("emergency_stop");
++        if (msg->io_fb.io_fb_joypad_ctrl) gate_->fault("control_authority_lost");
++        gate_->feedback(fb.ctrl_fb_gear,{fb.ctrl_fb_x_linear,fb.ctrl_fb_y_linear,fb.ctrl_fb_z_angular*pi/180.},steady_now());
++        notify();
+       });
+-    timer_ = create_wall_timer(std::chrono::duration_cast<std::chrono::nanoseconds>(
+-      std::chrono::duration<double>(1. / rate)), [this]() { publish(); });
++    io_=create_subscription<yhs_can_interfaces::msg::IoFb>("/fwmini/io_fb",rclcpp::QoS(1),
++      [this](yhs_can_interfaces::msg::IoFb::ConstSharedPtr msg) {
++        gate_->io(msg->io_fb_estop,msg->io_fb_joypad_ctrl,steady_now());
++        notify();
++      });
++    external_=create_subscription<std_msgs::msg::Bool>("/fwmini/external_stop",rclcpp::QoS(1).transient_local(),
++      [this](std_msgs::msg::Bool::ConstSharedPtr msg) { gate_->external_stop(msg->data); notify(); });
++    guard_fault_=create_subscription<std_msgs::msg::String>("/fwmini/guard_fault",rclcpp::QoS(10),
++      [this](std_msgs::msg::String::ConstSharedPtr msg) {
++        std::string reason="guard_rejected_command";
++        for (const auto *candidate : {"unsupported_velocity_axis", "nonfinite_command", "adapter_status_stale",
++             "upstream_command_timeout", "invalid_adapter_status", "source_handoff_requires_reenable", "autonomous_source_not_enabled"})
++          if (msg->data == candidate) reason=std::string("guard:")+candidate;
++        gate_->fault(reason); notify();
++      });
++    enable_=create_service<std_srvs::srv::SetBool>("/fwmini/enable_motion",
++      [this](const std_srvs::srv::SetBool::Request::SharedPtr req,std_srvs::srv::SetBool::Response::SharedPtr res) {
++        if (req->data) {
++          if (gate_->state == State::READY && (last_guard_epoch_ != gate_->epoch || steady_now()-last_guard_stamp_ >= 0.2)) {
++            gate_->reason="enable_requires_fresh_guard_epoch"; res->success=false;
++          } else res->success=gate_->enable(steady_now());
++        }
++        else { gate_->disable(); res->success=true; }
++        notify(); res->message=snapshot();
++      });
++    four_=mode_service("/fwmini/select_four_wheel_steer","four_wheel_steer");
++    lateral_=mode_service("/fwmini/select_lateral","lateral");
++    stop_=create_service<std_srvs::srv::Trigger>("/fwmini/stop",
++      [this](const std_srvs::srv::Trigger::Request::SharedPtr,std_srvs::srv::Trigger::Response::SharedPtr res) {
++        gate_->fault("external_stop_service"); notify(); res->success=true; res->message=snapshot();
++      });
++    query_=create_service<std_srvs::srv::Trigger>("/fwmini/get_control_state",
++      [this](const std_srvs::srv::Trigger::Request::SharedPtr,std_srvs::srv::Trigger::Response::SharedPtr res) {
++        notify(); res->success=true; res->message=snapshot();
++      });
++    timer_=create_wall_timer(std::chrono::milliseconds(20),[this]() { publish(); });
++    publish();
++  }
++  ~Adapter() override { if (lock_>=0) ::close(lock_); }
++  void stop() {
++    gate_->disable("node_stopping");
++    for (int i=0;i<3;++i) {
++      publish();
++      if (i<2) std::this_thread::sleep_for(std::chrono::milliseconds(20));
++    }
+   }
+-  void stop() { gate_->enable(false); publish(); }
+  private:
+   static double steady_now() {
+-    return std::chrono::duration<double>(
+-      std::chrono::steady_clock::now().time_since_epoch()).count();
++    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
++  }
++  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr mode_service(const std::string &service,const std::string &mode) {
++    return create_service<std_srvs::srv::Trigger>(service,
++      [this,mode](const std_srvs::srv::Trigger::Request::SharedPtr,std_srvs::srv::Trigger::Response::SharedPtr res) {
++        res->success=gate_->request(mode,steady_now()); publish(); res->message=snapshot();
++      });
++  }
++  std::string snapshot() const {
++    const auto v=gate_->output(); const double t=steady_now();
++    std::ostringstream out; out<<std::setprecision(12);
++    out<<"{\"state\":\""<<name(gate_->state)<<"\",\"requested_mode\":\""<<gate_->mode
++       <<"\",\"target_gear\":"<<gate_->target<<",\"actual_gear\":"<<gate_->actual
++       <<",\"guard_epoch_seen\":"<<last_guard_epoch_
++       <<",\"guard_feedback_age_sec\":"<<(last_guard_stamp_>0?t-last_guard_stamp_:-1)
++       <<",\"output_gear\":"<<gate_->output_gear()<<",\"feedback_age_sec\":"<<gate_->feedback_age(t)
++       <<",\"io_feedback_age_sec\":"<<gate_->io_age(t)<<",\"motion_allowed\":"<<(gate_->state==State::ACTIVE?"true":"false")
++       <<",\"command_mps_radps\":["<<v.x<<","<<v.y<<","<<v.z<<"],\"epoch\":"<<gate_->epoch
++       <<",\"reason\":\""<<gate_->reason<<"\",\"last_mode_switch_result\":\""<<gate_->switch_result<<"\"}";
++    return out.str();
++  }
++  void notify() {
++    gate_->tick(steady_now());
++    // A new transition gets an immediate zero; repeated fault feedback must
++    // not turn the 50 Hz CtrlCmd timer into an uncontrolled publish loop.
++    if (gate_->epoch != last_published_epoch_) publish();
++  }
++  void update_status() {
++    std_msgs::msg::String status; status.data=snapshot(); status_->publish(status);
+   }
+   void publish() {
+-    const auto v = units_->encode(gate_->output(steady_now()));
++    // CtrlCmd protocol period is 10..50 ms. Transitions clear the core
++    // immediately, but even priority zero frames respect the 10 ms minimum.
++    const double remaining=0.010-(steady_now()-last_send_stamp_);
++    if (remaining>0) std::this_thread::sleep_for(std::chrono::duration<double>(remaining));
++    gate_->tick(steady_now());
++    const bool conflict=count_publishers("/ctrl_cmd")>1;
++    if (conflict) gate_->fault("duplicate_ctrl_cmd_publisher");
++    const auto v=units_->encode(gate_->output());
+     yhs_can_interfaces::msg::CtrlCmd msg;
+-    msg.ctrl_cmd_gear = static_cast<uint8_t>(gear_);
+-    msg.ctrl_cmd_x_linear = static_cast<float>(v.x);
+-    msg.ctrl_cmd_y_linear = static_cast<float>(v.y);
+-    msg.ctrl_cmd_z_angular = static_cast<float>(v.z);
++    msg.ctrl_cmd_gear=static_cast<uint8_t>(gate_->output_gear());
++    msg.ctrl_cmd_x_linear=static_cast<float>(v.x); msg.ctrl_cmd_y_linear=static_cast<float>(v.y); msg.ctrl_cmd_z_angular=static_cast<float>(v.z);
+     pub_->publish(msg);
++    last_send_stamp_=steady_now();
++    last_published_epoch_=gate_->epoch;
++    update_status();
++    if (conflict) throw std::runtime_error("duplicate_ctrl_cmd_publisher; adapter relinquishing ownership");
+   }
+-  int gear_{0};
+-  std::unique_ptr<CommandGate> gate_;
+-  std::unique_ptr<Units> units_;
++  int lock_{-1}; int64_t last_feedback_stamp_{0}; uint64_t last_published_epoch_{0}, last_guard_epoch_{0}; double last_guard_stamp_{0}, last_send_stamp_{0};
++  std::unique_ptr<Controller> gate_; std::unique_ptr<Units> units_;
+   rclcpp::Publisher<yhs_can_interfaces::msg::CtrlCmd>::SharedPtr pub_;
+-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_;
+-  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr service_;
++  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_;
++  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr sub_;
++  rclcpp::Subscription<yhs_can_interfaces::msg::ChassisInfoFb>::SharedPtr feedback_;
++  rclcpp::Subscription<yhs_can_interfaces::msg::IoFb>::SharedPtr io_;
++  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr external_;
++  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr guard_fault_;
++  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr enable_;
++  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr four_,lateral_,stop_,query_;
+   rclcpp::TimerBase::SharedPtr timer_;
+ };
+ }
+-int main(int argc, char **argv) {
+-  rclcpp::init(argc, argv);
++std::atomic_bool running{true};
++void interrupt(int) { running=false; }
++int main(int argc,char **argv) {
++  rclcpp::init(argc,argv,rclcpp::InitOptions(),rclcpp::SignalHandlerOptions::None);
++  std::signal(SIGINT,interrupt); std::signal(SIGTERM,interrupt);
++  int result=0;
+   try {
+-    auto node = std::make_shared<fwmini_chassis_adapter::Adapter>();
+-    rclcpp::spin(node);  // Single-threaded executor serializes gate state.
++    auto node=std::make_shared<fwmini_chassis_adapter::Adapter>();
++    while (running && rclcpp::ok()) { rclcpp::spin_some(node); std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
+     if (rclcpp::ok()) node->stop();
+   } catch (const std::exception &e) {
+-    RCLCPP_FATAL(rclcpp::get_logger("fwmini_chassis_adapter"), "%s", e.what());
+-    rclcpp::shutdown();
+-    return 1;
++    RCLCPP_FATAL(rclcpp::get_logger("fwmini_chassis_adapter"),"%s",e.what()); result=1;
+   }
+-  rclcpp::shutdown();
+-  return 0;
++  rclcpp::shutdown(); return result;
+ }
+diff --git a/src/fwmini_chassis_adapter/test/test_core.cpp b/src/fwmini_chassis_adapter/test/test_core.cpp
+index e89866b..d2d8135 100644
+--- a/src/fwmini_chassis_adapter/test/test_core.cpp
++++ b/src/fwmini_chassis_adapter/test/test_core.cpp
+@@ -2,41 +2,53 @@
+ #include <limits>
+ #include "fwmini_chassis_adapter/core.hpp"
+ using namespace fwmini_chassis_adapter;
+-void check(bool ok, const char *reason) {
+-  if (!ok) throw std::runtime_error(reason);
++void check(bool ok,const char *why) { if (!ok) throw std::runtime_error(why); }
++void near(double a,double b) { check(std::abs(a-b)<1e-9,"numeric mismatch"); }
++void zero(const Controller &c) { const auto v=c.output(); near(v.x,0); near(v.y,0); near(v.z,0); }
++void sample(Controller &c,int gear,double t,Velocity v={}) { c.io(false,false,t); c.feedback(gear,v,t); c.tick(t); }
++void ready(Controller &c,const std::string &mode,double t) {
++  check(c.request(mode,t),"request"); zero(c); check(c.output_gear()==0,"stop before shift");
++  for (int i=1;i<=5;++i) sample(c,0,t+i*.02);
++  check(c.state==State::SWITCHING,"stopped streak");
++  check(c.output_gear()==(mode=="lateral"?8:6),"CtrlCmd gear"); zero(c);
++  for (int i=6;i<=10;++i) sample(c,c.target,t+i*.02);
++  check(c.state==State::READY,"matching streak");
+ }
+-void near(double a, double b) { check(std::abs(a-b) < 1e-9, "numeric mismatch"); }
+ int main() {
+-  CommandGate gate({0.3, 0.2, 0.5, 0.2});
+-  gate.receive({1, -1, 2}, 1);
+-  near(gate.output(1).x, 0);  // Disabled by default.
+-  gate.enable(true);
+-  near(gate.output(1).x, 0);  // Old command never resurrects.
+-  check(gate.receive({1, -1, 2}, 1), "receive failed");
+-  const auto v = gate.output(1.1);
+-  near(v.x, 0.3); near(v.y, -0.2); near(v.z, 0.5);
+-  near(gate.output(1.21).z, 0);  // timeout
+-  near(gate.output(0.9).x, 0);   // clock regression
+-  gate.receive({0.1, 0.1, 0.1}, 2);
+-  gate.enable(false);
+-  near(gate.output(2).x, 0);
+-  gate.enable(true);
+-  near(gate.output(2).x, 0);
+-  gate.receive({0.1, 0.1, 0.1}, 2);
+-  check(!gate.receive({std::numeric_limits<double>::quiet_NaN(), 0, 0}, 2.01),
+-        "NaN accepted");
+-  near(gate.output(2.02).x, 0);
+-  Units yhs("mps", "degps");
+-  auto encoded = yhs.encode({0.3, -0.2, pi/2});
+-  near(encoded.x, 0.3); near(encoded.y, -0.2); near(encoded.z, 90);
+-  Units raw("mmps", "radps");
+-  encoded = raw.encode({0.3, -0.2, 0.5});
+-  near(encoded.x, 300); near(encoded.y, -200); near(encoded.z, 0.5);
+-  bool threw = false;
+-  try { CommandGate bad({-1, 1, 1, 1}); } catch (const std::invalid_argument &) { threw = true; }
+-  check(threw, "invalid limits accepted");
+-  threw = false;
+-  try { Units bad("unknown", "degps"); } catch (const std::invalid_argument &) { threw = true; }
+-  check(threw, "unknown units accepted");
+-  std::cout << "PASS command: enable, fresh command, limits, watchdog, invalid input, unit conversion\n";
++  Controller c;
++  check(c.state==State::DISABLED && c.output_gear()==0,"startup"); zero(c); check(!c.enable(1),"READY required");
++  ready(c,"four_wheel_steer",1); check(c.enable(1.21),"enable"); zero(c); const auto old=c.epoch;
++  check(c.receive({.05,0,.1},c.epoch,1.22),"4T4D velocity"); near(c.output().z,.1);
++  check(!c.receive({.01,.01,0},c.epoch,1.23),"reject vy"); check(c.state==State::FAULT,"latch fault"); zero(c);
++  ready(c,"lateral",2); check(c.enable(2.21),"enable lateral");
++  check(!c.receive({.05,0,.1},old,2.22),"old epoch"); zero(c);
++  check(c.receive({.02,-.03,0},c.epoch,2.23),"lateral"); near(c.output().y,-.03);
++  check(!c.receive({0,0,.01},c.epoch,2.24),"reject wz"); zero(c);
++  ready(c,"lateral",3); c.enable(3.21); c.receive({.03,.03,0},c.epoch,3.22); c.disable(); zero(c);
++  check(!c.enable(3.23),"disable invalidates readiness");
++  ready(c,"four_wheel_steer",4); c.enable(4.21); c.receive({.02,0,0},c.epoch,4.22);
++  c.io(true,false,4.23); zero(c); check(c.reason=="emergency_stop","estop");
++  ready(c,"four_wheel_steer",5); c.enable(5.21); c.receive({.02,0,0},c.epoch,5.22);
++  c.io(false,true,5.23); zero(c); check(c.reason=="control_authority_lost","authority");
++  ready(c,"four_wheel_steer",6); c.enable(6.21); c.receive({.02,0,0},c.epoch,6.22);
++  sample(c,6,6.38); sample(c,6,6.43); zero(c); check(c.reason=="command_timeout","command watchdog");
++  ready(c,"lateral",7); c.enable(7.21); c.receive({0,.02,0},c.epoch,7.22); c.tick(7.5);
++  zero(c); check(c.reason=="io_feedback_stale","feedback watchdog");
++  ready(c,"four_wheel_steer",8); c.enable(8.21); sample(c,8,8.22); zero(c); check(c.reason=="gear_mismatch","gear");
++  ready(c,"four_wheel_steer",9); c.enable(9.21);
++  c.receive({std::numeric_limits<double>::quiet_NaN(),0,0},c.epoch,9.22); zero(c); check(c.state==State::FAULT,"NaN");
++  Controller timeout; timeout.request("lateral",10); timeout.tick(13.01);
++  check(timeout.state==State::FAULT && timeout.switch_result=="FAILED:mode_switch_timeout","switch timeout"); zero(timeout);
++  Controller moving; moving.request("lateral",20);
++  for (int i=1;i<=30;++i) sample(moving,0,20+i*.02,{.1,0,0});
++  check(moving.state==State::STOPPING && moving.output_gear()==0,"moving cannot shift"); zero(moving);
++  Controller mismatch; mismatch.request("lateral",30);
++  for (int i=1;i<=5;++i) sample(mismatch,0,30+i*.02);
++  for (int i=6;i<=150;++i) { sample(mismatch,(i%2?8:6),30+i*.02); zero(mismatch); }
++  check(mismatch.state==State::FAULT,"intermittent gear cannot confirm");
++  ready(c,"lateral",40); c.enable(40.21); c.external_stop(true); zero(c); check(c.reason=="external_stop","external stop");
++  Units u("mps","degps"); auto v=u.encode({.05,.03,pi/2}); near(v.x,.05); near(v.y,.03); near(v.z,90);
++  bool threw=false; try { Controller bad({-1,1,1,1}); } catch (const std::invalid_argument &) { threw=true; }
++  check(threw,"config");
++  std::cout<<"PASS: startup, modes 6/8, stop-before-shift, feedback streak, timeouts, axes, epochs, disable, estop, authority, units\n";
+ }
+diff --git a/src/fwmini_chassis_adapter/test/test_ros.py b/src/fwmini_chassis_adapter/test/test_ros.py
+index aff78f1..68d8ca1 100644
+--- a/src/fwmini_chassis_adapter/test/test_ros.py
++++ b/src/fwmini_chassis_adapter/test/test_ros.py
+@@ -1,96 +1,7 @@
+-"""Hardware-free ROS graph test. Starts only the adapter, never the CAN driver."""
+-import math
+-import time
+-import unittest
+-import launch
+-import launch_testing.actions
+-import pytest
+-import rclpy
+-from geometry_msgs.msg import Twist
+-from std_srvs.srv import SetBool
+-from yhs_can_interfaces.msg import CtrlCmd
+-from launch_ros.actions import Node
++"""Run the workbench hardware-free Humble suite; never starts the CAN driver."""
++from pathlib import Path
++import runpy
+ 
+-
+-@pytest.mark.launch_test
+-def generate_test_description():
+-    adapter = Node(
+-        package='fwmini_chassis_adapter', executable='fwmini_chassis_adapter_node',
+-        parameters=[{'command_topic': '/test_cmd/input',
+-                     'vendor_command_topic': '/test_cmd/output',
+-                     'cmd_timeout': 0.2, 'max_linear_x': 0.3,
+-                     'max_linear_y': 0.2, 'max_angular_z': 0.5}])
+-    return launch.LaunchDescription([adapter, launch_testing.actions.ReadyToTest()])
+-
+-
+-class CommandTest(unittest.TestCase):
+-    @classmethod
+-    def setUpClass(cls):
+-        rclpy.init()
+-        cls.node = rclpy.create_node('fake_command_tester')
+-
+-    @classmethod
+-    def tearDownClass(cls):
+-        cls.node.destroy_node()
+-        rclpy.shutdown()
+-
+-    def wait(self, condition, timeout=5.0):
+-        deadline = time.monotonic() + timeout
+-        while time.monotonic() < deadline:
+-            rclpy.spin_once(self.node, timeout_sec=0.01)
+-            if condition():
+-                return
+-        self.fail('ROS condition timed out')
+-
+-    def test_command_gate_and_units(self):
+-        messages = []
+-        sub = self.node.create_subscription(CtrlCmd, '/test_cmd/output', messages.append, 10)
+-        pub = self.node.create_publisher(Twist, '/test_cmd/input', 10)
+-        service = self.node.create_client(SetBool, '/fwmini/enable_motion')
+-        self.assertTrue(service.wait_for_service(timeout_sec=5.0))
+-        self.wait(lambda: pub.get_subscription_count() > 0 and len(messages) > 0)
+-
+-        def enable(value):
+-            future = service.call_async(SetBool.Request(data=value))
+-            self.wait(future.done)
+-            self.assertTrue(future.result().success)
+-
+-        def zero(msg):
+-            return (msg.ctrl_cmd_x_linear == 0 and msg.ctrl_cmd_y_linear == 0
+-                    and msg.ctrl_cmd_z_angular == 0)
+-
+-        command = Twist()
+-        command.linear.x = 1.0
+-        command.linear.y = -1.0
+-        command.angular.z = 1.0
+-        pub.publish(command)
+-        self.wait(lambda: len(messages) >= 3)
+-        self.assertTrue(all(zero(msg) for msg in messages))
+-        enable(True)
+-        messages.clear()
+-        pub.publish(command)
+-        self.wait(lambda: any(msg.ctrl_cmd_x_linear > 0 for msg in messages))
+-        output = next(msg for msg in messages if msg.ctrl_cmd_x_linear > 0)
+-        self.assertAlmostEqual(output.ctrl_cmd_x_linear, 0.3, places=6)
+-        self.assertAlmostEqual(output.ctrl_cmd_y_linear, -0.2, places=6)
+-        self.assertAlmostEqual(output.ctrl_cmd_z_angular, math.degrees(0.5), places=5)
+-        messages.clear()
+-        deadline = time.monotonic() + 0.35
+-        while time.monotonic() < deadline:
+-            rclpy.spin_once(self.node, timeout_sec=0.01)
+-        self.assertTrue(messages)
+-        self.assertTrue(zero(messages[-1]))  # Inspect output after the actual deadline.
+-        pub.publish(command)
+-        messages.clear()
+-        self.wait(lambda: any(msg.ctrl_cmd_x_linear > 0 for msg in messages))
+-        enable(False)
+-        messages.clear()
+-        self.wait(lambda: len(messages) >= 2)
+-        self.assertTrue(all(zero(msg) for msg in messages))
+-        enable(True)  # Requires a new command, cannot replay the pre-disable command.
+-        messages.clear()
+-        self.wait(lambda: len(messages) >= 2)
+-        self.assertTrue(all(zero(msg) for msg in messages))
+-        self.node.destroy_subscription(sub)
+-        self.node.destroy_publisher(pub)
+-        self.node.destroy_client(service)
++if __name__ == '__main__':
++    suite = Path(__file__).resolve().parents[4]/'agt_field_test_workbench/tests/humble_fwmini_control.py'
++    runpy.run_path(str(suite), run_name='__main__')
+diff --git a/vendor/FW-mini-ros2/yhs_can_control/include/yhs_can_control/yhs_can_control_node.hpp b/vendor/FW-mini-ros2/yhs_can_control/include/yhs_can_control/yhs_can_control_node.hpp
+index d60134d..dc1292b 100644
+--- a/vendor/FW-mini-ros2/yhs_can_control/include/yhs_can_control/yhs_can_control_node.hpp
++++ b/vendor/FW-mini-ros2/yhs_can_control/include/yhs_can_control/yhs_can_control_node.hpp
+@@ -57,6 +57,7 @@ namespace yhs
+ 
+     rclcpp::Publisher<yhs_can_interfaces::msg::ChassisInfoFb>::SharedPtr chassis_info_fb_publisher_;
+     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
++    rclcpp::Publisher<yhs_can_interfaces::msg::IoFb>::SharedPtr io_fb_publisher_;
+ 
+     void io_cmd_callback(const yhs_can_interfaces::msg::IoCmd::SharedPtr io_cmd_msg);
+ 
+diff --git a/vendor/FW-mini-ros2/yhs_can_control/src/yhs_can_control_node.cpp b/vendor/FW-mini-ros2/yhs_can_control/src/yhs_can_control_node.cpp
+index 6f13f50..36e1e27 100644
+--- a/vendor/FW-mini-ros2/yhs_can_control/src/yhs_can_control_node.cpp
++++ b/vendor/FW-mini-ros2/yhs_can_control/src/yhs_can_control_node.cpp
+@@ -29,6 +29,8 @@ namespace yhs
+ 
+     chassis_info_fb_publisher_ = node_->create_publisher<yhs_can_interfaces::msg::ChassisInfoFb>("chassis_info_fb", 1);
+ 
++    io_fb_publisher_ = node_->create_publisher<yhs_can_interfaces::msg::IoFb>("/fwmini/io_fb", 1);
++
+     odom_pub_ = node_->create_publisher<nav_msgs::msg::Odometry>("odom", 1);
+   }
+ 
+@@ -377,6 +379,7 @@ whether the can line is connected correctly, and whether the chassis is powered
+           if (crc == recv_frame.data[7])
+           {
+             chassis_info_msg.io_fb = msg;
++            io_fb_publisher_->publish(msg);  // Independent freshness, only after BCC validation.
+           }
+ 
+           break;

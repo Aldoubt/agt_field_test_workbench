@@ -1,0 +1,2 @@
+[FATAL] [1792739155.679810642] [fwmini_chassis_adapter]: duplicate_ctrl_cmd_publisher; adapter relinquishing ownership
+[ros2run]: Process exited with failure 1

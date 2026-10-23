@@ -1,0 +1,2 @@
+[INFO] [1792739139.501738583] [agt_cmd_vel_guard]: cmd_vel guard: nav=/cmd_vel_smoothed, manual=/test/bunker_input -> /test/bunker_output @ 50.0 Hz; default mode=manual; motion is fail-closed on LocalizationStatus
+[INFO] [1792739139.503049668] [agt_cmd_vel_guard]: motion gate OPEN: localization_gate_disabled

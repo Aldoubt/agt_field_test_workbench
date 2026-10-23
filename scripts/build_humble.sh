@@ -6,6 +6,7 @@ if [[ ! -f /opt/ros/humble/setup.bash ]]; then
   exit 2
 fi
 python3 "$ROOT/src/agt_field_test_workbench/scripts/fetch_locked.py"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/audit.py" > "$ROOT/reports/dependency_audit.json"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_mapping_calibration.py"
 LIVOX="$ROOT/src/external/livox_ros_driver2"
@@ -61,6 +62,6 @@ colcon build --base-paths src --packages-select agt_global_relocalization_native
   "-DBBS3D_CPU_LIBRARY=$BBS_PREFIX/lib/libcpu_bbs3d.so"
 colcon build --base-paths src --packages-up-to agt_mapping_bringup agt_pcd2grid_exporter agt_field_test_bringup \
   --packages-ignore ugv_sdk bunker_base
-colcon test --base-paths src --packages-select agt_field_test_bringup agt_pcd2grid_exporter agt_mapping_bringup \
+colcon test --base-paths src --packages-select fwmini_chassis_adapter agt_field_test_bringup agt_pcd2grid_exporter agt_mapping_bringup \
   --packages-ignore ugv_sdk bunker_base
 colcon test-result --verbose > "$ROOT/reports/colcon_test_result.txt"

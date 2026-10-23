@@ -1,0 +1,42 @@
+{
+  "tests": 9,
+  "failures": 0,
+  "errors": 0,
+  "environment": "Ubuntu 22.04 / ROS 2 Humble Docker",
+  "ros_domain_id": "216",
+  "can_driver_started": false,
+  "feedback": "SIMULATED_MANUFACTURER",
+  "physical_acceptance": "NOT_RUN",
+  "date": "2026-10-23",
+  "timezone": "Asia/Shanghai",
+  "baseline": "76ada2db26fcbe054870fe1113fc94aebda27929",
+  "targeted_build": {
+    "packages": [
+      "yhs_can_control",
+      "fwmini_chassis_adapter",
+      "agt_base_control",
+      "agt_field_test_bringup"
+    ],
+    "status": "PASS"
+  },
+  "ctest": {
+    "tests": 2,
+    "failures": 0,
+    "detail": "C++ core + 9-case ROS control suite",
+    "tag_utc": "20261023-0705"
+  },
+  "host_unit_tests": {
+    "tests": 13,
+    "failures": 0
+  },
+  "bunker_original_guard_acceptance": "PASS",
+  "dependency_audit": {
+    "mismatched_sha": [],
+    "duplicate_packages": {},
+    "dirty": []
+  },
+  "integration_files_sha256": {
+    "patches/control_manifest.json": "24fb945e3a0bf65bbbd7e18d9eda469dd370cd2deb4364f9990b2c5942f283f0",
+    "tests/humble_fwmini_control.py": "7f96cf5665670c317b9c8e44d4553972b70d6023ffbecb4a7c7138f49fe2e71e"
+  }
+}

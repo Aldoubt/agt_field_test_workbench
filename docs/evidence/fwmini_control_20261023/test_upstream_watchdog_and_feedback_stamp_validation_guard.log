@@ -1,0 +1,2 @@
+[INFO] [1792739166.666486745] [agt_cmd_vel_guard]: cmd_vel guard: nav=/cmd_vel_smoothed, manual=/agt/hmi/cmd_vel -> /fwmini/cmd_vel_guarded @ 50.0 Hz; default mode=manual; motion is fail-closed on LocalizationStatus
+[WARN] [1792739167.406919804] [agt_cmd_vel_guard]: FW-mini command rejected: upstream_command_timeout
