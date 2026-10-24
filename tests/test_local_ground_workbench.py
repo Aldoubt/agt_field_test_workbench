@@ -48,12 +48,12 @@ def test_local_ground_reuses_pinned_exporter_and_preserves_unknown(fixture_root)
         assert spec['obstacle_height']['min'] == .2
         output = Path(command[command.index('--output') + 1])
         output.mkdir(parents=True)
-        (output / 'map.pgm').write_bytes(b'P5\\n2 2\\n255\\n' + bytes([205, 0, 254, 205]))
+        (output / 'map.pgm').write_bytes(b'P5\n2 2\n255\n' + bytes([205, 0, 254, 205]))
         (output / 'map.yaml').write_text(yaml.safe_dump({
             'image': 'map.pgm', 'resolution': .1, 'origin': [-1., -1., 0.],
             'occupied_thresh': .65, 'free_thresh': .196, 'negate': 0
         }))
-        (output / 'metadata.yaml').write_text('free_cells: 1\\nunknown_cells: 2\\noccupied_cells: 1\\n')
+        (output / 'metadata.yaml').write_text('free_cells: 1\nunknown_cells: 2\noccupied_cells: 1\n')
     c = Clouds(root, runner=fake_runner)
     result = c.grid(cloud_id, {'resolution': .1, 'ground_cell_size': .4,
                                'obstacle_min_height': .2, 'occupied_threshold': 2})
