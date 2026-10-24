@@ -13,14 +13,19 @@ import json
 def configure(context):
     v=lambda n:LaunchConfiguration(n).perform(context)
     config=Path(v('lio_config'));data=yaml.safe_load(config.read_text());sim=v('use_sim_time')=='true'
+    filtered = v('self_filter_enabled') == 'true'
     nodes = [Node(package='agt_field_test_bringup',executable='time_align.py',parameters=[{
         'imu_input':v('imu_topic'),'lidar_input':v('lidar_topic'),'imu_offset_sec':float(v('imu_offset_sec')),
         'lidar_offset_sec':float(v('lidar_offset_sec')),'use_sim_time':sim}]),
-        Node(package='agt_mid360_adapter',executable='mid360_adapter_node',parameters=[{'input_topic':'/field/aligned/lidar'}]),
+        Node(package='agt_mid360_adapter',executable='mid360_adapter_node',parameters=[{'input_topic':'/field/self_filtered/lidar' if filtered else '/field/aligned/lidar'}]),
         Node(package='fastlio2',namespace='fastlio2',executable='lio_node',name='fastlio_mapping',parameters=[{'config_path':str(config),'use_sim_time':sim}],
              remappings=[(data['imu_topic'],'/field/aligned/imu'),(data['lidar_topic'],'/mapping/sensor/livox')]),
         Node(package='agt_field_test_bringup',executable='lio_artifact',parameters=[{
              'output_dir':v('output'),'world_frame':data['world_frame'],'use_sim_time':sim}])]
+    if filtered:
+        nodes.append(Node(package='agt_field_test_bringup',executable='livox_self_filter',
+            name='field_livox_self_filter',parameters=[str(Path(__file__).resolve().parents[1]/'config'/'livox_self_filter.yaml'),
+            {'use_sim_time':sim}]))
     if v('base_adapter')=='true':
         nodes.append(Node(package='agt_fastlio_adapter',executable='fastlio_adapter',name='mapping_base_adapter',parameters=[{
             'input_topic':'/fastlio2/lio_odom','output_topic':'/mapping/base_odometry',
@@ -40,4 +45,4 @@ def configure(context):
 def generate_launch_description():
     return LaunchDescription([DeclareLaunchArgument(n,default_value=d) for n,d in (
         ('base_adapter','false'),('lio_config',''),('output',''),('use_sim_time','true'),('lidar_topic','/livox/lidar'),
-        ('imu_topic','/livox/imu'),('livox_config',''),('imu_offset_sec','0.0'),('lidar_offset_sec','0.0'))]+[OpaqueFunction(function=configure)])
+        ('imu_topic','/livox/imu'),('livox_config',''),('imu_offset_sec','0.0'),('lidar_offset_sec','0.0'),('self_filter_enabled','true'))]+[OpaqueFunction(function=configure)])

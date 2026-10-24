@@ -31,6 +31,10 @@
   <depend>sensor_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>std_srvs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>agt_pointcloud_core</depend>
   <depend>libpcl-all-dev</depend>
   <depend>yaml-cpp</depend>
   <export><build_type>ament_cmake</build_type></export>
