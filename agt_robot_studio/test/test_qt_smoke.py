@@ -21,10 +21,10 @@ class StudioSmoke(unittest.TestCase):
         self.addCleanup(window.close)
         return window
 
-    def test_five_page_demo_starts_without_ros_or_workbench(self):
+    def test_six_page_demo_starts_without_ros_or_workbench(self):
         window = self.window()
-        self.assertEqual(list(window.pages), ['建图', '地图', '定位与导航', '参数', '日志'])
-        self.assertEqual(window.stack.count(), 5)
+        self.assertEqual(list(window.pages), ['建图', '设备与传感器', '地图', '定位与导航', '参数', '日志'])
+        self.assertEqual(window.stack.count(), 6)
         self.assertIsNone(window.api)
         self.assertIsNone(window.worker)
         self.assertFalse(window.map_view.image.isNull())
@@ -33,6 +33,21 @@ class StudioSmoke(unittest.TestCase):
         self.assertEqual(window.chassis_btn.text(), '连接底盘')
         self.assertEqual(window.record_btn.text(), '开始录制')
         self.assertEqual(window.stop_ros_btn.text(), '停止全部 ROS')
+
+    def test_device_page_camera_and_motion_checks_are_independent(self):
+        window=self.window()
+        self.assertIn('设备与传感器',window.pages)
+        self.assertFalse(any(c.isChecked() for c in window.motion_checks.values()))
+        self.assertFalse(any(window._session_payload('manual')['checks'].values()))
+        called=[]
+        class FakeApi:
+            def call(self,*args):called.append(args)
+        window.demo=False;window.api=FakeApi()
+        window.start_camera()
+        window.stop_camera()
+        self.assertEqual([x[2] for x in called],
+                         ['/api/devices/camera/start','/api/devices/camera/stop'])
+        window.api=None
 
     def test_mapping_save_is_awaited_and_final_state_matches_bbs_result(self):
         window=self.window()
@@ -118,7 +133,7 @@ class StudioSmoke(unittest.TestCase):
         payload = window._session_payload('navigation', 'map-1')
         self.assertEqual(payload['global_backend'], 'kiss')
         self.assertEqual(payload['lio_backend'], 'fastlio2')
-        self.assertTrue(payload['enable_camera_gimbal'])
+        self.assertFalse(payload['enable_camera_gimbal'])
         self.assertNotIn('global_backend', window._session_payload('sensors'))
         window.api = None
 
