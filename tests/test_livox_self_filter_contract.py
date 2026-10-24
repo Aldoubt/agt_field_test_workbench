@@ -13,6 +13,7 @@ def test_livox_self_filter_default_on_and_core_reused():
     params = cfg['field_livox_self_filter']['ros__parameters']
     assert "('self_filter_enabled','true')" in launch
     assert "'/field/self_filtered/lidar' if filtered" in launch
+    assert "for n in nodes if isinstance(n,Node)" in launch
     assert "agt_pointcloud_core/filters.hpp" in cpp
     assert "offset_time" in cpp and "max_end_time_trim_ns" in cpp
     assert "p.tag=static_cast<std::uint8_t>" in cpp
