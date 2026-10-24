@@ -40,8 +40,9 @@ def _configure(context):
         raise RuntimeError('robot must be bunker or fwmini')
     workspace = Path(os.environ.get('AGT_FIELD_TEST_WS', str(Path.home()/'agt_field_test_ws')))
     robot_profile = profiles.load(value('robot_profile_file') or profiles.selected_path(workspace,robot),robot)
-    if value('global_backend') != 'bbs':
-        raise RuntimeError('KISS experimental backend is not validated/available for live sessions; use offline benchmark')
+    global_backend = value('global_backend')
+    if global_backend not in ('bbs', 'kiss'):
+        raise RuntimeError('global_backend must be bbs or kiss')
     chassis = value('enable_chassis').lower() == 'true'
     localization = value('enable_localization').lower() == 'true'
     navigation = value('enable_navigation').lower() == 'true'
@@ -120,7 +121,9 @@ def _configure(context):
     localization_nodes = []
     if localization:
         localization_args = {
+            'global_backend': global_backend,
             'global_map': value('global_map'), 'lio_backend': value('lio_backend'),
+            'relocalization_assets': value('relocalization_assets'),
             'enable_map_tracking': value('enable_map_tracking'),
             'auto_relocalize': 'false', 'use_sim_time': value('use_sim_time')}
         if profile:
@@ -205,9 +208,16 @@ def _configure(context):
             raise RuntimeError('localization PCD SHA-256 differs from Map Studio provenance')
         runtime_params = profiles.navigation(robot_profile, Path(get_package_share_directory('agt_system_bringup'))/'config',
             Path(tempfile.mkdtemp(prefix='field_profile_'))/'navigation.yaml')
+        if value('enable_camera_gimbal').lower() == 'true':
+            nodes.append(_include('autolabor_c1_bringup', 'autolabor_c1.launch.py', {
+                'device_path': value('camera_device_path'),
+                'port_name': value('gimbal_port_name'), 'gui': 'false'}))
         nodes.append(_include('agt_system_bringup', 'navigation.launch.py', {
             'runtime_params_file':runtime_params,
             'map': str(map_yaml), 'map_id': manifest['id'], 'enable_inspection': 'false'}))
+        if value('enable_inspection').lower() == 'true':
+            # Reuse only the headless V3 mission executor, not its RViz patrol UI.
+            nodes.append(_include('agt_navigation_runtime', 'runtime.launch.py'))
     return nodes
 
 
@@ -219,6 +229,11 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('robot', default_value='bunker'),
         DeclareLaunchArgument('global_backend', default_value='bbs'),
+        DeclareLaunchArgument('relocalization_assets', default_value=''),
+        DeclareLaunchArgument('enable_inspection', default_value='true'),
+        DeclareLaunchArgument('enable_camera_gimbal', default_value='true'),
+        DeclareLaunchArgument('camera_device_path', default_value='/dev/video0'),
+        DeclareLaunchArgument('gimbal_port_name', default_value='/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0'),
         DeclareLaunchArgument('gps_alignment_file', default_value=''),
         DeclareLaunchArgument('robot_profile_file', default_value=''),
         DeclareLaunchArgument('calibration_bundle', default_value=''),
