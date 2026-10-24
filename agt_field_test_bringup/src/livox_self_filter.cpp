@@ -94,32 +94,40 @@ private:
       publisher_->publish(*msg);report("BYPASS_TF",msg->points.size(),msg->points.size());return;
     }
     livox_ros_driver2::msg::CustomMsg output=*msg;
-    output.points.clear();output.points.reserve(msg->points.size());
-    for(const auto &p:msg->points) {
+    // The pinned FAST-LIO2 Utils::livox2PCL samples indices i+=filter_num.
+    // Erasing vector elements shifts all following sample indices, changing
+    // point selection and potentially the IMU deskew interval. Preserve the
+    // vector length, point_num, order, and offset_time. Retag excluded returns
+    // to Livox's invalid (0x20) class; its existing preprocessor skips them.
+    std::size_t masked=0;
+    for(auto &p:output.points) {
       const auto transformed=transform*tf2::Vector3(p.x,p.y,p.z);
       agt_pointcloud_core::PointContext context{
         {p.x,p.y,p.z},{transformed.x(),transformed.y(),transformed.z()}};
       if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)
-        ||range_->removes(context)||box_->removes(context)) continue;
-      output.points.push_back(p); // preserves offset_time, tag, reflectivity and order
+        ||range_->removes(context)||box_->removes(context)) {
+        p.tag=static_cast<std::uint8_t>((p.tag & ~0x30U) | 0x20U);
+        ++masked;
+      }
     }
-    const std::size_t n=msg->points.size(), kept=output.points.size();
-    // FAST-LIO2 derives cloud_end_time from the largest surviving offset_time.
-    // A large trim changes its IMU integration window. Bypass the entire scan
-    // rather than claiming filtering succeeded with altered timing semantics.
+    const std::size_t n=msg->points.size(), kept=n-masked;
+    auto valid_lio=[](const auto &p) {
+      const auto kind=p.tag & 0x30U;
+      return p.line<4 && (kind==0x00U || kind==0x10U);
+    };
+    // FAST-LIO2 computes scan-end from surviving valid offset_time; guard it.
     std::uint32_t old_end=0,new_end=0;
-    for(const auto &p:msg->points) old_end=std::max(old_end,p.offset_time);
-    for(const auto &p:output.points) new_end=std::max(new_end,p.offset_time);
+    for(const auto &p:msg->points) if(valid_lio(p)) old_end=std::max(old_end,p.offset_time);
+    for(const auto &p:output.points) if(valid_lio(p)) new_end=std::max(new_end,p.offset_time);
     if(old_end>new_end &&
        old_end-new_end>static_cast<std::uint32_t>(max_end_trim_ns_)) {
       publisher_->publish(*msg);report("BYPASS_TIME_BOUND",n,n);return;
     }
     if(n==0 || kept<static_cast<std::size_t>(min_remaining_)
-       || double(n-kept)/double(n)>max_fraction_) {
+       || double(masked)/double(n)>max_fraction_) {
       publisher_->publish(*msg);report("BYPASS_GUARD",n,n);return;
     }
-    output.point_num=static_cast<std::uint32_t>(kept);
-    removed_+=n-kept;
+    removed_+=masked;
     publisher_->publish(output);
     report("ACTIVE",n,kept);
   }

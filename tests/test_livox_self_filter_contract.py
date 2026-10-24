@@ -15,8 +15,11 @@ def test_livox_self_filter_default_on_and_core_reused():
     assert "'/field/self_filtered/lidar' if filtered" in launch
     assert "agt_pointcloud_core/filters.hpp" in cpp
     assert "offset_time" in cpp and "max_end_time_trim_ns" in cpp
-    assert "output.points.push_back(p)" in cpp
-    assert "output.point_num=" in cpp
+    assert "p.tag=static_cast<std::uint8_t>" in cpp
+    assert "0x20U" in cpp
+    assert "output.points.clear()" not in cpp
+    assert "output.point_num=" not in cpp
+    assert "i+=filter_num" in cpp
     assert params['input_topic'] == '/field/aligned/lidar'
     assert params['output_topic'] == '/field/self_filtered/lidar'
     assert params['target_frame'] == 'base_link'

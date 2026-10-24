@@ -1075,7 +1075,7 @@ class Studio(QMainWindow):
             mode=filter_state.get('state','UNKNOWN')
             detail=('正常过滤' if mode=='ACTIVE' else '已旁路，请检查 TF / 过滤比例 / 时间窗')
             self.self_filter_label.setText(
-                f"自体回波过滤：{detail} ({mode}) · 移除累计 {filter_state.get('removed_points_total',0)} 点")
+                f"自体回波过滤：{detail} ({mode}) · 屏蔽累计 {filter_state.get('removed_points_total',0)} 点")
             self.self_filter_label.setStyleSheet(
                 'color:#65c7a9' if mode=='ACTIVE' else 'color:#ec9c83')
         elif self.mapping_job_id:
