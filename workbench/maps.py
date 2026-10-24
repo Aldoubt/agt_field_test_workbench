@@ -103,6 +103,19 @@ def png(width, height, pixels):
             + chunk(b'IDAT', zlib.compress(scanlines)) + chunk(b'IEND', b''))
 
 
+def png_rgb(width, height, rgb):
+    """Encode a tightly packed RGB image without optional imaging libraries."""
+    if width < 1 or height < 1 or len(rgb) != width * height * 3:
+        raise ValueError('invalid RGB image dimensions')
+    def chunk(tag, content):
+        return struct.pack('>I', len(content)) + tag + content + struct.pack('>I', zlib.crc32(tag + content))
+    stride = width * 3
+    scanlines = b''.join(b'\\0' + rgb[y*stride:(y+1)*stride] for y in range(height))
+    return (b'\\x89PNG\\r\\n\\x1a\\n' +
+            chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) +
+            chunk(b'IDAT', zlib.compress(scanlines)) + chunk(b'IEND', b''))
+
+
 def _asset_health(record):
     source=record.get('source_pcd')
     if not source:return None, {}, False, False
@@ -214,6 +227,123 @@ class Maps:
         lineage['keepout_polygons_px'] = polygons
         pixels=bake_keepout_pixels(pixels,width,height,polygons)
         return self._save(width, height, pixels, meta, lineage, status)
+
+    def compare_and_propose(self, base_id, candidate_id):
+        """Compare an accepted map with a new same-source-PCD draft and create an immutable update draft.
+
+        The new map grid remains the candidate's grid and PCD identity. The old accepted
+        map is never modified, and the new version is never auto-accepted. Grid alignment
+        must be exact to within a quarter cell; this method does not estimate SLAM drift.
+        """
+        import numpy as np
+        base=self.get(base_id);candidate=self.get(candidate_id)
+        if base_id==candidate_id:raise ValueError('base and candidate map versions must differ')
+        if base.get('status')!='ACCEPTED':raise ValueError('base map must be ACCEPTED')
+        if candidate.get('status')!='DRAFT':raise ValueError('candidate map must be DRAFT; review status is immutable workflow state')
+        for label,record in (('base',base),('candidate',candidate)):
+            if not record.get('source_pcd') or not record.get('source_pcd_sha256'):
+                raise ValueError(label+' map must be linked to a source PCD and SHA-256')
+            source=Path(record['source_pcd']).expanduser().resolve()
+            if not source.is_file() or hash_file(source)!=record['source_pcd_sha256']:
+                raise ValueError(label+' source PCD missing or SHA-256 changed')
+            pgm=Path(record['pgm']).resolve()
+            if not pgm.is_file() or hash_file(pgm)!=record['sha256']:
+                raise ValueError(label+' PGM missing or SHA-256 changed')
+            yaml_path=Path(record['yaml']).resolve()
+            if not yaml_path.is_file():raise ValueError(label+' map YAML missing')
+        base_meta=yaml.safe_load(Path(base['yaml']).read_text())
+        candidate_meta=yaml.safe_load(Path(candidate['yaml']).read_text())
+        resolution=float(base_meta['resolution']);candidate_resolution=float(candidate_meta['resolution'])
+        if abs(resolution-candidate_resolution)>1e-7:
+            raise ValueError('map resolutions differ; automatic diff requires identical resolution')
+        bx,by,byaw=map(float,base_meta['origin'])
+        cx,cy,cyaw=map(float,candidate_meta['origin'])
+        yaw_delta=(cyaw-byaw+math.pi)%(2*math.pi)-math.pi
+        if abs(yaw_delta)>1e-4:
+            raise ValueError('map origin yaw differs; automatic diff will not guess a rotation')
+        cell_x=(cx-bx)/resolution;cell_y=(cy-by)/resolution
+        offset_x=int(round(cell_x));offset_y=int(round(cell_y))
+        if abs(cell_x-offset_x)>.25 or abs(cell_y-offset_y)>.25:
+            raise ValueError('map origins are not cell-aligned within 0.25 cell; align maps before comparing')
+        bw,bh,bpixels=read_pgm(Path(base['pgm']))
+        cw,ch,cpixels=read_pgm(Path(candidate['pgm']))
+        def states(width,height,pixels):
+            raw=np.frombuffer(pixels,dtype=np.uint8).reshape((height,width))
+            result=np.full((height,width),-1,dtype=np.int8)
+            result[raw<=64]=100
+            result[raw>=220]=0
+            return result
+        old=states(bw,bh,bpixels);new=states(cw,ch,cpixels)
+        min_x=min(0,offset_x);max_x=max(bw-1,offset_x+cw-1)
+        min_y=min(0,offset_y);max_y=max(bh-1,offset_y+ch-1)
+        width=max_x-min_x+1;height=max_y-min_y+1
+        if width*height>16_000_000:raise ValueError('aligned map union exceeds safe 16 MP diff limit')
+        old_grid=np.full((height,width),-1,dtype=np.int8)
+        new_grid=np.full((height,width),-1,dtype=np.int8)
+        old_row=max_y-(bh-1);old_col=-min_x
+        new_row=max_y-(offset_y+ch-1);new_col=offset_x-min_x
+        old_grid[old_row:old_row+bh,old_col:old_col+bw]=old
+        new_grid[new_row:new_row+ch,new_col:new_col+cw]=new
+        old_unknown=old_grid<0;new_unknown=new_grid<0
+        new_obstacle=(new_grid==100)&(old_grid!=100)
+        cleared=(old_grid==100)&(new_grid==0)
+        newly_observed=old_unknown&(~new_unknown)&(~new_obstacle)
+        coverage_lost=(~old_unknown)&new_unknown
+        stable_occupied=(old_grid==100)&(new_grid==100)
+        stable_free=(old_grid==0)&(new_grid==0)
+        changed=(old_grid!=new_grid)&((~old_unknown)|(~new_unknown))
+        rgb=np.zeros((height,width,3),dtype=np.uint8)
+        rgb[:]=[100,108,116] # unknown in both / outside coverage
+        rgb[stable_free]=[235,239,240]
+        rgb[stable_occupied]=[26,36,43]
+        rgb[newly_observed]=[72,177,118]
+        rgb[coverage_lost]=[229,177,68]
+        rgb[cleared]=[55,156,225]
+        rgb[new_obstacle]=[230,75,70]
+        report_id=_new_id()
+        diff_root=self.root/'maps'/'diffs'/report_id
+        diff_root.mkdir(parents=True,exist_ok=False)
+        overlay=diff_root/'overlay.png'
+        overlay.write_bytes(png_rgb(width,height,rgb.tobytes()))
+        # This is a new immutable map version backed by the candidate's exact
+        # PCD and grid. It is not a cell-wise fusion with an unrelated PCD.
+        lineage={k:candidate.get(k) for k in (
+            'source_yaml','source_pgm_sha256','source_pcd','source_pcd_sha256',
+            'source_bag','source_bag_sha256','calibration','cloud_id','projection','name')}
+        lineage.update(parent=base_id,keepout_polygons_px=candidate.get('keepout_polygons_px',[]),
+            update_type='AUTOMATIC_DIFF_DRAFT',base_map_id=base_id,
+            base_map_sha256=base['sha256'],candidate_map_id=candidate_id,
+            candidate_map_sha256=candidate['sha256'],diff_report_id=report_id,
+            diff_overlay=str(overlay),review_required=True,automatic_activation=False)
+        update=self._save(cw,ch,cpixels,candidate_meta,lineage,status='DRAFT')
+        report={
+            'id':report_id,'created_at':datetime.now(timezone.utc).isoformat(),
+            'state':'REVIEW_REQUIRED','base_map_id':base_id,'base_map_sha256':base['sha256'],
+            'candidate_map_id':candidate_id,'candidate_map_sha256':candidate['sha256'],
+            'update_map_id':update['id'],'update_map_status':'DRAFT',
+            'base_pcd_sha256':base['source_pcd_sha256'],
+            'candidate_pcd_sha256':candidate['source_pcd_sha256'],
+            'resolution_m':resolution,'origin_yaw_delta_rad':yaw_delta,
+            'candidate_offset_cells_xy':[offset_x,offset_y],
+            'aligned_width':width,'aligned_height':height,
+            'counts':{
+                'new_obstacle_cells':int(np.count_nonzero(new_obstacle)),
+                'cleared_obstacle_cells':int(np.count_nonzero(cleared)),
+                'newly_observed_cells':int(np.count_nonzero(newly_observed)),
+                'coverage_lost_cells':int(np.count_nonzero(coverage_lost)),
+                'stable_occupied_cells':int(np.count_nonzero(stable_occupied)),
+                'stable_free_cells':int(np.count_nonzero(stable_free)),
+                'changed_cells':int(np.count_nonzero(changed)),
+                'unknown_both_cells':int(np.count_nonzero(old_unknown&new_unknown)),
+            },
+            'overlay_png':str(overlay),'report_path':str(diff_root/'report.json'),
+            'update_map_path':update['manifest_path'] if 'manifest_path' in update else str(self.directory/update['id']/'manifest.json'),
+            'automatic_activation':False,'navigation_allowed':False,
+            'acceptance_rule':'human_review_required; same candidate PCD remains localization source; rebuild PGM/BBS from this PCD if edited geometry is accepted',
+        }
+        write_json(diff_root/'report.json',report)
+        update['diff_report']=str(diff_root/'report.json')
+        return {'report':report,'update_map':update}
 
     def set_status(self, map_id, status, reason):
         if status not in STATES or not reason.strip():
