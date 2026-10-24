@@ -28,7 +28,7 @@ DEFAULT_CONFIG = {
     'auto_start_workbench':True, 'calibration_bundle':'', 'mount_profile':'',
     'geometry_file':'', 'livox_config':'', 'safety_report':'', 'session_checks':{},
     'record_template':'full_field_test', 'record_topics':[],
-    'global_backend':'bbs', 'lio_backend':'batch_lio',
+    'global_backend':'bbs', 'lio_backend':'batch_lio', 'mapping_backend':'fastlio',
     'save_mapping_data':True, 'enable_camera_gimbal':True,
     'camera_device_path':'/dev/video0',
     'gimbal_port_name':'/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0',
@@ -173,7 +173,7 @@ class CloudView(QWidget):
         p.setPen(QColor('#768e9a'));p.drawText(15,25,'3D  /  '+self.source)
         if self.xyz.size==0:
             p.setPen(QColor('#7c949e'))
-            p.drawText(self.rect(),Qt.AlignCenter,'等待 GLIM PointCloud2\n或启动演示模式')
+            p.drawText(self.rect(),Qt.AlignCenter,'等待建图 PointCloud2\n或启动演示模式')
             return
         pts=self.xyz.astype(np.float64,copy=False)
         c=np.median(pts,axis=0)
@@ -362,7 +362,7 @@ class Studio(QMainWindow):
         self.mapping_save_data=bool(cfg.get('save_mapping_data',True))
         self.live_status={};self.live_in_flight=False;self.pending_session=None
         self.ros_display_connected=False;self.topic_rates={}
-        self.recorder_id=None;self.recorder_output='';self.jobs_in_flight=False
+        self.recorder_id=None;self.recorder_output='';self.jobs_in_flight=False;self.mapping_job_id=None
         self.routes_by_id={};self.route_points=[];self.current_route_id=None
         self.setWindowTitle('AGT Robot Studio  ·  ROS 2 Humble')
         self.ui_scale,self.sidebar_width=fit_to_screen(self)
@@ -450,12 +450,19 @@ class Studio(QMainWindow):
         self.stop_ros_btn=button('关闭所有 ROS 节点','danger');self.stop_ros_btn.clicked.connect(self.close_ros_nodes);row.addWidget(self.stop_ros_btn)
         self.stop_ros_btn.setToolTip('仅关闭 Studio 与 Workbench 启动的 ROS 进程；不是硬件急停')
         row.addStretch()
-        self.sensor_rate_label=text_label('MID360：-- Hz    IMU：-- Hz    base_link 里程计：-- Hz')
+        self.sensor_rate_label=text_label('MID360S：-- Hz    IMU：-- Hz    base_link 里程计：-- Hz')
         c.addWidget(self.sensor_rate_label)
         status_row=QHBoxLayout();c.addLayout(status_row)
         self.device_label=text_label('设备会话：未连接');status_row.addWidget(self.device_label)
         self.record_label=text_label('录制：未启动');status_row.addWidget(self.record_label,1)
-        c=card(l,'2. 一键 GLIM 建图')
+        c=card(l,'2. 选择建图后端并保存')
+        backend_row=QHBoxLayout();c.addLayout(backend_row)
+        backend_row.addWidget(text_label('建图后端'))
+        self.mapping_backend_box=QComboBox()
+        self.mapping_backend_box.addItem('FAST-LIO2 无 PGO（Bunker 当前验收基线）','fastlio')
+        self.mapping_backend_box.addItem('GLIM（实验：依赖／配置／真实回放未验收）','glim_experimental')
+        index=self.mapping_backend_box.findData(str(self.cfg.get('mapping_backend','fastlio')))
+        self.mapping_backend_box.setCurrentIndex(max(0,index));backend_row.addWidget(self.mapping_backend_box,1)
         name_row=QHBoxLayout();c.addLayout(name_row)
         name_row.addWidget(text_label('地图名称'))
         self.map_name_edit=QLineEdit(self.current_map_name or '温室地图_'+datetime.now().strftime('%Y%m%d_%H%M'))
@@ -464,15 +471,17 @@ class Studio(QMainWindow):
         name_row.addWidget(text_label('后续按名称选择；不可变版本 ID 仍由 Workbench 管理'))
         row=QHBoxLayout();c.addLayout(row)
         self.glim_btn=button('开始建图','primary');self.glim_btn.clicked.connect(self.toggle_glim);row.addWidget(self.glim_btn)
-        self.save_mapping_box=QCheckBox('保存建图数据（GLIM dump + rosbag）')
+        self.save_mapping_box=QCheckBox('保存 GLIM dump + rosbag')
         self.save_mapping_box.setChecked(bool(self.cfg.get('save_mapping_data',True)));row.addWidget(self.save_mapping_box)
-        cfg=button('GLIM 配置');cfg.clicked.connect(self.choose_glim_config);row.addWidget(cfg)
+        self.glim_cfg_btn=button('GLIM 配置');self.glim_cfg_btn.clicked.connect(self.choose_glim_config);row.addWidget(self.glim_cfg_btn)
         self.editor_btn=button('编辑三维地图');self.editor_btn.clicked.connect(self.open_map_editor);row.addWidget(self.editor_btn)
         self.rviz_btn=button('RViz');self.rviz_btn.clicked.connect(self.open_rviz);row.addWidget(self.rviz_btn);row.addStretch()
-        self.run_label=text_label('建图算法：GLIM。保存开关仅控制本次 dump 与原始 rosbag；二维地图在“地图”页生成。')
+        self.run_label=text_label('')
         c.addWidget(self.run_label)
         self.asset_label=text_label('重定位资产：选择地图后显示；AGT Polar Context 不是 Scan Context（SC）。')
         c.addWidget(self.asset_label)
+        self.mapping_backend_box.currentIndexChanged.connect(self._mapping_backend_changed)
+        self._mapping_backend_changed()
         frame=QFrame();frame.setObjectName('viewer');l.addWidget(frame,1)
         fl=QVBoxLayout(frame);fl.setContentsMargins(10,10,10,10);fl.addWidget(self.cloud_view,1)
         row=QHBoxLayout();fl.addLayout(row);self.cloud_count=text_label('点云：等待数据')
@@ -480,7 +489,7 @@ class Studio(QMainWindow):
 
     def _page_maps(self):
         l=self._page_shell();l.addWidget(text_label('地图生成与编辑','title'))
-        cloud=card(l,'1. 从 GLIM 导出三维 PCD，再生成二维格栅地图')
+        cloud=card(l,'1. 从 FAST-LIO2／GLIM 导出三维 PCD，再生成二维格栅地图')
         row=QHBoxLayout();cloud.addLayout(row);self.cloud_box=QComboBox();row.addWidget(self.cloud_box,1)
         imp=button('导入 PCD');imp.clicked.connect(self.import_pcd);row.addWidget(imp)
         gen=button('生成二维地图','primary');gen.clicked.connect(self.generate_grid);row.addWidget(gen)
@@ -579,12 +588,12 @@ class Studio(QMainWindow):
         topics=card(body,'传感器与显示话题')
         form=QFormLayout();form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow);topics.addLayout(form)
         self.topic_edits={}
-        for key,label in [('raw_lidar_topic','MID360 原始点云'),('imu_topic','IMU'),
+        for key,label in [('raw_lidar_topic','MID360S 原始 CustomMsg'),('imu_topic','IMU'),
                           ('odom_topic','base_link 里程计'),('points_topic','GLIM 地图'),
                           ('live_points_topic','GLIM 实时点云'),('map_topic','Nav2 二维地图')]:
             editor=QLineEdit(str(self.cfg.get(key,'')));self.topic_edits[key]=editor;form.addRow(label,editor)
         topics.addWidget(text_label('显示话题的修改在重新连接 ROS 显示适配器后生效；会话与设备参数在下次启动会话时生效。'))
-        mapping=card(body,'GLIM 与输出')
+        mapping=card(body,'建图与输出')
         form=QFormLayout();mapping.addLayout(form)
         self.glim_config_edit=QLineEdit(str(self.cfg.get('glim_config_path','')))
         form.addRow('GLIM 配置目录',self.glim_config_edit)
@@ -598,7 +607,7 @@ class Studio(QMainWindow):
         self.record_topics_edit=QTextEdit('\n'.join(parse_topics(self.cfg.get('record_topics',[]))))
         self.record_topics_edit.setPlaceholderText('留空：使用上方模板。\n自定义：每行一个绝对话题，也可用逗号分隔。\n例如 /livox/lidar、/camera/image_raw、/tf')
         self.record_topics_edit.setMaximumHeight(105);form.addRow('自定义录包话题',self.record_topics_edit)
-        recording.addWidget(text_label('并非只能录制雷达和 IMU。独立录包只选择当前 ROS 中实际存在的话题，并在任务元数据中记录缺失话题、类型与 QoS；建图录包使用同一自定义列表。'))
+        recording.addWidget(text_label('独立录包只选择当前 ROS 中实际存在的话题，并记录缺失话题、类型、QoS、配置及数据 SHA。FAST-LIO2 建图录包由 Workbench 独占；GLIM 实验建图使用同一自定义列表。'))
         projection=card(body,'三维点云投影为二维栅格')
         form=QFormLayout();projection.addLayout(form)
         p=dict(DEFAULT_CONFIG['projection']);p.update(self.cfg.get('projection') or {})
@@ -686,7 +695,9 @@ class Studio(QMainWindow):
             self.write_log(f'{name}: {value}')
             if name=='session_stop':self.pending_session=None
             if not name.startswith('refresh_'):QMessageBox.warning(self,'操作未完成',str(value))
-            if name=='session_sensors':self.mapping_state.setText('启动失败')
+            if name in ('session_sensors','mapping_start'):self.mapping_state.setText('启动失败')
+            if name=='mapping_finish':
+                self.glim_btn.setEnabled(True);self.mapping_state.setText('保存请求失败；建图任务仍在运行')
             return
         if name=='refresh_maps':
             self.maps_by_id={m['id']:m for m in value}
@@ -703,8 +714,28 @@ class Studio(QMainWindow):
             running=next((j for j in value if j.get('kind')=='recorder' and j.get('state')=='RUNNING'),None)
             self.recorder_id=running['id'] if running else None
             if running:self.recorder_output=running.get('output','')
-            self._update_recording();return
-        if name=='session_sensors':self._start_glim_processes();return
+            self._update_recording()
+            if self.mapping_job_id:
+                mapping=next((j for j in value if j.get('id')==self.mapping_job_id),None)
+                if mapping and mapping.get('state')!='RUNNING':
+                    self.write_log(f"FAST-LIO2 建图任务结束：{mapping.get('state')} · {mapping.get('output','')}")
+                    self.mapping_job_id=None;self.current_run=Path(mapping['output']) if mapping.get('output') else self.current_run
+                    self.glim_btn.setEnabled(True);self.glim_btn.setText('开始建图')
+                    self.map_name_edit.setEnabled(True);self.mapping_backend_box.setEnabled(True)
+                    self.mapping_state.setText('建图已结束：'+str(mapping.get('state')))
+                    self._mapping_backend_changed();self.refresh_library()
+            return
+        if name=='session_sensors':self._start_mapping_processes();return
+        if name=='mapping_start':
+            self.mapping_job_id=value['id'];self.current_run=Path(value['output'])
+            self.glim_btn.setEnabled(True);self.glim_btn.setText('结束并保存建图')
+            self.map_name_edit.setEnabled(False);self.mapping_backend_box.setEnabled(False);self._mapping_backend_changed()
+            self.mapping_state.setText('FAST-LIO2 无 PGO 建图运行中')
+            self.run_label.setText(f"地图：{self.current_map_name} · Workbench 任务：{self.mapping_job_id} · 输出：{self.current_run}")
+            self.write_log('FAST-LIO2 复用当前传感器与 TF 会话；未启动额外雷达驱动或独立录包器')
+            self.refresh_jobs();return
+        if name=='mapping_finish':
+            self.write_log('FAST-LIO2 保存请求已发送；等待地图资产与 rosbag 完整性结果');self.refresh_jobs();return
         if name in ('device_sensors','device_manual','session_localization','session_navigation'):
             self.write_log('会话已启动：'+value.get('task',name));self.refresh_live();return
         if name=='session_stop':
@@ -798,9 +829,14 @@ class Studio(QMainWindow):
             self.mission_label.setText(f"任务：{states.get(mission.get('state'),'未知')} · {mission.get('point_id','')} "
                 f"{mission.get('point_index',0)}/{mission.get('point_count',0)} · {mission.get('detail','')}")
         if session:
-            self.device_label.setText(f"设备会话：{session.get('robot')} · {session.get('task')} · {session.get('id')}")
+            livox=session.get('livox') or {}
+            identity=(f" · {livox.get('model','MID360S')} {livox.get('sensor_ip','--')} → 主机 {livox.get('host_ip','--')}"
+                      f" · 序列号{livox.get('serial_number','NOT_QUERIED')}" if livox else '')
+            self.device_label.setText(f"设备会话：{session.get('robot')} · {session.get('task')} · {session.get('id')}"+identity)
+            self.device_label.setToolTip('配置文件：'+str(livox.get('config_path','未提供'))+'\n配置身份已校验不代表设备在线；序列号需实际查询。')
             backend=session.get('global_backend','bbs')
-            self.run_label.setText(f"Workbench 会话：{session.get('task')}  ·  {session.get('id')}  ·  {backend}")
+            if not self.mapping_job_id:
+                self.run_label.setText(f"Workbench 会话：{session.get('task')}  ·  {session.get('id')}  ·  {backend}")
         else:self.device_label.setText('设备会话：未连接')
         self._update_global_status()
 
@@ -829,12 +865,12 @@ class Studio(QMainWindow):
         od=s.get('odom');self.odom_label.setText('base_link X={:.2f} Y={:.2f} Yaw={:.1f}°'.format(*od[:2],math.degrees(od[2])) if od else 'base_link 局部位姿：未收到')
         rates=s.get('rates') or {}
         hz=lambda name:('--' if rates.get(name) is None else f'{rates[name]:.1f}')
-        self.sensor_rate_label.setText(f"MID360：{hz('lidar')} Hz    IMU：{hz('imu')} Hz    base_link 里程计：{hz('odom')} Hz")
+        self.sensor_rate_label.setText(f"MID360S：{hz('lidar')} Hz    IMU：{hz('imu')} Hz    base_link 里程计：{hz('odom')} Hz")
         self._update_global_status()
 
     def _on_cloud(self,d):
         self.cloud_view.set_cloud(d);self.cloud_count.setText(f'{d.get("source")}  ·  {len(d["xyz"]):,} 点（抽样渲染）')
-        self.mapping_state.setText('正在接收 GLIM 点云')
+        self.mapping_state.setText('正在接收建图点云')
 
     def _on_grid(self,info):
         if self.current_map_id:return
@@ -906,8 +942,8 @@ class Studio(QMainWindow):
         if self.recorder_id:
             self._api('record_stop','POST',f'/api/jobs/{self.recorder_id}/stop',{})
             return
-        if self.glim and self.glim.state()!=QProcess.NotRunning:
-            QMessageBox.warning(self,'建图正在录包','请先结束建图；建图会话已经自动保存原始 rosbag。');return
+        if self.mapping_job_id or (self.glim and self.glim.state()!=QProcess.NotRunning):
+            QMessageBox.warning(self,'建图正在录包','请先结束建图；建图会话已经由唯一所有者保存原始 rosbag。');return
         try:custom_topics=parse_topics(self.record_topics_edit.toPlainText())
         except ValueError as ex:QMessageBox.warning(self,'录包话题无效',str(ex));return
         payload={'robot':self._robot(),'template':self.record_template_box.currentText(),
@@ -920,7 +956,9 @@ class Studio(QMainWindow):
         if self.demo:self.write_log('演示模式：没有 ROS 进程需要关闭');return
         self.pending_session=None
         for process in (self.bag,self.glim,self.rviz,self.editor):self._interrupt(process)
-        self.glim_btn.setText('开始建图');self.save_mapping_box.setEnabled(True);self.map_name_edit.setEnabled(True);self.mapping_state.setText('ROS 进程已停止')
+        self.mapping_job_id=None;self.glim_btn.setEnabled(True);self.glim_btn.setText('开始建图')
+        self.map_name_edit.setEnabled(True);self.mapping_backend_box.setEnabled(True);self._mapping_backend_changed()
+        self.mapping_state.setText('ROS 进程已停止')
         if self.worker:
             self.worker.shutdown();self.worker.wait(2000);self.worker=None
         self.status.setText('● ROS 未连接');self.status.setStyleSheet('color:#ec9c83')
@@ -989,6 +1027,7 @@ class Studio(QMainWindow):
                 gimbal_port_name=self.gimbal_port_edit.text().strip(),
                 global_backend=self.global_backend_box.currentData(),
                 lio_backend=self.lio_backend_box.currentData(),
+                mapping_backend=self.mapping_backend_box.currentData(),
                 save_mapping_data=self.save_mapping_box.isChecked(),
                 enable_camera_gimbal=self.camera_enabled_box.isChecked(),
                 map_name=self.map_name_edit.text().strip()[:120])
@@ -1008,12 +1047,40 @@ class Studio(QMainWindow):
             self.cfg['glim_config_path']=path;self.glim_config_edit.setText(path)
             self.write_log('GLIM 配置：'+path)
 
+    def _mapping_backend_changed(self):
+        fast=self.mapping_backend_box.currentData()=='fastlio'
+        active=bool(self.mapping_job_id) or bool(self.glim and self.glim.state()!=QProcess.NotRunning)
+        self.glim_cfg_btn.setEnabled(not fast and not active)
+        self.editor_btn.setEnabled(not fast)
+        self.save_mapping_box.setEnabled(not fast and not active)
+        self.run_label.setText(
+            'FAST-LIO2 无 PGO：当前 Bunker 验收基线。Workbench 复用现有雷达与 TF 会话，并独占原始 rosbag 录制；不启动第二套驱动或录包器。'
+            if fast else
+            'GLIM：实验功能，依赖、配置和真实回放尚未验收。保存开关仅控制 GLIM dump 与原始 rosbag；不会重复启动雷达或 TF。')
+
+    def _start_mapping_processes(self):
+        if self.mapping_backend_box.currentData()=='fastlio':
+            if self.mapping_job_id:return
+            payload={'robot':self._robot(),'live':True,'backend':'fastlio','map_name':self.current_map_name}
+            for key in ('calibration_bundle','mount_profile','livox_config'):
+                if self.cfg.get(key):payload[key]=self.cfg[key]
+            self.mapping_state.setText('正在启动 FAST-LIO2 无 PGO')
+            self._api('mapping_start','POST','/api/mapping/start',payload)
+            return
+        self._start_glim_processes()
+
     def toggle_glim(self):
-        if self.demo:self.write_log('演示模式禁止启动 GLIM');return
+        if self.demo:self.write_log('演示模式禁止启动建图');return
         self._ensure_ros_worker()
+        if self.mapping_job_id:
+            self.mapping_state.setText('正在保存 FAST-LIO2 地图与原始 rosbag')
+            self.glim_btn.setEnabled(False)
+            self._api('mapping_finish','POST',f'/api/jobs/{self.mapping_job_id}/finish',{})
+            return
         if self.glim and self.glim.state()!=QProcess.NotRunning:
             self._interrupt(self.glim);self._interrupt(self.bag)
-            self.glim_btn.setText('开始建图');self.save_mapping_box.setEnabled(True);self.map_name_edit.setEnabled(True)
+            self.glim_btn.setText('开始建图');self.map_name_edit.setEnabled(True);self.mapping_backend_box.setEnabled(True)
+            self._mapping_backend_changed()
             self.mapping_state.setText('正在保存 GLIM dump 与 rosbag' if self.mapping_save_data else '建图已结束（未启用数据保存）')
             self.write_log(('建图结束，文件保留在 ' if self.mapping_save_data else '建图结束，配置快照位于 ')+str(self.current_run));return
         if self.recorder_id:
@@ -1025,7 +1092,7 @@ class Studio(QMainWindow):
         session=(self.live_status.get('session') or {})
         if session and session.get('task') not in ('sensors','manual'):
             QMessageBox.warning(self,'模式冲突','请先结束定位／导航会话，再开始建图。');return
-        if session and session.get('robot')==self._robot():self._start_glim_processes()
+        if session and session.get('robot')==self._robot():self._start_mapping_processes()
         else:
             self.mapping_state.setText('正在启动所选车辆的传感器会话')
             self._start_session('sensors',request_name='session_sensors')
@@ -1043,7 +1110,7 @@ class Studio(QMainWindow):
         self.current_map_name=self.map_name_edit.text().strip()[:120]
         if not self.current_map_name:
             QMessageBox.warning(self,'缺少地图名称','请先填写地图名称，再开始建图。');return
-        self.save_mapping_box.setEnabled(False);self.map_name_edit.setEnabled(False)
+        self.save_mapping_box.setEnabled(False);self.map_name_edit.setEnabled(False);self.mapping_backend_box.setEnabled(False)
         snapshot={'created_at':datetime.now(timezone.utc).isoformat(),'robot':self._robot(),
                   'map_name':self.current_map_name,'glim_config_path':path,'save_mapping_data':save_data,
                   'dump_path':str(dump) if save_data else None,'raw_bag':str(bag) if save_data else None,
@@ -1061,7 +1128,8 @@ class Studio(QMainWindow):
             self.glim_btn.setText('结束并保存建图');self.mapping_state.setText('GLIM 建图运行中')
             self.run_label.setText(f"地图：{self.current_map_name}  ·  本次会话：{self.current_run}")
         else:
-            self.save_mapping_box.setEnabled(True);self.map_name_edit.setEnabled(True);self._interrupt(self.bag)
+            self.map_name_edit.setEnabled(True);self.mapping_backend_box.setEnabled(True)
+            self._mapping_backend_changed();self._interrupt(self.bag)
 
     def open_map_editor(self):
         path=str(self.current_run/'glim_dump') if self.current_run else ''
@@ -1072,7 +1140,7 @@ class Studio(QMainWindow):
         if not self.demo:self.rviz=self._proc('rviz2',[],'RViz')
 
     def import_pcd(self):
-        path,_=QFileDialog.getOpenFileName(self,'导入 GLIM 三维 PCD',str(self.current_run or Path.home()),'PCD (*.pcd)')
+        path,_=QFileDialog.getOpenFileName(self,'导入建图三维 PCD',str(self.current_run or Path.home()),'PCD (*.pcd)')
         if not path:return
         calibration={'robot':self._robot(),'glim_config_path':self.cfg.get('glim_config_path')}
         bag=str(self.current_run/'raw_bag') if self.current_run else None
@@ -1081,7 +1149,7 @@ class Studio(QMainWindow):
 
     def generate_grid(self):
         cloud=self.cloud_box.currentData()
-        if not cloud:QMessageBox.warning(self,'缺少三维地图','请先导入 GLIM 导出的 PCD。');return
+        if not cloud:QMessageBox.warning(self,'缺少三维地图','请先导入 FAST-LIO2 或 GLIM 导出的 PCD。');return
         projection={key:editor.value() for key,editor in self.projection_edits.items()}
         projection['min_points']=self.min_points_box.value()
         if projection['z_min']>=projection['z_max'] or projection['ground_min']>projection['z_min']:
@@ -1165,8 +1233,10 @@ class Studio(QMainWindow):
             except (OSError,ValueError):process.terminate()
 
     def _poll(self):
-        if self.glim and self.glim.state()==QProcess.NotRunning and self.glim_btn.text()!='开始建图':
-            self.glim_btn.setText('开始建图');self.save_mapping_box.setEnabled(True);self.map_name_edit.setEnabled(True)
+        if (not self.mapping_job_id and self.glim and self.glim.state()==QProcess.NotRunning
+                and self.glim_btn.text()!='开始建图'):
+            self.glim_btn.setText('开始建图');self.map_name_edit.setEnabled(True);self.mapping_backend_box.setEnabled(True)
+            self._mapping_backend_changed()
             self.mapping_state.setText('建图已结束，文件已保留' if self.mapping_save_data else '建图已结束（未启用数据保存）')
         if not self.demo:
             self.refresh_live();self.refresh_jobs()
@@ -1189,7 +1259,7 @@ class Studio(QMainWindow):
         self.nav_view.set_grid({'width':w,'height':h,'data':cells.ravel(),'resolution':.05,'origin':(-5.,-3.75,0.)})
         self.status.setText('● 演示模式');self.status.setStyleSheet('color:#eac18a')
         self.mapping_state.setText('离线演示：不会启动设备或控制底盘')
-        self.sensor_rate_label.setText('MID360：演示数据    IMU：演示数据    base_link 里程计：演示数据')
+        self.sensor_rate_label.setText('MID360S：演示数据    IMU：演示数据    base_link 里程计：演示数据')
         self.asset_label.setText('当前地图资产：演示地图；AGT Polar Context 不是 Scan Context（SC）。')
         self._update_global_status()
 
