@@ -4,10 +4,79 @@
 <nav id="nav"><button data-page="dashboard" class="active">Dashboard</button><button data-page="robot">Robot Setup</button><button data-page="calibration">Calibration</button><button data-page="mapping">Mapping</button><button data-page="maps">Map Studio</button><button data-page="localization">Localization</button><button data-page="navigation">Navigation</button><button data-page="recorder">Recorder</button><button data-page="diagnostics">诊断与验收</button><button data-page="runs">Runs & Reports</button></nav>
 <main>
 <section id="dashboard" class="page active"><h1>运行状态</h1><p>数据直接来自当前 ROS Domain 的话题列表；未观测到表示尚未证实可用。</p><div id="checks" class="cards"></div><pre id="status-error"></pre></section>
-<section id="robot" class="page"><h1>Robot Setup</h1><p>选择底盘、标定版本和任务后启动一个会话。默认传感器任务不启动底盘；运动任务须明确完成线束、急停与遥控接管检查。</p><label>当前底盘 <select id="robot-select"><option value="bunker">Bunker</option><option value="fwmini">FW-mini</option></select></label><div id="robot-note" class="card"></div><pre id="robot-config"></pre><label>底盘配置版本（旧协议会显示待保存的迁移候选）<textarea id="profile-editor" rows="8"></textarea></label><button id="profile-save">保存新配置并选用（保留原文件）</button><h2>现场会话</h2><div class="grid"><label>任务<select id="field-task"><option value="sensors">传感器观察（不启底盘）</option><option value="manual">低速受监督手动 / 建图</option><option value="localization">定位观察（不启底盘）</option><option value="navigation">已验收的 Nav2 路线 / 距离测试</option></select></label><label>定位后端<select id="field-global"><option value="bbs">3D-BBS + small_gicp 基线</option><option value="kiss" disabled>KISS-Matcher（仅离线实验，待基准）</option></select></label></div><label>Bunker 标定包<select id="bundle-select"></select></label><label>MID360 IP 配置 JSON<input id="field-livox" placeholder="传感器已启动时可不重复启动"></label><label class="check"><input id="field-sensor" type="checkbox" checked>本会话启动 MID360</label><label>FW-mini 实测几何 YAML<input id="field-geometry"></label><label>可选 GPS 已验证对齐 JSON<input id="field-gps" placeholder="留空：仅观察，不施加 GPS 约束"></label><label>导航现场安全报告 JSON<input id="field-safety" placeholder="reports/…（仅导航任务必需）"></label><div class="cards" id="field-checks"><label class="check"><input type="checkbox" data-check="wiring">线束/供电/CAN 已核对</label><label class="check"><input type="checkbox" data-check="physical_estop">实体急停已验证</label><label class="check"><input type="checkbox" data-check="remote_takeover">遥控接管有效</label><label class="check"><input type="checkbox" data-check="clear_area">区域清空</label><label class="check"><input type="checkbox" data-check="supervised">现场有人监督</label></div><div class="row"><button id="field-start">启动所选任务</button><button id="field-stop" class="danger">停止会话</button></div><pre id="field-state"></pre><h2>可选 INS / RTK 硬件观察</h2><p>仅消费 NavSatFix、INSStatus、IMU；固定解、地图 ENU 和杆臂未验证时不参与定位。</p><input id="ins-port" value="/dev/ttyUSB0"><input id="ins-baud" type="number" value="230400"><button id="ins-start">启动 INS 观察</button></section>
+<section id="robot" class="page"><h1>Robot Setup</h1>
+<p>选择底盘、标定版本和任务后启动一个会话。默认传感器任务不启动底盘；运动任务须明确完成线束、急停与遥控接管检查。</p>
+<label>当前底盘 <select id="robot-select"><option value="bunker">Bunker</option><option value="fwmini">FW-mini</option></select>
+</label>
+<div id="robot-note" class="card"></div>
+<pre id="robot-config"></pre><label>底盘配置版本（旧协议会显示待保存的迁移候选）<textarea id="profile-editor" rows="8"></textarea></label>
+<button id="profile-save">保存新配置并选用（保留原文件）</button>
+<h2>现场会话</h2>
+<div class="grid"><label>任务<select id="field-task"><option value="sensors">传感器观察（不启底盘）</option><option value="manual">低速受监督手动 / 建图</option><option value="localization">定位观察（不启底盘）</option><option value="navigation">已验收的 Nav2 路线 / 距离测试</option></select>
+</label>
+<label>定位后端<select id="field-global"><option value="bbs">3D-BBS + small_gicp 基线</option><option value="kiss">KISS-Matcher + small_gicp（实验，需原生构建与回放验收）</option></select>
+</label>
+</div>
+<label>Bunker 标定包<select id="bundle-select"></select>
+</label>
+<label>MID360 IP 配置 JSON<input id="field-livox" placeholder="传感器已启动时可不重复启动"></label>
+<label class="check"><input id="field-sensor" type="checkbox" checked>本会话启动 MID360</label>
+<label>FW-mini 实测几何 YAML<input id="field-geometry"></label>
+<label>可选 GPS 已验证对齐 JSON<input id="field-gps" placeholder="留空：仅观察，不施加 GPS 约束"></label>
+<label>导航现场安全报告 JSON<input id="field-safety" placeholder="reports/…（仅导航任务必需）"></label>
+<div class="cards" id="field-checks"><label class="check"><input type="checkbox" data-check="wiring">线束/供电/CAN 已核对</label>
+<label class="check"><input type="checkbox" data-check="physical_estop">实体急停已验证</label>
+<label class="check"><input type="checkbox" data-check="remote_takeover">遥控接管有效</label>
+<label class="check"><input type="checkbox" data-check="clear_area">区域清空</label>
+<label class="check"><input type="checkbox" data-check="supervised">现场有人监督</label>
+</div>
+<div class="row"><button id="field-start">启动所选任务</button>
+<button id="field-stop" class="danger">停止会话</button>
+</div>
+<pre id="field-state"></pre><h2>可选 INS / RTK 硬件观察</h2>
+<p>仅消费 NavSatFix、INSStatus、IMU；固定解、地图 ENU 和杆臂未验证时不参与定位。</p>
+<input id="ins-port" value="/dev/ttyUSB0"><input id="ins-baud" type="number" value="230400"><button id="ins-start">启动 INS 观察</button>
+</section>
 <section id="calibration" class="page"><h1>标定版本</h1><p>内部 LiDAR–IMU 与底盘安装变换分别记录。候选结果须结合重复性、运动数据和点云几何人工验证。</p><div id="fwmini-mount-panel" hidden><h2>FW-mini MID360 安装外参</h2><p>选择的外参用于下一次建图和录包检查。运行中的 TF 不热切换；定位请按下方命令重新启动。升级 VERIFIED 需要绑定当前数值的现场报告，软件 TF 检查不等于实车验证。</p><label>运行时外参版本 <select id="fwmini-mount-select"></select></label><pre id="fwmini-mount-detail"></pre><label>现场传感器序列号 <input id="mount-sensor"></label><label>现场验证报告 JSON <input id="mount-report" placeholder="reports/fwmini_mount_validation.json"></label><button id="mount-verify">根据现场报告生成 VERIFIED 新版本</button><pre id="fwmini-mount-command"></pre></div><h2>Bunker 安装、内部参数、杆臂与时间同步</h2><p>包中分别保存安装 TF、FAST/Batch 内部参数、RTK 杆臂和时间策略。未测杆臂不发布 TF；保存只生成 CANDIDATE 新版本。</p><textarea id="bundle-editor" rows="12"></textarea><div class="row"><button id="bundle-save">保存候选新版本</button><input id="bundle-report" placeholder="现场标定报告 JSON"><button id="bundle-verify">绑定实测报告生成 VERIFIED</button></div><div class="row"><input id="time-interface" value="eth0"><button id="time-diagnose">采集本机 PTP / phc2sys 诊断</button></div><h2>LiDAR–IMU 内参版本</h2><div class="grid"><label>版本名 <input id="cal-version" placeholder="mid360-20261023-a"></label><label>传感器 ID <input id="cal-sensor" placeholder="MID360 serial"></label></div><label>内部旋转（行优先，9 个数字，逗号分隔）<input id="cal-r" value="1,0,0,0,1,0,0,0,1"></label><label>内部平移 m（3 个数字）<input id="cal-t" value="-0.011,-0.02329,0.04412"></label><label>IMU 时间修正 s（新建图链实际使用；原始 bag 不修改）<input id="cal-time" type="number" step="any" value="0"></label><label>安装位置与 base_link 关系（文字或 JSON）<input id="cal-mount" placeholder="需在对应底盘测量"></label><label>证据与重复性报告路径 <input id="cal-evidence" placeholder="runs/.../report.json"></label><label class="check"><input type="checkbox" id="cal-verified"> 已完成运动、重复性和几何一致性验证</label><button id="cal-save">保存新版本</button><div id="cal-list"></div></section>
 <section id="mapping" class="page"><h1>FAST-LIO2 建图</h1><label>建图后端<select id="mapping-backend"><option value="fastlio">FAST-LIO2（无 PGO，正式基线）</option><option value="pgo_experiment">FAST-LIO2 + PGO（离线实验）</option></select></label><p>离线输入 bag 保持只读；实机模式自动录制原始 MID360 bag；点击“结束并导出”后关闭录包并导出。开始前可在 Robot Setup 启动受监督手动会话；该会话的传感器与 TF 会被复用。当前外参版本写入运行记录。</p><label>rosbag2 目录 <input id="mapping-bag" placeholder="/data/bags/run01"></label><label>标定版本（可留空使用锁定基线） <input id="mapping-cal" placeholder="mid360-20261023-a"></label><div class="row"><button id="mapping-offline">从 bag 建图</button><button id="mapping-live">实机建图</button></div><label>FW-mini MID360 IP 配置（实机需要）<input id="mapping-livox" placeholder="/path/to/MID360_config.json"></label><button id="mapping-finish">结束实机建图并导出</button><div id="mapping-result"></div></section>
-<section id="maps" class="page"><h1>Map Studio</h1><p>导入、编辑和导出不要求先完成地图审核。每次保存创建新版本，保留来源和 SHA-256。</p><div class="row"><input id="map-path" placeholder="工作区 runs/ 或 maps/ 内的 map.yaml"><button id="map-import">导入 PGM/YAML</button></div><select id="map-select"><option value="">选择地图版本</option></select><div class="toolbar"><button data-tool="pan" class="selected">平移</button><button data-tool="erase">矩形擦除</button><button data-tool="line">障碍物线</button><button data-tool="polygon">禁行区多边形</button><button id="map-undo">撤销</button><button id="map-redo">重做</button><button id="map-fit">适配视图</button><button id="map-save">保存新版本</button><button id="map-export">导出 ZIP</button></div><p class="hint">滚轮缩放；多边形逐点点击，双击完成。浅灰为未知，白色为空闲，黑色为障碍。</p><canvas id="map-canvas" width="1000" height="560"></canvas><div class="row"><select id="map-status"><option>DRAFT</option><option>PROVISIONAL</option><option>ACCEPTED</option><option>REJECTED</option></select><input id="map-reason" placeholder="审核理由或待确认项"><button id="map-review">更新状态</button></div><h2>全量 PCD 清洗与转换</h2><div class="row"><input id="cloud-import-path" placeholder="原始 PCD 路径"><button id="cloud-import">导入完整 PCD</button></div><label>点云版本<select id="cloud-version"></select></label><div class="grid"><label>ROI 最小 XYZ（m）<input id="roi-min" value="-10,-10,-2"></label><label>ROI 最大 XYZ（m）<input id="roi-max" value="10,10,5"></label></div><div class="row"><button id="cloud-crop">保留 ROI</button><button id="cloud-delete">删除 ROI</button><input id="voxel-size" type="number" min="0.001" step="0.01" value="0.05"><button id="cloud-voxel">体素降采样</button></div><p>操作作用于后端全部 PCD 点，生成新版本；下方仅为抽样预览。</p><label>PCD→PGM 转换参数<textarea id="projection-input" rows="5">{"resolution":0.05,"origin":[0,0,0],"range":[20,20],"ground_min":-0.3,"z_min":0.15,"z_max":2.0,"min_points":2,"occupied_thresh":0.65,"free_thresh":0.2}</textarea></label><button id="cloud-project">从当前点云生成新 2D 地图</button><button id="map-center-robot">Center Robot</button><pre id="cloud-state"></pre><h2>3D 点云预览</h2><p id="cloud-note">选择有源 PCD 的地图后显示；拖动旋转，滚轮缩放。</p><canvas id="cloud-canvas" width="1000" height="450"></canvas><pre id="map-meta"></pre></section>
+<section id="maps" class="page"><h1>Map Studio</h1>
+<p>导入、编辑和导出不要求先完成地图审核。每次保存创建新版本，保留来源和 SHA-256。</p>
+<div class="row"><input id="map-path" placeholder="工作区 runs/ 或 maps/ 内的 map.yaml"><button id="map-import">导入 PGM/YAML</button>
+</div>
+<select id="map-select"><option value="">选择地图版本</option></select>
+<div class="toolbar"><button data-tool="pan" class="selected">平移</button>
+<button data-tool="erase">矩形擦除</button>
+<button data-tool="line">障碍物线</button>
+<button data-tool="polygon">禁行区多边形</button>
+<button id="map-undo">撤销</button>
+<button id="map-redo">重做</button>
+<button id="map-fit">适配视图</button>
+<button id="map-save">保存新版本</button>
+<button id="map-export">导出 ZIP</button>
+</div>
+<p class="hint">滚轮缩放；多边形逐点点击，双击完成。浅灰为未知，白色为空闲，黑色为障碍。</p>
+<canvas id="map-canvas" width="1000" height="560"></canvas><div class="row"><select id="map-status"><option>DRAFT</option><option>PROVISIONAL</option><option>ACCEPTED</option><option>REJECTED</option></select>
+<input id="map-reason" placeholder="审核理由或待确认项"><button id="map-review">更新状态</button>
+</div>
+<h2>全量 PCD 清洗与转换</h2>
+<div class="row"><input id="cloud-import-path" placeholder="原始 PCD 路径"><button id="cloud-import">导入完整 PCD</button>
+</div>
+<label>点云版本<select id="cloud-version"></select>
+</label>
+<div class="grid"><label>ROI 最小 XYZ（m）<input id="roi-min" value="-10,-10,-2"></label>
+<label>ROI 最大 XYZ（m）<input id="roi-max" value="10,10,5"></label>
+</div>
+<div class="row"><button id="cloud-crop">保留 ROI</button>
+<button id="cloud-delete">删除 ROI</button>
+<input id="voxel-size" type="number" min="0.001" step="0.01" value="0.05"><button id="cloud-voxel">体素降采样</button>
+</div>
+<p>操作作用于后端全部 PCD 点，生成新版本；下方仅为抽样预览。</p>
+<label>PCD→PGM 转换参数<textarea id="projection-input" rows="5">{"resolution":0.05,"origin":[0,0,0],"range":[20,20],"ground_min":-0.3,"z_min":0.15,"z_max":2.0,"min_points":2,"occupied_thresh":0.65,"free_thresh":0.2}</textarea></label>
+<button id="cloud-project">从当前点云生成新 2D 地图</button>
+<button id="map-center-robot">Center Robot</button>
+<pre id="cloud-state"></pre><h2>3D 点云预览</h2>
+<p id="cloud-note">选择有源 PCD 的地图后显示；拖动旋转，滚轮缩放。</p>
+<canvas id="cloud-canvas" width="1000" height="450"></canvas><pre id="map-meta"></pre></section>
 <section id="localization" class="page"><h1>定位与持续校正</h1><p>field_test 的 map tracking 默认开启；校正由 V3 LocalizationManager 应用，只有它发布 map → odom。实时观测以 ROS 话题为准。</p><div id="localization-state" class="cards"></div><p>当前未提供自主恢复或远程修改门控的网页操作。异常候选由定位管理器拒绝。</p></section>
 <section id="navigation" class="page"><h1>路线与距离目标</h1><p>地图编辑可使用 DRAFT。执行 Nav2 目标须启动绑定同一地图、外参和安全报告的导航会话，并具有新鲜定位和 ACTIVE 状态。</p><div id="navigation-state" class="card"></div><select id="route-map"></select><select id="route-select"><option value="">选择路线版本</option></select><div class="row"><input id="route-name" placeholder="路线名称"><button id="route-save">保存路线新版本</button><button id="route-run">执行当前路线</button><button id="nav-cancel" class="danger">取消 / 停止</button></div><p>点击添加航点；拖动已有点移动。选择点后可删除、调整顺序和修改航向。地图变化后原路线不能直接执行。</p><canvas id="route-canvas" width="1000" height="560"></canvas><div class="row"><button id="route-delete">删除所选点</button><button id="route-up">向前排序</button><button id="route-down">向后排序</button><input id="route-yaw" type="number" step="0.1" value="0" placeholder="航向 rad"><label class="check"><input id="route-photo" type="checkbox">拍照任务（须配置 waypoint executor）</label><button id="route-apply">更新所选点</button></div><pre id="route-points"></pre><div class="row"><input id="distance-value" type="number" value="1" step="0.1"><button id="distance-forward">向前距离目标</button><button id="distance-back">向后距离目标</button><button id="distance-five">向前 5 m</button><button id="loc-request">请求全局重定位</button></div><h2>标定 / 建图低速 Jog</h2><p>仅用于已检查的手动会话：按住持续发布，松开、窗口失焦或 180 ms 未续租即停止。FW-mini 先选模式并等待 READY，释放后需重新选档。</p><div class="row"><button id="mode-four">FW-mini 4T4D（6 档）</button><button id="mode-lateral">FW-mini 横移（8 档）</button></div><div class="row" id="jog-controls"><button data-jog="0.03,0,0">按住前进</button><button data-jog="-0.02,0,0">按住后退</button><button data-jog="0,0,0.1">按住左转</button><button data-jog="0,0,-0.1">按住右转</button><button data-jog="0,0.02,0">按住左移</button><button data-jog="0,-0.02,0">按住右移</button></div><pre id="live-state"></pre></section>
 <section id="recorder" class="page"><h1>Recorder Manager</h1><p>只录制所选模板中当前存在的话题。启动前检查磁盘；结束后校验 metadata 和消息数。</p><label>模板 <select id="rec-template"><option>calibration</option><option>mapping</option><option>localization</option><option>chassis_motion</option><option>full_field_test</option><option>motion_diagnostic</option></select></label><label>测试标签 <input id="rec-label"></label><button id="rec-start">开始录包</button><div id="rec-result"></div></section>

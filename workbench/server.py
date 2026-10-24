@@ -62,7 +62,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/clouds':return self.response(200,CLOUDS.list())
             if self.path == '/api/routes':return self.response(200,ROUTES.list())
             if self.path == '/api/live':
-                try:SESSIONS.bridge();return self.response(200,rpc(ROOT,'status'))
+                # Status polling is read-only; only an explicit session start may
+                # launch the bridge. Otherwise Stop All would immediately undo itself.
+                try:return self.response(200,rpc(ROOT,'status'))
                 except (OSError,ValueError) as exc:return self.response(200,{'state':'ROS_BRIDGE_UNAVAILABLE','reason':str(exc),'session':SESSIONS.current()})
             match=re.fullmatch(r'/api/bundles/(bunker|fwmini)',self.path)
             if match:return self.response(200,BUNDLES.list(match.group(1)))
@@ -163,13 +165,14 @@ class Handler(BaseHTTPRequestHandler):
                 cfg=ROOT/'runs'/('ins_'+_new_id())/'driver.yaml';cfg.parent.mkdir(parents=True)
                 cfg.write_text(yaml.safe_dump({'agt_asensing_driver':{'ros__parameters':dict(port=str(port),baudrate=baud,ins_frame_id='ins_link',gnss_frame_id='rtk_antenna_link',use_device_orientation_in_imu=False,rtk_fixed_types=[4])}}))
                 return self.response(200,JOBS._new('ins_observation',['bash',str(REPO/'scripts/ros_exec.sh'),'ros2','run','agt_asensing_driver','asensing_node','--ros-args','-r','__node:=agt_asensing_driver','--params-file',str(cfg)],{'config':str(cfg),'scope':'HARDWARE_OBSERVATION_ONLY'}))
-            if self.path=='/api/clouds/import':return self.response(200,CLOUDS.import_pcd(payload['path'],payload.get('calibration'),payload.get('bag')))
+            if self.path=='/api/clouds/import':return self.response(200,CLOUDS.import_pcd(payload['path'],payload.get('calibration'),payload.get('bag'),payload.get('name','')))
             match=re.fullmatch(r'/api/clouds/([^/]+)/(clean|project)',self.path)
             if match:
-                return self.response(200,CLOUDS.clean(match.group(1),payload['operations']) if match.group(2)=='clean' else CLOUDS.grid(match.group(1),payload.get('projection',{})))
+                return self.response(200,CLOUDS.clean(match.group(1),payload['operations']) if match.group(2)=='clean' else CLOUDS.grid(match.group(1),payload.get('projection',{}),payload.get('name')))
             if self.path=='/api/routes':return self.response(200,ROUTES.save(payload['map_id'],payload['points'],payload.get('name',''),payload.get('parent')))
             if self.path=='/api/session/start':return self.response(200,SESSIONS.start(payload))
             if self.path=='/api/session/stop':return self.response(200,SESSIONS.stop())
+            if self.path=='/api/session/stop_all':return self.response(200,SESSIONS.stop_all())
             match=re.fullmatch(r'/api/control/(distance|route|goal|jog|stop|mode|relocalize)',self.path)
             if match:return self.response(200,rpc(ROOT,match.group(1),payload))
             match=re.fullmatch(r'/api/bundles/(bunker|fwmini)',self.path)
@@ -210,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, JOBS.start_recorder(
                     payload.get('template'), payload.get('robot', 'bunker'),
                     payload.get('calibration'), payload.get('map_version'), payload.get('label', ''),
-                    payload.get('mount_profile')))
+                    payload.get('mount_profile'), payload.get('topics')))
             if self.path == '/api/fwmini/mounts/verify':
                 source = resolve_profile(ROOT, payload.get('profile'))
                 report = Path(payload['report']).expanduser()
@@ -226,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, JOBS.stop(match.group(1)))
             if self.path == '/api/maps/import':
                 return self.response(200, MAPS.import_yaml(payload['yaml_path'],
-                                     payload.get('calibration'), payload.get('source_bag')))
+                                     payload.get('calibration'), payload.get('source_bag'), payload.get('name','')))
             match = re.fullmatch(r'/api/maps/([^/]+)/revise', self.path)
             if match:
                 return self.response(200, MAPS.revise(match.group(1), payload['pixels'],
