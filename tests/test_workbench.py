@@ -73,28 +73,46 @@ class WorkbenchTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 Routes(root).save(map_record['id'],[{'x':0.,'y':0.,'yaw':0.,'heading':999.}])
 
-    def test_partial_projection_uses_pcd_bounds_and_inherits_name(self):
+    def test_partial_local_ground_projection_inherits_name_and_ignores_legacy_z(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);cloud_id='20261024T000000Z-deadbeef'
             folder=root/'maps/clouds'/cloud_id;folder.mkdir(parents=True)
             pcd=folder/'cloud.pcd';pcd.write_bytes(b'PCD')
-            (folder/'manifest.json').write_text(__import__('json').dumps({'id':cloud_id,
-                'pcd':str(pcd),'sha256':hash_file(pcd),'name':'一号温室',
+            (folder/'manifest.json').write_text(json.dumps({
+                'id':cloud_id,'pcd':str(pcd),'sha256':hash_file(pcd),
+                'name':'一号温室',
                 'processing':{'bounds_min':[1.,2.,-.2],'bounds_max':[2.,4.,2.]}}))
-            clouds=Clouds(root);seen={}
-            def fake_process(source,spec):
-                seen.update(spec);ident='projection';out=root/'runs'/ident;out.mkdir(parents=True)
-                p=spec['projection']
-                (out/'map.yaml').write_text(yaml.safe_dump({'image':'map.pgm','resolution':p['resolution'],
-                    'origin':p['origin'],'negate':0,'occupied_thresh':.65,'free_thresh':.2}))
+            # Current exporter contract is local_ground; global-Z bounds are
+            # explicitly ignored, never reinterpreted as heights above ground.
+            config=root/'src/agt-lio-pgo-mapping/exporters/agt_pcd2grid_exporter/config/projection.yaml'
+            config.parent.mkdir(parents=True)
+            config.write_text(yaml.safe_dump({
+                'projection_mode':'local_ground','resolution':.05,
+                'ground':{'cell_size':.5,'percentile':.1,'free_tolerance':.1},
+                'obstacle_height':{'min':.12,'max':1.8},
+                'occupied_threshold':2,'free_space_radius_cells':2,
+                'postprocess':{'closing_radius_cells':1,'min_component_cells':3},
+                'temporal_filter':{'enabled':True}}))
+            seen={}
+            def fake_runner(command,timeout):
+                self.assertEqual(command[:4],[
+                    'ros2','run','agt_pcd2grid_exporter','pcd2grid_exporter'])
+                seen.update(yaml.safe_load(Path(command[command.index('--config')+1]).read_text()))
+                out=Path(command[command.index('--output')+1]);out.mkdir(parents=True)
+                (out/'map.yaml').write_text(yaml.safe_dump({
+                    'image':'map.pgm','resolution':seen['resolution'],
+                    'origin':[1.,2.,0.],'negate':0,
+                    'occupied_thresh':.65,'free_thresh':.196}))
                 (out/'map.pgm').write_bytes(b'P5\n2 2\n255\n\x00\xff\xcd\xff')
-                return ident,out,out/'operations.yaml'
-            clouds._process=fake_process
+                (out/'metadata.yaml').write_text('unknown_cells: 1\n')
+            clouds=Clouds(root,runner=fake_runner)
             result=clouds.grid(cloud_id,{'resolution':.5,'z_min':.2})
             self.assertEqual(result['name'],'一号温室')
-            self.assertEqual(seen['projection']['origin'],[.5,1.5,0.])
-            self.assertEqual(seen['projection']['range'],[2.,3.])
-            self.assertEqual(seen['projection']['z_min'],.2)
+            self.assertEqual(seen['resolution'],.5)
+            self.assertEqual(seen['projection_mode'],'local_ground')
+            self.assertIs(seen['temporal_filter']['enabled'],False)
+            self.assertEqual(result['ignored_legacy_z_parameters'],['z_min'])
+            self.assertEqual(result['projection_stats']['unknown_cells'],1)
 
     def test_custom_recording_topics_are_validated_and_selected(self):
         from unittest.mock import patch
