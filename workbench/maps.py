@@ -103,31 +103,51 @@ def png(width, height, pixels):
             + chunk(b'IDAT', zlib.compress(scanlines)) + chunk(b'IEND', b''))
 
 
-def relocalization_assets(record):
-    """Return same-PCD optional assets; absence remains a supported legacy BBS fallback."""
+def _asset_health(record):
     source=record.get('source_pcd')
-    if not source:return ''
+    if not source:return None, {}, False, False
     directory=Path(source).expanduser().resolve().parent/'relocalization'
-    return str(directory) if directory.is_dir() else ''
+    if not directory.is_dir():return None, {}, False, False
+    status={}
+    status_path=directory/'asset_status.json'
+    if status_path.is_file():
+        try:status=json.loads(status_path.read_text())
+        except (OSError,ValueError):pass
+    mandatory=(directory/'voxelmaps_coords').is_dir() and (directory/'global_map_downsampled.pcd').is_file()
+    fresh=(status.get('state')=='READY' and
+           status.get('source_sha256')==record.get('source_pcd_sha256'))
+    if status_path.exists():
+        return directory,status,mandatory and fresh,False
+    # Compatibility with V3 PGO map packages built before asset_status.json:
+    # require metadata to name this exact PCD, not merely an adjacent directory.
+    meta_path=directory/'relocalization_assets.yaml'
+    if mandatory and meta_path.is_file():
+        try:
+            meta=yaml.safe_load(meta_path.read_text())
+            if (isinstance(meta,dict) and meta.get('source_map') and
+                Path(meta['source_map']).expanduser().resolve()==Path(source).expanduser().resolve()):
+                return directory,status,True,True
+        except (OSError,ValueError,TypeError):pass
+    return directory,status,False,False
+
+
+def relocalization_assets(record):
+    """Never expose incomplete or stale BBS assets to V3 localization."""
+    directory,status,ready,legacy=_asset_health(record)
+    return str(directory) if ready else ''
 
 
 def asset_summary(record):
-    directory=Path(relocalization_assets(record)) if relocalization_assets(record) else None
+    directory,status,ready,legacy=_asset_health(record)
     if directory is None:return '未找到重定位资产：使用整图 3D-BBS 回退'
-    status_path=directory/'asset_status.json'
-    status={}
-    if status_path.is_file():
-        try: status=json.loads(status_path.read_text())
-        except (ValueError,OSError): pass
-    fresh=(status.get('source_sha256')==record.get('source_pcd_sha256'))
-    polar=(directory/'polar_context.db').is_file() and fresh
-    voxels=(directory/'voxelmaps_coords').is_dir() and fresh and status.get('bbs')=='READY'
-    bbs=('已生成（同源 SHA）' if voxels else '正在构建' if status.get('bbs')=='BUILDING'
-         else '构建失败：'+str(status.get('error','请检查依赖'))[:120] if status.get('bbs')=='FAILED'
-         else '未生成')
-    return ('AGT Polar Context（非 SC）：已生成' if polar
-            else 'AGT Polar Context：未生成（无 PGO 轨迹没有关键帧点云块）')+'；BBS 体素资产：'+bbs
-
+    polar=(directory/'polar_context.db').is_file() and ready
+    bbs=('已生成（旧版按源 PCD 路径校验，未记录 SHA）' if legacy else
+         '已生成（同源 SHA）' if ready else
+         '正在构建' if status.get('bbs')=='BUILDING' else
+         '构建失败：'+str(status.get('error','请检查依赖'))[:120] if status.get('bbs')=='FAILED' else
+         '未生成／版本校验失败')
+    return ('AGT Polar Context（非 SC）：已生成' if polar else
+            'AGT Polar Context：未生成（没有可用的关键帧描述子库）')+'；BBS 体素资产：'+bbs
 
 class Maps:
     def __init__(self, root=ROOT):
