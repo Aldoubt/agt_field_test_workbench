@@ -74,6 +74,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, status())
             if self.path == '/api/jobs':
                 return self.response(200, JOBS.list())
+            if self.path == '/api/devices/camera':
+                from .devices import camera_status
+                return self.response(200, camera_status(JOBS))
             if self.path == '/api/maps':
                 return self.response(200, MAPS.list())
             if self.path == '/api/templates':
@@ -139,6 +142,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('cross-origin mutations are not allowed')
             if self.headers.get('Content-Type','').split(';')[0]!='application/json':raise ValueError('application/json required')
             payload = self.body()
+            if self.path == '/api/devices/camera/start':
+                from .devices import start_camera
+                return self.response(200, start_camera(JOBS, payload))
+            if self.path == '/api/devices/camera/stop':
+                from .devices import stop_camera
+                return self.response(200, stop_camera(JOBS))
             match=re.fullmatch(r'/api/profiles/(bunker|fwmini)',self.path)
             if match:
                 if any(j['kind']=='field_session' and j['state'] in ('RUNNING','ORPHANED') for j in JOBS.list()):raise ValueError('stop the active session before selecting a new profile')
