@@ -707,16 +707,24 @@ class Studio(QMainWindow):
         except Exception:
             if self.cfg.get('auto_start_workbench',True) and (root/'workbench/server.py').is_file():
                 env=os.environ.copy();env['PYTHONPATH']=str(root)+os.pathsep+env.get('PYTHONPATH','')
-                self.backend=QProcess(self);self.backend.setProgram('python3')
-                self.backend.setArguments(['-m','workbench.server','--host','127.0.0.1','--port','8765'])
-                self.backend.setWorkingDirectory(str(root))
-                from PyQt5.QtCore import QProcessEnvironment
+                # Workbench owns live mapping/recording jobs. It must outlive
+                # the GUI; otherwise saving/crashing Qt orphans active jobs.
+                from PyQt5.QtCore import QProcessEnvironment, QIODevice
                 process_env=QProcessEnvironment.systemEnvironment()
                 process_env.insert('PYTHONPATH',env['PYTHONPATH'])
-                self.backend.setProcessEnvironment(process_env)
-                self.backend.setProcessChannelMode(QProcess.MergedChannels)
-                self.backend.readyReadStandardOutput.connect(lambda:self._proc_output(self.backend,'Workbench'))
-                self.backend.start();self.write_log('正在启动本机 Workbench 服务')
+                server=QProcess()
+                server.setProgram('python3')
+                server.setArguments(['-m','workbench.server','--host','127.0.0.1','--port','8765'])
+                server.setWorkingDirectory(str(root))
+                server.setProcessEnvironment(process_env)
+                (root/'work').mkdir(parents=True,exist_ok=True)
+                server.setStandardOutputFile(str(root/'work/studio_workbench.log'),QIODevice.Append)
+                server.setProcessChannelMode(QProcess.MergedChannels)
+                started,pid=server.startDetached()
+                if started:
+                    self.write_log(f'Workbench 独立后台服务已启动（PID {pid}）；关闭 Qt 不会中断建图或录包')
+                else:
+                    self.write_log('Workbench 后台启动失败：'+server.errorString())
         QTimer.singleShot(1300,lambda:self._api('profile_get','GET','/api/profiles'))
         QTimer.singleShot(1400,self.refresh_library);QTimer.singleShot(1600,self.refresh_live)
         QTimer.singleShot(1800,self.refresh_jobs)
