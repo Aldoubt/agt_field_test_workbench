@@ -35,11 +35,25 @@ TEMPLATES = {
                      '/agt/map_tracking/status', '/agt/map_tracking/pose', '/tf', '/tf_static'],
     'chassis_motion': ['/wheel/odom', '/cmd_vel', '/mux/cmd_vel', '/ctrl_cmd', '/chassis_info_fb',
                        '/diagnostics', '/tf'],
-    'full_field_test': ['/livox/lidar', '/livox/imu', '/wheel/odom', '/agt/odometry/local',
-                        '/agt/localization/status', '/agt/localization/metrics', '/agt/map_tracking/status',
-                        '/cmd_vel', '/mux/cmd_vel', '/ctrl_cmd', '/chassis_info_fb',
+    'full_field_test': ['/livox/lidar', '/livox/imu', '/wheel/odom', '/bunker_status',
+                        '/agt/odometry/local', '/agt/localization/status', '/agt/localization/metrics',
+                        '/agt/map_tracking/status', '/agt/global_relocalization/status',
+                        '/agt/relocalization/status', '/cmd_vel_nav', '/cmd_vel', '/cmd_vel_smoothed',
+                        '/agt/hmi/cmd_vel', '/mux/cmd_vel', '/ctrl_cmd', '/chassis_info_fb',
                         '/diagnostics', '/tf', '/tf_static'],
 }
+
+REQUIRED_TOPIC_TYPES = {
+    'full_field_test': {'/livox/lidar': 'livox_ros_driver2/msg/CustomMsg'},
+}
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def utc_now():
@@ -179,6 +193,11 @@ class Jobs:
             record = {'id': run_id, 'kind': kind, 'state': 'RUNNING', 'started_at': utc_now(),
                       'pid': process.pid, 'log': str(directory / 'process.log'),
                       'command': command, **meta}
+            if kind == 'recorder' and 'configuration_snapshot' in record:
+                configuration_path = directory / 'recording_config.json'
+                write_json(configuration_path, record['configuration_snapshot'])
+                record['configuration_path'] = str(configuration_path)
+                record['configuration_sha256'] = sha256_file(configuration_path)
             self.jobs[run_id] = {'process': process, 'record': record, 'kind': kind, 'state': 'RUNNING'}
             write_json(directory / 'run.json', record)
             return record
@@ -262,7 +281,7 @@ class Jobs:
             write_json(self.root / 'runs' / run_id / 'run.json', record)
             return record
 
-    def start_mapping(self, bag, robot, calibration=None, live=False, livox_config=None, mount_profile=None, backend="fastlio", calibration_bundle=None):
+    def start_mapping(self, bag, robot, calibration=None, live=False, livox_config=None, mount_profile=None, backend="fastlio", calibration_bundle=None, map_name=''):
         if not ros_ready():
             raise ValueError('ROS Humble unified overlay not built')
         if robot not in ('bunker', 'fwmini'):
@@ -288,7 +307,8 @@ class Jobs:
         run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]
         output = self.root / 'maps' / run_id
         cmd = ['python3', str(REPO / 'scripts/mapping_pipeline.py'),
-               '--robot', robot, '--output', str(output), '--backend', backend]
+               '--robot', robot, '--output', str(output), '--backend', backend,
+               '--map-name', str(map_name or '').strip()[:120]]
         mount_metadata = None
         if robot == 'fwmini':
             mount = resolve_profile(self.root, mount_profile)
@@ -335,7 +355,8 @@ class Jobs:
                           'mount_profile': mount_metadata,
                           'versions': source_versions(self.root),
                           'ros_domain_id': int(env.get('FIELD_MAPPING_DOMAIN','89')), 'sensor_only': live and not bool(live_session), 'reuse_runtime':bool(live and live_session), 'backend':backend,
-                          'raw_bag': str(output / 'raw_bag') if live else None}, env)
+                          'raw_bag': str(output / 'raw_bag') if live else None,
+                          'map_name': str(map_name or '').strip()[:120]}, env)
 
     def start_recorder(self, template, robot, calibration=None, map_version=None, label='', mount_profile=None, requested_topics=None):
         if template not in TEMPLATES or robot not in ('bunker', 'fwmini'):
@@ -363,11 +384,19 @@ class Jobs:
         if not selected:
             raise ValueError('none of the requested topics currently exists' if custom_topics is not None
                              else 'none of the template topics currently exists')
+        required_types = {name: typ for name, typ in REQUIRED_TOPIC_TYPES.get(template, {}).items()
+                          if name in desired}
+        type_mismatches = {name: {'expected': typ, 'observed': actual.get(name)}
+                           for name, typ in required_types.items()
+                           if name in actual and actual[name] != typ}
+        if type_mismatches:
+            raise ValueError('required topic type mismatch: ' + json.dumps(type_mismatches, sort_keys=True))
+        missing_topics = [t for t in desired if t not in actual]
         run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]
         output = self.root / 'bags' / run_id
+        qos_path = self.root / 'config/recording/qos_overrides.yaml'
         command = ['bash', str(ROS_EXEC), 'ros2', 'bag', 'record', '-o', str(output),
-                   '--qos-profile-overrides-path', str(self.root / 'config/recording/qos_overrides.yaml'),
-                   *selected]
+                   '--qos-profile-overrides-path', str(qos_path), *selected]
         versions = source_versions(self.root)
         qos = {}
         for topic in selected:
@@ -375,43 +404,116 @@ class Jobs:
                 qos[topic] = ros_call(['ros2', 'topic', 'info', '--verbose', topic], timeout=3)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 qos[topic] = 'UNAVAILABLE'
+        snapshot = {'created_at': utc_now(), 'template': template, 'robot': robot,
+                    'topic_source': 'custom' if custom_topics is not None else 'template',
+                    'requested_topics': list(desired), 'selected_topics': selected,
+                    'topic_types': {t: actual[t] for t in selected},
+                    'required_topic_types': required_types, 'type_mismatches': type_mismatches,
+                    'missing_topics': missing_topics, 'offered_qos': qos,
+                    'qos_overrides_path': str(qos_path),
+                    'qos_overrides_sha256': sha256_file(qos_path) if qos_path.is_file() else None,
+                    'calibration': calibration, 'map_version': map_version,
+                    'mount_profile': mount_metadata, 'label': label[:100], 'versions': versions,
+                    'ros_domain_id': os.environ.get('ROS_DOMAIN_ID', '0')}
         return self._new('recorder', command, {'template': template, 'robot': robot,
-                         'topic_source': 'custom' if custom_topics is not None else 'template',
-                         'output': str(output), 'topics': {t: actual[t] for t in selected},
-                         'offered_qos': qos,
-                         'missing_topics': [t for t in desired if t not in actual],
+                         'topic_source': snapshot['topic_source'], 'output': str(output),
+                         'topics': snapshot['topic_types'], 'offered_qos': qos,
+                         'requested_topics': list(desired), 'missing_topics': missing_topics,
+                         'required_topic_types': required_types, 'type_mismatches': type_mismatches,
                          'calibration': calibration, 'map_version': map_version,
-                         'mount_profile': mount_metadata,
+                         'mount_profile': mount_metadata, 'configuration_snapshot': snapshot,
                          'label': label[:100], 'versions': versions,
-                         'ros_domain_id': os.environ.get('ROS_DOMAIN_ID', '0')})
+                         'ros_domain_id': snapshot['ros_domain_id']})
 
 
 def process_start(record):
     return datetime.fromisoformat(record['started_at']).timestamp()
 
 
+def _bag_storage_files(root, entries):
+    """Normalize Humble string entries and supported {path: ...} mappings."""
+    if not isinstance(entries, list) or not entries:
+        raise ValueError('relative_file_paths must be a non-empty list')
+    root = root.resolve()
+    result = []
+    seen = set()
+    for item in entries:
+        relative = item if isinstance(item, str) else item.get('path') if isinstance(item, dict) else None
+        if not isinstance(relative, str) or not relative.strip():
+            raise ValueError('unsupported relative_file_paths entry')
+        relative = relative.strip()
+        candidate = Path(relative)
+        if candidate.is_absolute():
+            raise ValueError('absolute bag storage path is not allowed')
+        resolved = (root / candidate).resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise ValueError('bag storage path escapes the bag directory') from exc
+        normalized = resolved.relative_to(root).as_posix()
+        if normalized in seen:
+            raise ValueError('duplicate bag storage path: ' + normalized)
+        seen.add(normalized)
+        result.append((normalized, resolved))
+    return result
+
+
 def check_bag(path, expected_types=None):
+    path = Path(path).expanduser()
     metadata = path / 'metadata.yaml'
     if not metadata.is_file():
         return {'state': 'INCOMPLETE', 'reason': 'metadata.yaml missing'}
+    evidence = {}
     try:
-        info = yaml.safe_load(metadata.read_text())['rosbag2_bagfile_information']
+        metadata_bytes = metadata.read_bytes()
+        evidence = {'metadata_sha256': hashlib.sha256(metadata_bytes).hexdigest()}
+        document = yaml.safe_load(metadata_bytes.decode('utf-8'))
+        if not isinstance(document, dict):
+            raise ValueError('metadata.yaml must contain a mapping')
+        info = document['rosbag2_bagfile_information']
+        if not isinstance(info, dict):
+            raise ValueError('rosbag2_bagfile_information must be a mapping')
         entries = info.get('topics_with_message_count', [])
-        counts = {entry['topic_metadata']['name']: int(entry['message_count']) for entry in entries}
-        types = {entry['topic_metadata']['name']: entry['topic_metadata']['type'] for entry in entries}
+        if not isinstance(entries, list):
+            raise ValueError('topics_with_message_count must be a list')
+        counts, types = {}, {}
+        for entry in entries:
+            topic = entry['topic_metadata']
+            name, typ = topic['name'], topic['type']
+            if not isinstance(name, str) or not name or not isinstance(typ, str) or not typ:
+                raise ValueError('invalid topic metadata')
+            if name in counts:
+                raise ValueError('duplicate topic metadata: ' + name)
+            message_count = int(entry['message_count'])
+            if message_count < 0:
+                raise ValueError('negative message count: ' + name)
+            counts[name], types[name] = message_count, typ
         count = sum(counts.values())
-        files = [path / item['path'] for item in info.get('relative_file_paths', [])]
-        if not count or not files or not all(p.is_file() for p in files):
-            return {'state': 'INCOMPLETE', 'reason': 'zero messages or missing bag storage files',
-                    'counts': counts}
+        storage = _bag_storage_files(path, info.get('relative_file_paths'))
+        files = []
+        for relative, storage_path in storage:
+            item = {'path': relative, 'sha256': None, 'size_bytes': 0}
+            if storage_path.is_file():
+                item['size_bytes'] = storage_path.stat().st_size
+                if item['size_bytes'] > 0:
+                    item['sha256'] = sha256_file(storage_path)
+            files.append(item)
+        evidence.update(counts=counts, types=types, messages=count, files=files,
+                        data_sha256={item['path']: item['sha256'] for item in files})
+        if not count:
+            return dict(evidence, state='INCOMPLETE', reason='zero messages')
+        missing = [item['path'] for item in files if item['sha256'] is None]
+        if missing:
+            return dict(evidence, state='INCOMPLETE', reason='missing or empty bag storage files',
+                        missing_or_empty_files=missing)
         mismatched = {name: {'expected': typ, 'recorded': types.get(name)}
                       for name, typ in (expected_types or {}).items() if types.get(name) != typ}
         if mismatched:
-            return {'state': 'INCOMPLETE', 'reason': 'topic types missing or changed',
-                    'type_mismatches': mismatched, 'counts': counts}
-        return {'state': 'PASS', 'counts': counts, 'types': types, 'messages': count}
-    except (KeyError, ValueError, TypeError, yaml.YAMLError) as exc:
-        return {'state': 'INCOMPLETE', 'reason': str(exc)}
+            return dict(evidence, state='INCOMPLETE', reason='topic types missing or changed',
+                        type_mismatches=mismatched)
+        return dict(evidence, state='PASS')
+    except (KeyError, ValueError, TypeError, UnicodeError, OSError, yaml.YAMLError) as exc:
+        return dict(evidence, state='INCOMPLETE', reason=str(exc))
 
 
 def calibration_config(root, robot, version):
