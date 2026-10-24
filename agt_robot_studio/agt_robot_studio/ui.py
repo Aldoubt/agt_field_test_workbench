@@ -376,7 +376,7 @@ class Studio(QMainWindow):
         self._topbar(r)
         self._global_status(r)
         self.stack=QStackedWidget();r.addWidget(self.stack,1)
-        self.cloud_view=CloudView();self.map_view=GridView();self.nav_view=GridView(navigation_mode=True)
+        self.cloud_view=CloudView();self.clean_view=CloudView();self.map_view=GridView();self.nav_view=GridView(navigation_mode=True)
         self.nav_view.goal_clicked.connect(self.send_goal)
         self._page_mapping();self._page_maps();self._page_navigation();self._page_parameters();self._page_logs()
         self.pages['建图'].click();self.setStyleSheet(scaled_style(self.ui_scale))
@@ -516,6 +516,28 @@ class Studio(QMainWindow):
         imp=button('导入 PCD');imp.clicked.connect(self.import_pcd);row.addWidget(imp)
         gen=button('生成二维地图','primary');gen.clicked.connect(self.generate_grid);row.addWidget(gen)
         refresh=button('刷新');refresh.clicked.connect(self.refresh_library);row.addWidget(refresh)
+        self.cloud_box.currentIndexChanged.connect(self.preview_cloud)
+        clean=card(l,'1a. 三维 PCD 全量清洗（保留原图，清洗后再生成栅格）')
+        clean.addWidget(text_label('预览仅显示采样点；删除 ROI 在 C++ PCL 后端作用于全量 PCD。输入地图坐标系 XYZ 包围盒，不是相对车体的坐标。'))
+        self.cloud_info=text_label('选择上方 PCD 后加载预览；请核对后方杆件在地图中的实际坐标')
+        clean.addWidget(self.cloud_info)
+        preview=button('预览选中 PCD');preview.clicked.connect(self.preview_cloud)
+        clean.addWidget(preview)
+        self.clean_view.setMinimumSize(350,210)
+        clean.addWidget(self.clean_view)
+        limits=QGridLayout();clean.addLayout(limits)
+        self.cloud_roi_edits={}
+        for column,axis in enumerate(('X','Y','Z')):
+            for row,(bound,label) in enumerate((('min','下限'),('max','上限'))):
+                spin=QDoubleSpinBox();spin.setRange(-1000.,1000.)
+                spin.setDecimals(3);spin.setSingleStep(.05);spin.setValue(0.)
+                self.cloud_roi_edits[(axis.lower(),bound)]=spin
+                limits.addWidget(QLabel(axis+label+' (m)'),row,column*2)
+                limits.addWidget(spin,row,column*2+1)
+        self.cloud_clean_btn=button('删除框内杆件/残影 → 新 PCD 版本','primary')
+        self.cloud_clean_btn.clicked.connect(self.clean_cloud_roi)
+        clean.addWidget(self.cloud_clean_btn)
+        clean.addWidget(text_label('警告：重复结构或沿全程移动的车体残影不应盲目用大范围框删除。先预览小 ROI，再核对新版本；相同 PCD 必须用于定位和栅格转换。'))
         frame=QFrame();frame.setObjectName('viewer');l.addWidget(frame,1)
         v=QVBoxLayout(frame);v.addWidget(self.map_view)
         row=QHBoxLayout();l.addLayout(row);self.map_box=QComboBox();row.addWidget(self.map_box,1)
@@ -734,7 +756,8 @@ class Studio(QMainWindow):
         if not self.api:self.write_log('Workbench 尚未初始化');return
         timeout=None
         if name in ('record_start','session_stop_all'):timeout=120
-        elif name in ('cloud_project','cloud_import'):timeout=600
+        elif name in ('cloud_project','cloud_import','cloud_clean'):timeout=600
+        elif name=='cloud_preview':timeout=30
         elif name in ('record_stop','session_stop') or name.startswith(('session_','device_')):timeout=30
         self.api.call(name,method,path,payload,timeout)
 
@@ -772,6 +795,7 @@ class Studio(QMainWindow):
             if name in ('session_sensors','mapping_start'):self.mapping_state.setText('启动失败')
             if name=='mapping_finish':
                 self.glim_btn.setEnabled(True);self.mapping_state.setText('保存请求失败；建图任务仍在运行')
+            if name=='cloud_clean':self.cloud_clean_btn.setEnabled(True)
             return
         if name=='profile_get':
             value=next((p for p in value if p.get('robot')=='bunker'),None)
@@ -800,7 +824,11 @@ class Studio(QMainWindow):
             self._fill_combo(self.map_box,value,self.current_map_id)
             self._fill_combo(self.nav_map_box,value,self.current_map_id);return
         if name=='refresh_clouds':
-            self.clouds_by_id={c['id']:c for c in value};self._fill_combo(self.cloud_box,value,self.cloud_box.currentData());return
+            selected=getattr(self,'pending_cloud_id',None) or self.cloud_box.currentData()
+            self.clouds_by_id={c['id']:c for c in value}
+            self._fill_combo(self.cloud_box,value,selected)
+            self.pending_cloud_id=None
+            return
         if name=='refresh_routes':
             self.routes_by_id={r['id']:r for r in value}
             self._fill_combo(self.route_box,value,self.current_route_id);return
@@ -866,7 +894,18 @@ class Studio(QMainWindow):
             self.write_log(f"录包已保存：{value.get('output',self.recorder_output)} · {value.get('state')}")
             self.recorder_id=None;self._update_recording();self.refresh_jobs();return
         if name=='cloud_import':
+            self.pending_cloud_id=value['id']
             self.write_log('三维 PCD 已登记：'+value['id']);self.refresh_library();return
+        if name=='cloud_preview':
+            self.clean_view.set_cloud({'xyz':value.get('points',[]),'source':'已选地图 · 采样预览'})
+            self.cloud_info.setText(f"三维预览：{value.get('sampled_points',0)} / {value.get('total_points',0)} 点；全量删除只按 XYZ 边界执行")
+            return
+        if name=='cloud_clean':
+            self.cloud_clean_btn.setEnabled(True)
+            self.pending_cloud_id=value['id']
+            self.write_log('全量 PCD 清洗完成，新版本：'+value['id']+'；请重新生成二维地图')
+            self.refresh_library()
+            return
         if name=='cloud_project':
             self.current_map_id=value['id'];self.write_log('二维地图已生成：'+value['id'])
             self.refresh_library();self._load_map(value);self.pages['地图'].click();return
@@ -1276,6 +1315,29 @@ class Studio(QMainWindow):
         name=self.map_name_edit.text().strip()[:120] or self.current_map_name
         self._api('cloud_import','POST','/api/clouds/import',{'path':path,'calibration':calibration,'bag':bag,'name':name})
 
+    def preview_cloud(self, *_):
+        ident=self.cloud_box.currentData()
+        if ident:self._api('cloud_preview','GET',f'/api/clouds/{ident}/preview')
+
+    def clean_cloud_roi(self):
+        ident=self.cloud_box.currentData()
+        if not ident:
+            QMessageBox.warning(self,'尚未选择 PCD','先导入并选择三维点云版本。');return
+        low=[self.cloud_roi_edits[(axis,'min')].value() for axis in ('x','y','z')]
+        high=[self.cloud_roi_edits[(axis,'max')].value() for axis in ('x','y','z')]
+        if any(a>=b for a,b in zip(low,high)):
+            QMessageBox.warning(self,'ROI 无效','每个坐标轴的下限必须小于上限。');return
+        answer=QMessageBox.question(self,'确认清理全量地图',
+            f'将从地图坐标系下的整个 PCD 删除盒内所有点：\\nmin={low}\\nmax={high}\\n'
+            '原始 PCD 保留，新版本可预览和再次清洗。务必确认没有删掉树干、墙面等定位结构。',
+            QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
+        if answer!=QMessageBox.Yes:return
+        if self.demo:
+            self.write_log('演示模式：不执行 PCD 清洗');return
+        self.cloud_clean_btn.setEnabled(False)
+        self._api('cloud_clean','POST',f'/api/clouds/{ident}/clean',
+                  {'operations':[{'type':'delete','min':low,'max':high}]})
+
     def generate_grid(self):
         cloud=self.cloud_box.currentData()
         if not cloud:QMessageBox.warning(self,'缺少三维地图','请先导入 FAST-LIO2 或 GLIM 导出的 PCD。');return
@@ -1400,6 +1462,12 @@ class Studio(QMainWindow):
         self._update_global_status()
 
     def closeEvent(self,event):
+        critical={'mapping_finish','cloud_clean','cloud_project','cloud_import','map_revise'}
+        if self.mapping_job_id or (self.api and self.api.active_request in critical):
+            QMessageBox.warning(self,'后台保存尚未结束',
+                'FAST-LIO2 建图或地图资产保存仍在运行。请先等任务完成，再关闭界面；'
+                '当前关闭可能中断 Workbench 并留下不完整地图。')
+            event.ignore();return
         if self.worker:self.worker.shutdown();self.worker.wait(2000)
         for p in (self.bag,self.glim,self.rviz,self.editor):
             self._interrupt(p)

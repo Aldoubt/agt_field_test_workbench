@@ -51,6 +51,7 @@ class ApiWorker(QThread):
         self.client = client
         self.requests = queue.Queue(maxsize=128)
         self.alive = True
+        self.active_request = None
 
     def call(self, name, method, path, payload=None, timeout=None):
         try:
@@ -64,11 +65,14 @@ class ApiWorker(QThread):
                 name, method, path, payload, timeout = self.requests.get(timeout=.2)
             except queue.Empty:
                 continue
+            self.active_request = name
             try:
                 result = self.client.request(method, path, payload, timeout=timeout)
                 self.completed.emit(name, True, result)
             except Exception as exc:
                 self.completed.emit(name, False, str(exc))
+            finally:
+                self.active_request = None
 
     def shutdown(self):
         self.alive = False
