@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 
 from PyQt5.QtCore import QThread, pyqtSignal
 import queue
+import threading
 
 
 class WorkbenchClient:
@@ -52,11 +53,23 @@ class ApiWorker(QThread):
         self.requests = queue.Queue(maxsize=128)
         self.alive = True
         self.active_request = None
+        self._pending = {}
+        self._pending_lock = threading.Lock()
+
+    def has_pending(self, names):
+        with self._pending_lock:
+            return any(self._pending.get(name, 0) > 0 for name in names)
 
     def call(self, name, method, path, payload=None, timeout=None):
-        try:
-            self.requests.put_nowait((name, method, path, payload, timeout))
-        except queue.Full:
+        with self._pending_lock:
+            try:
+                self.requests.put_nowait((name, method, path, payload, timeout))
+            except queue.Full:
+                accepted = False
+            else:
+                accepted = True
+                self._pending[name] = self._pending.get(name, 0) + 1
+        if not accepted:
             self.completed.emit(name, False, '操作队列已满，请稍后重试')
 
     def run(self):
@@ -72,6 +85,12 @@ class ApiWorker(QThread):
             except Exception as exc:
                 self.completed.emit(name, False, str(exc))
             finally:
+                with self._pending_lock:
+                    remaining = self._pending[name] - 1
+                    if remaining:
+                        self._pending[name] = remaining
+                    else:
+                        self._pending.pop(name, None)
                 self.active_request = None
 
     def shutdown(self):

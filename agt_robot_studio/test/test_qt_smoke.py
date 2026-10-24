@@ -176,6 +176,23 @@ class StudioSmoke(unittest.TestCase):
         self.assertEqual(calls[0][3]['keepout_polygons_px'],[[[10,10],[20,10],[20,20],[10,20]]])
         window.api=None
 
+    def test_queued_map_write_blocks_gui_close_before_network_request(self):
+        from unittest.mock import patch
+        from PyQt5.QtGui import QCloseEvent
+        from PyQt5.QtWidgets import QMessageBox
+        from agt_robot_studio.workbench_client import ApiWorker,WorkbenchClient
+        window=self.window()
+        worker=ApiWorker(WorkbenchClient())
+        worker.call('map_revise','POST','/api/maps/abc/revise',{'pixels':'test'})
+        self.assertTrue(worker.has_pending({'map_revise'}))
+        window.api=worker
+        window.demo=False
+        event=QCloseEvent()
+        with patch('agt_robot_studio.ui.QMessageBox.warning',return_value=QMessageBox.Ok):
+            window.closeEvent(event)
+        self.assertFalse(event.isAccepted())
+        window.api=None
+
     def test_pcd_roi_cleanup_uses_full_resolution_backend_and_version(self):
         from unittest.mock import patch
         from PyQt5.QtWidgets import QMessageBox
