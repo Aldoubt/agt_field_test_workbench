@@ -70,7 +70,7 @@ class GoalSafetyTests(unittest.TestCase):
         valid=self.pose(10,10)
         self.assertEqual(len(Routes(self.root).save(created['id'],[valid])['points']),1)
         occupied=self.pose(1,1)
-        self.pixels[1*self.width+1]=205
+        self.pixels[(self.height-1-1)*self.width+1]=205
         self.flush()
         # A separate version must be created when map pixels change.
         updated=Maps(self.root)._save(self.width,self.height,bytes(self.pixels),meta,{})
