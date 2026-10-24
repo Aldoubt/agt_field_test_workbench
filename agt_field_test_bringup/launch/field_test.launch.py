@@ -253,7 +253,7 @@ def generate_launch_description():
         DeclareLaunchArgument('global_backend', default_value='bbs'),
         DeclareLaunchArgument('relocalization_assets', default_value=''),
         DeclareLaunchArgument('enable_inspection', default_value='true'),
-        DeclareLaunchArgument('enable_camera_gimbal', default_value='true'),
+        DeclareLaunchArgument('enable_camera_gimbal', default_value='false'),
         DeclareLaunchArgument('camera_device_path', default_value='/dev/video0'),
         DeclareLaunchArgument('gimbal_port_name', default_value='/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0'),
         DeclareLaunchArgument('gps_alignment_file', default_value=''),
