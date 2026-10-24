@@ -225,8 +225,10 @@ class GridView(QWidget):
         self.pan_x=0.;self.pan_y=0.;self.navigation_mode=navigation_mode
         self.keepout_mode=False;self.keepout=[];self.polygon=[]
         self.waypoints=[]
+        self.pending_goal=None;self.hover_goal=None
+        self.setFocusPolicy(Qt.StrongFocus)
         self.setMinimumSize(350,240)
-        self.setToolTip('左键选择导航目标' if navigation_mode else '左键绘制；右键或中键拖动；滚轮缩放')
+        self.setToolTip('左键第一次选目标位置，第二次选航向；Esc 取消' if navigation_mode else '左键绘制；右键或中键拖动；滚轮缩放')
 
     def set_grid(self,info):
         try:
@@ -236,12 +238,12 @@ class GridView(QWidget):
         except Exception as e:
             return
         self.image=img;self.res=float(info['resolution']);self.origin=tuple(info['origin'])
-        self.undo=[];self.keepout=[];self.polygon=[];self.scale=1.0;self.pan_x=0.;self.pan_y=0.;self.update()
+        self.undo=[];self.keepout=[];self.polygon=[];self.scale=1.0;self.pan_x=0.;self.pan_y=0.;self.reset_heading();self.update()
 
     def load_pgm(self,path):
         img=QImage(path).convertToFormat(QImage.Format_Grayscale8)
         if img.isNull():raise ValueError('PGM 读取失败')
-        self.image=img;self.undo=[];self.keepout=[];self.polygon=[];self.scale=1.0;self.pan_x=0.;self.pan_y=0.;self.update()
+        self.image=img;self.undo=[];self.keepout=[];self.polygon=[];self.scale=1.0;self.pan_x=0.;self.pan_y=0.;self.reset_heading();self.update()
 
     def _rect(self):
         if self.image.isNull():return QRectF()
@@ -279,8 +281,48 @@ class GridView(QWidget):
                 p.setPen(QPen(QColor('#f2b66d') if point.get('photo') else QColor('#55c9b0'),2))
                 p.drawEllipse(int(sx-6),int(sy-6),12,12)
                 p.drawText(int(sx+9),int(sy-8),str(index+1))
+        if self.navigation_mode and self.pending_goal is not None and not self.image.isNull():
+            rect=self._rect()
+            def point_screen(world):
+                dx=world[0]-self.origin[0];dy=world[1]-self.origin[1]
+                c=math.cos(self.origin[2]);sn=math.sin(self.origin[2])
+                local_x=c*dx+sn*dy
+                local_y=-sn*dx+c*dy
+                return QPointF(rect.x()+(local_x/self.res-.5)/self.image.width()*rect.width(),
+                               rect.y()+(self.image.height()-local_y/self.res-.5)/self.image.height()*rect.height())
+            begin=point_screen(self.pending_goal)
+            p.setPen(QPen(QColor('#ffc36a'),2));p.setBrush(QColor('#ffc36a'))
+            p.drawEllipse(begin,5,5)
+            if self.hover_goal is not None:
+                end=point_screen(self.hover_goal)
+                p.drawLine(begin,end)
+            p.setPen(QColor('#ffc36a'))
+            p.drawText(12,42,'等待第二次左键选择朝向 · Esc 取消')
         p.setPen(QColor('#8096a3'))
-        p.drawText(12,22,'2D 栅格  /  左键设置目标' if self.navigation_mode else '2D 栅格  /  左键画笔 · 右键拖动 · 滚轮缩放')
+        p.drawText(12,22,'2D 栅格 / 左键选位置→左键选方向 / Esc 取消' if self.navigation_mode else '2D 栅格  /  左键画笔 · 右键拖动 · 滚轮缩放')
+
+    def reset_heading(self):
+        self.pending_goal=None;self.hover_goal=None;self.update()
+
+    def select_heading_point(self,x,y):
+        """Two map-frame left clicks: position then orientation, no motion on first."""
+        if not self.navigation_mode:return
+        if not all(math.isfinite(v) for v in (x,y)):return
+        if self.pending_goal is None:
+            self.pending_goal=(float(x),float(y))
+            self.hover_goal=None;self.setFocus();self.update();return
+        x0,y0=self.pending_goal
+        if math.hypot(x-x0,y-y0)<max(self.res*1.5,0.10):
+            # Too close to reliably select heading; keep initial point.
+            return
+        yaw=math.atan2(y-y0,x-x0)
+        self.reset_heading()
+        self.goal_clicked.emit({'x':x0,'y':y0,'yaw':yaw})
+
+    def keyPressEvent(self,e):
+        if self.navigation_mode and e.key()==Qt.Key_Escape:
+            self.reset_heading();e.accept();return
+        super().keyPressEvent(e)
 
     def set_waypoints(self,points):
         self.waypoints=list(points);self.update()
@@ -321,7 +363,7 @@ class GridView(QWidget):
             point=self._image_point(e.pos())
             if point is not None:
                 x,y=pixel_to_world(*point,self.image.width(),self.image.height(),self.res,self.origin)
-                self.goal_clicked.emit({'x':x,'y':y})
+                self.select_heading_point(x,y)
         elif e.button()==Qt.LeftButton and self.keepout_mode and not self.image.isNull():
             point=self._image_point(e.pos())
             if point is not None:self.polygon.append(point);self.update()
@@ -330,9 +372,15 @@ class GridView(QWidget):
         elif e.button() in (Qt.RightButton,Qt.MiddleButton):self.drag=e.pos()
 
     def mouseDoubleClickEvent(self,e):
-        if e.button()==Qt.LeftButton and self.keepout_mode:self.finish_keepout()
+        if e.button()==Qt.LeftButton and self.navigation_mode:self.mousePressEvent(e)
+        elif e.button()==Qt.LeftButton and self.keepout_mode:self.finish_keepout()
 
     def mouseMoveEvent(self,e):
+        if self.navigation_mode and self.pending_goal is not None:
+            point=self._image_point(e.pos())
+            if point is not None:
+                self.hover_goal=pixel_to_world(*point,self.image.width(),self.image.height(),self.res,self.origin)
+                self.update()
         if e.buttons()&Qt.LeftButton and not self.navigation_mode:self._paint(e.pos())
         if self.drag and e.buttons()&(Qt.RightButton|Qt.MiddleButton):
             delta=e.pos()-self.drag;self.pan_x+=delta.x();self.pan_y+=delta.y()
@@ -667,7 +715,8 @@ class Studio(QMainWindow):
         frame=QFrame();frame.setObjectName('viewer');l.addWidget(frame,1)
         v=QVBoxLayout(frame);v.addWidget(self.nav_view,1)
         row=QHBoxLayout();v.addLayout(row)
-        self.target_mode_box=QComboBox();self.target_mode_box.addItem('单击导航','goal');self.target_mode_box.addItem('添加航点','route')
+        self.target_mode_box=QComboBox();self.target_mode_box.addItem('两次点击导航','goal');self.target_mode_box.addItem('两次点击添加航点','route')
+        self.target_mode_box.currentIndexChanged.connect(lambda _:self.nav_view.reset_heading())
         row.addWidget(self.target_mode_box)
         self.photo_box=QCheckBox('到点拍照');self.photo_box.setChecked(True);row.addWidget(self.photo_box)
         self.gimbal_heading=QDoubleSpinBox();self.gimbal_heading.setRange(-180,180);self.gimbal_heading.setSuffix('° 航向');row.addWidget(self.gimbal_heading)
@@ -678,7 +727,7 @@ class Studio(QMainWindow):
         load_route=button('加载路线');load_route.clicked.connect(self.load_route);row.addWidget(load_route)
         save_route=button('保存路线');save_route.clicked.connect(self.save_route);row.addWidget(save_route)
         self.run_route_btn=button('开始航点任务','primary');self.run_route_btn.clicked.connect(self.run_route);row.addWidget(self.run_route_btn)
-        self.mission_label=text_label('单击地图直接导航；或切换到航点模式，逐点点击后保存并执行。')
+        self.mission_label=text_label('左键两次：先选择位置，再选择航向；航点模式下可逐点保存路线。')
         v.addWidget(self.mission_label)
         c=card(l,'2. 相对运动')
         row=QHBoxLayout();c.addLayout(row);self.distance=QDoubleSpinBox();self.distance.setRange(.02,5.)
@@ -1261,7 +1310,7 @@ class Studio(QMainWindow):
 
     def send_goal(self,point):
         map_id=self.nav_map_box.currentData()
-        pose=self.live_status.get('pose') or {};point['yaw']=pose.get('yaw',0.)
+        pose=self.live_status.get('pose') or {};point['yaw']=float(point.get('yaw',pose.get('yaw',0.)))
         if self.target_mode_box.currentData()=='route':
             point.update(photo=self.photo_box.isChecked(),heading=self.gimbal_heading.value(),
                          pitch=self.gimbal_pitch.value(),roll=0.,photo_required=True)
@@ -1506,7 +1555,7 @@ class Studio(QMainWindow):
             if pixels.isNull():raise ValueError('地图 PGM 读取失败')
             for view in (self.map_view,self.nav_view):
                 view.image=pixels.copy();view.res=float(manifest['resolution']);view.origin=tuple(manifest['origin'])
-                view.set_keepout(manifest.get('keepout_polygons_px',[]));view.scale=1.;view.pan_x=view.pan_y=0.;view.update()
+                view.set_keepout(manifest.get('keepout_polygons_px',[]));view.scale=1.;view.pan_x=view.pan_y=0.;view.reset_heading();view.update()
             self.current_map_id=manifest['id']
             summary=manifest.get('asset_summary')
             if summary is None:
