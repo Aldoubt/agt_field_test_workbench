@@ -59,6 +59,9 @@ def _configure(context):
     chassis = value('enable_chassis').lower() == 'true'
     localization = value('enable_localization').lower() == 'true'
     navigation = value('enable_navigation').lower() == 'true'
+    description_enabled = value('enable_description').lower() == 'true'
+    guard_enabled = value('enable_guard').lower() == 'true'
+    external_chassis = value('external_chassis').lower() == 'true'
     bundle=calibration.load(value('calibration_bundle'),robot) if value('calibration_bundle') else None
     profile = None
     if robot == 'fwmini':
@@ -68,8 +71,12 @@ def _configure(context):
             raise RuntimeError('FW-mini localization requires fwmini_mode:=supervised_localization')
         require_mode(profile, 'autonomous_navigation' if navigation else mode,
                      supervised=value('supervised').lower() == 'true')
-    if navigation and (not chassis or not localization):
-        raise RuntimeError('Formal Nav2 currently requires the accepted Bunker profile; FW-mini needs independent Nav2 geometry/localization/motion acceptance')
+    if navigation and not localization:
+        raise RuntimeError('navigation requires the localization stack')
+    if navigation and not chassis and not external_chassis:
+        raise RuntimeError('navigation requires a chassis in this launch or an independently supervised chassis component')
+    if navigation and chassis and external_chassis:
+        raise RuntimeError('do not start a second chassis when external_chassis:=true')
     if localization and not Path(value('global_map')).is_file():
         raise RuntimeError('enable_localization requires an existing global_map PCD')
     if navigation:
@@ -81,20 +88,23 @@ def _configure(context):
         safety_report(value('safety_report'),robot,robot_profile['profile_sha256'],nav_map['sha256'],
                       calibration.digest(bundle) if bundle else __import__('agt_field_test_bringup.fwmini',fromlist=['digest']).digest(profile))
         if (bundle or profile)['status']!='VERIFIED':raise RuntimeError('VERIFIED mounting calibration required for navigation')
+    chassis_nodes=[]
+    description_nodes=[]
     if robot == 'bunker':
-        nodes = ([Node(package='robot_state_publisher',executable='robot_state_publisher',parameters=[{'robot_description':calibration.description(bundle,value('lio_backend'))}])]
+        if description_enabled:
+            description_nodes = ([Node(package='robot_state_publisher',executable='robot_state_publisher',parameters=[{'robot_description':calibration.description(bundle,value('lio_backend'))}])]
                  if bundle else [_include('tracked_chassis_description','display.launch.py',{'start_rviz':'false'})])
+        nodes=list(description_nodes)
         if value('enable_mid360').lower() == 'true':
             nodes.extend(_mid360s_nodes(value('livox_config')))
         if chassis:
-            nodes.append(Node(package='agt_bunker_base', executable='agt_bunker_base_node', parameters=[
+            driver=Node(package='agt_bunker_base', executable='agt_bunker_base_node', parameters=[
                 str(Path(get_package_share_directory('agt_bunker_base'))/'config/bunker.yaml'),
                 {'port_name':robot_profile['can_interface'],'cmd_vel_topic':robot_profile['topics']['driver'],
                  'odom_topic_name':robot_profile['wheel_odom_topic'],'publish_odom_tf':False,
-                 'control_rate':int(robot_profile['control_hz'])}]))
-            if not navigation:
-                # Manual low-speed trials remain possible without global
-                # localization. The guard still enforces timeout and limits.
+                 'control_rate':int(robot_profile['control_hz'])}])
+            chassis_nodes.append(driver);nodes.append(driver)
+            if not navigation and guard_enabled:
                 nodes.append(Node(package='agt_base_control', executable='cmd_vel_guard',
                                   name='agt_cmd_vel_guard', output='screen', parameters=[profiles.guard(robot_profile)]))
     else:
@@ -108,17 +118,18 @@ def _configure(context):
                 raise RuntimeError('measured FW-mini geometry must match selected mount profile')
         # One RSP owns all physical mounting edges. Do not include the old
         # description launch or a second base_link -> livox static publisher.
-        nodes = [Node(package='robot_state_publisher', executable='robot_state_publisher',
+        description_nodes = [Node(package='robot_state_publisher', executable='robot_state_publisher',
                       name='fwmini_robot_state_publisher', output='screen', parameters=[{
                           'robot_description': robot_description(profile, value('fwmini_internal_config') or None),
-                          'use_sim_time': value('use_sim_time').lower() == 'true'}])]
+                          'use_sim_time': value('use_sim_time').lower() == 'true'}])] if description_enabled else []
+        nodes=list(description_nodes)
         if value('enable_mid360').lower() == 'true':
             nodes.extend(_mid360s_nodes(value('livox_config')))
         if chassis:
             # Adapter starts disabled and needs explicit /fwmini/enable_motion.
-            if not navigation:
+            if not navigation and guard_enabled:
                 nodes.append(Node(package='agt_base_control',executable='cmd_vel_guard',name='agt_cmd_vel_guard',parameters=[profiles.guard(robot_profile)]))
-            nodes.extend([
+            chassis_nodes=[
                 Node(package='yhs_can_control',executable='yhs_can_control_node',name='yhs_can_control_node',parameters=[str(Path(get_package_share_directory('yhs_can_control'))/'params/cfg.yaml'),{'can_name':robot_profile['can_interface']}]),
                 Node(package='fwmini_chassis_adapter', executable='fwmini_chassis_adapter_node',
                      parameters=[{'max_linear_x':robot_profile['forward_mps'], 'max_linear_y':robot_profile['lateral_mps'],
@@ -126,7 +137,8 @@ def _configure(context):
                 Node(package='fwmini_odom_adapter', executable='fwmini_odom_adapter_node',
                      name='fwmini_odom_adapter', output='screen',
                      parameters=[{'publish_tf': False}]),
-            ])
+            ]
+            nodes.extend(chassis_nodes)
     localization_nodes = []
     if localization:
         localization_args = {
@@ -209,12 +221,19 @@ def _configure(context):
         def guard_exit(event, _context):
             return [EmitEvent(event=Shutdown(reason='FW-mini TF ownership violation'))] if event.returncode else []
 
-        nodes.extend([RegisterEventHandler(OnProcessExit(target_action=preflight, on_exit=after_tf)),
-                      RegisterEventHandler(OnProcessExit(target_action=nodes[0], on_exit=[
-                          EmitEvent(event=Shutdown(reason='FW-mini robot description stopped'))])),
-                      RegisterEventHandler(OnProcessExit(target_action=watcher, on_exit=guard_exit)), preflight])
+        handlers=[RegisterEventHandler(OnProcessExit(target_action=preflight, on_exit=after_tf)),
+                  RegisterEventHandler(OnProcessExit(target_action=watcher, on_exit=guard_exit))]
+        if description_nodes:
+            handlers.append(RegisterEventHandler(OnProcessExit(target_action=description_nodes[0], on_exit=[
+                EmitEvent(event=Shutdown(reason='robot description stopped'))])))
+        nodes.extend([*handlers, preflight])
     else:
         nodes.extend(localization_nodes)
+    if chassis_nodes:
+        def chassis_exit(event, _context):
+            return [EmitEvent(event=Shutdown(reason='chassis component process exited'))]
+        for chassis_node in chassis_nodes:
+            nodes.append(RegisterEventHandler(OnProcessExit(target_action=chassis_node,on_exit=chassis_exit)))
     if navigation:
         map_yaml = Path(value('map_yaml')).expanduser().resolve()
         manifest_path = map_yaml.parent / 'manifest.json'
@@ -263,6 +282,9 @@ def generate_launch_description():
         DeclareLaunchArgument('livox_config', default_value=str(
             Path(get_package_share_directory('agt_field_test_bringup')) / 'config/MID360s_config.json')),
         DeclareLaunchArgument('enable_chassis', default_value='false'),
+        DeclareLaunchArgument('enable_description', default_value='true'),
+        DeclareLaunchArgument('enable_guard', default_value='true'),
+        DeclareLaunchArgument('external_chassis', default_value='false'),
         DeclareLaunchArgument('enable_mid360', default_value='true'),
         DeclareLaunchArgument('enable_localization', default_value='false'),
         DeclareLaunchArgument('enable_navigation', default_value='false'),
