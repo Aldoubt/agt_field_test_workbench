@@ -19,20 +19,23 @@ class TopicRate:
         self.window_sec = float(window_sec)
         self.samples = deque()
         self.last = None
+        self._lock = threading.Lock()
 
     def add(self, now=None):
         now = time.monotonic() if now is None else float(now)
-        self.samples.append(now)
-        self.last = now
-        while self.samples and now-self.samples[0] > self.window_sec:
-            self.samples.popleft()
+        with self._lock:
+            self.samples.append(now)
+            self.last = now
+            while self.samples and now-self.samples[0] > self.window_sec:
+                self.samples.popleft()
 
     def hz(self, now=None):
         now = time.monotonic() if now is None else float(now)
-        if self.last is None or now-self.last > self.window_sec or len(self.samples) < 2:
-            return None
-        span = self.samples[-1]-self.samples[0]
-        return (len(self.samples)-1)/span if span > .05 else None
+        with self._lock:
+            if self.last is None or now-self.last > self.window_sec or len(self.samples) < 2:
+                return None
+            span = self.samples[-1]-self.samples[0]
+            return (len(self.samples)-1)/span if span > .05 else None
 
 
 class RosWorker(QThread):
@@ -55,10 +58,14 @@ class RosWorker(QThread):
         self._decode_queue = queue.Queue(maxsize=1)
         self._decode_stop = threading.Event()
         self._decode_thread = None
+        # Dedicated ROS executor: preview/map serialization must never starve 200Hz IMU.
+        self._rate_stop = threading.Event()
+        self._rate_thread = None
 
     def shutdown(self):
         self.alive = False
         self._decode_stop.set()
+        self._rate_stop.set()
 
     @staticmethod
     def _yaw(q):
@@ -126,22 +133,26 @@ class RosWorker(QThread):
 
     def run(self):
         node = None
+        rate_node = None
+        rate_executor = None
         try:
             import rclpy
             from rclpy.node import Node
+            from rclpy.executors import SingleThreadedExecutor
             from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, qos_profile_sensor_data
             from nav_msgs.msg import Odometry, OccupancyGrid
             from sensor_msgs.msg import PointCloud2, Imu
             from livox_ros_driver2.msg import CustomMsg
             rclpy.init(args=None)
             node = Node('agt_robot_studio_gui')
+            rate_node = Node('agt_robot_studio_sensor_rates')
             map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                                  reliability=ReliabilityPolicy.RELIABLE)
             node.create_subscription(Odometry, self.cfg['odom_topic'], self._on_odom, qos_profile_sensor_data)
-            node.create_subscription(CustomMsg, self.cfg['raw_lidar_topic'],
-                                     lambda _m: self.rates['lidar'].add(), qos_profile_sensor_data)
-            node.create_subscription(Imu, self.cfg['imu_topic'],
-                                     lambda _m: self.rates['imu'].add(), qos_profile_sensor_data)
+            rate_node.create_subscription(CustomMsg, self.cfg['raw_lidar_topic'],
+                                          lambda _m: self.rates['lidar'].add(), qos_profile_sensor_data)
+            rate_node.create_subscription(Imu, self.cfg['imu_topic'],
+                                          lambda _m: self.rates['imu'].add(), qos_profile_sensor_data)
             node.create_subscription(OccupancyGrid, self.cfg['map_topic'], self._on_grid, map_qos)
             node.create_subscription(PointCloud2, self.cfg['points_topic'], lambda m:self._on_cloud(m, True), map_qos)
             node.create_subscription(PointCloud2, self.cfg['live_points_topic'],
@@ -149,6 +160,21 @@ class RosWorker(QThread):
             # Read-only FAST-LIO2 preview; no additional mapping, driver or TF process.
             node.create_subscription(PointCloud2, '/fastlio2/world_cloud',
                                      lambda m:self._on_cloud(m, False), qos_profile_sensor_data)
+            rate_executor = SingleThreadedExecutor()
+            rate_executor.add_node(rate_node)
+
+            def sample_sensor_rates():
+                while self.alive and not self._rate_stop.is_set() and rclpy.ok():
+                    try:
+                        rate_executor.spin_once(timeout_sec=.01)
+                    except Exception as ex:
+                        self.notice.emit('传感器显示采样异常（不影响驱动）：' + repr(ex))
+                        if self._rate_stop.wait(.1):
+                            break
+
+            self._rate_thread = threading.Thread(target=sample_sensor_rates,
+                                                  name='studio-sensor-rates', daemon=True)
+            self._rate_thread.start()
             self._decode_thread = threading.Thread(target=self._decode_loop, name='studio-cloud-display', daemon=True)
             self._decode_thread.start()
             self.notice.emit('ROS 显示适配器已连接；运动与重定位由现有 Workbench 后端执行')
@@ -162,8 +188,15 @@ class RosWorker(QThread):
             self.notice.emit('ROS 显示适配器不可用，仍可使用 Workbench 和离线地图：' + repr(ex))
             self.state.emit({'connected': False, 'odom': None})
         finally:
+            self._rate_stop.set()
             self._decode_stop.set()
+            if self._rate_thread is not None:
+                self._rate_thread.join(timeout=2.0)
             try:
+                if rate_executor is not None:
+                    rate_executor.shutdown(timeout_sec=1.0)
+                if rate_node is not None:
+                    rate_node.destroy_node()
                 if node is not None:
                     node.destroy_node()
                 import rclpy
