@@ -61,7 +61,7 @@ class WorkbenchTests(unittest.TestCase):
             (source/'map.yaml').write_text(yaml.safe_dump({'image':'map.pgm','resolution':.1,
                 'origin':[0,0,0],'negate':0,'occupied_thresh':.65,'free_thresh':.196}))
             map_record=Maps(root).import_yaml(source/'map.yaml')
-            route=Routes(root).save(map_record['id'],[{'x':1.,'y':2.,'yaw':.3,'photo':True,
+            route=Routes(root).save(map_record['id'],[{'x':.15,'y':.15,'yaw':.3,'photo':True,
                 'heading':-30.,'pitch':10.}],name='inspection')
             mission=yaml.safe_load(Path(route['mission_file']).read_text())
             self.assertEqual(mission['map_id'],map_record['id'])
