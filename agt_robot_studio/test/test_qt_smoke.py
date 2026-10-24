@@ -181,6 +181,9 @@ class StudioSmoke(unittest.TestCase):
         project=next(call for call in calls if call[0]=='cloud_project')
         self.assertEqual(project[3]['name'],'一号温室')
         self.assertEqual(project[3]['projection']['resolution'],.1)
+        # Fake API never sends an HTTP completion callback; release its
+        # simulated pending write before addCleanup(window.close).
+        window.grid_building=False
         window.api=None
 
     def test_keepout_polygon_is_baked_undoable_and_sent_with_new_map_version(self):
@@ -201,6 +204,7 @@ class StudioSmoke(unittest.TestCase):
         window.export_map('DRAFT')
         self.assertEqual(calls[0][2],'/api/maps/map-1/revise')
         self.assertEqual(calls[0][3]['keepout_polygons_px'],[[[10,10],[20,10],[20,20],[10,20]]])
+        window.map_saving=False
         window.api=None
 
     def test_queued_map_write_blocks_gui_close_before_network_request(self):
