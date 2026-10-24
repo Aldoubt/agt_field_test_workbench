@@ -106,7 +106,7 @@ class WorkbenchTests(unittest.TestCase):
                 (out/'map.pgm').write_bytes(b'P5\n2 2\n255\n\x00\xff\xcd\xff')
                 (out/'metadata.yaml').write_text('unknown_cells: 1\n')
             clouds=Clouds(root,runner=fake_runner)
-            result=clouds.grid(cloud_id,{'resolution':.5,'z_min':.2})
+            result=clouds.grid(cloud_id,{'resolution':.5,'z_min':.2},build_assets=False)
             self.assertEqual(result['name'],'一号温室')
             self.assertEqual(seen['resolution'],.5)
             self.assertEqual(seen['projection_mode'],'local_ground')

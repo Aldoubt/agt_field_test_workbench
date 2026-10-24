@@ -56,7 +56,7 @@ def test_local_ground_reuses_pinned_exporter_and_preserves_unknown(fixture_root)
         (output / 'metadata.yaml').write_text('free_cells: 1\nunknown_cells: 2\noccupied_cells: 1\n')
     c = Clouds(root, runner=fake_runner)
     result = c.grid(cloud_id, {'resolution': .1, 'ground_cell_size': .4,
-                               'obstacle_min_height': .2, 'occupied_threshold': 2})
+                               'obstacle_min_height': .2, 'occupied_threshold': 2}, build_assets=False)
     assert len(calls) == 1 and calls[0][1] == 3600
     assert result['status'] == 'DRAFT'
     assert result['projection_mode'] == 'local_ground'

@@ -224,7 +224,7 @@ class Jobs:
                 item['state'] = record['state']
                 current = dict(record, duration_sec=round(time.time() - process_start(record), 1)
                                    if record['state'] == 'RUNNING' else None)
-                if item['kind'].startswith('mapping'):
+                if item['kind'].startswith('mapping') and record.get('output'):
                     stage_path = Path(record['output']) / 'save_status.json'
                     if stage_path.is_file():
                         try: current['save_status'] = json.loads(stage_path.read_text())
