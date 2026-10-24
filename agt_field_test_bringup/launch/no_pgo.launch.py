@@ -13,22 +13,38 @@ import json
 def configure(context):
     v=lambda n:LaunchConfiguration(n).perform(context)
     config=Path(v('lio_config'));data=yaml.safe_load(config.read_text());sim=v('use_sim_time')=='true'
+    imu_offset=float(v('imu_offset_sec'))
+    lidar_offset=float(v('lidar_offset_sec'))
+    # Do not relay full Livox CustomMsg packets through Python when no
+    # timestamp correction is requested. Align only streams with nonzero offsets.
+    align_imu = int(imu_offset * 1e9) != 0
+    align_lidar = int(lidar_offset * 1e9) != 0
+    aligned_imu_topic = '/field/aligned/imu' if align_imu else v('imu_topic')
+    aligned_lidar_topic = '/field/aligned/lidar' if align_lidar else v('lidar_topic')
     filtered = v('self_filter_enabled') == 'true'
-    nodes = [Node(package='agt_field_test_bringup',executable='time_align.py',parameters=[{
-        'imu_input':v('imu_topic'),'lidar_input':v('lidar_topic'),'imu_offset_sec':float(v('imu_offset_sec')),
-        'lidar_offset_sec':float(v('lidar_offset_sec')),'use_sim_time':sim}]),
-        Node(package='agt_mid360_adapter',executable='mid360_adapter_node',parameters=[{'input_topic':'/field/self_filtered/lidar' if filtered else '/field/aligned/lidar'}]),
-        Node(package='fastlio2',namespace='fastlio2',executable='lio_node',name='fastlio_mapping',parameters=[{'config_path':str(config),'use_sim_time':sim}],
-             remappings=[(data['imu_topic'],'/field/aligned/imu'),(data['lidar_topic'],'/mapping/sensor/livox')]),
-        Node(package='agt_field_test_bringup',executable='lio_artifact',parameters=[{
-             'output_dir':v('output'),'world_frame':data['world_frame'],'use_sim_time':sim}])]
+    nodes = []
+    if align_imu or align_lidar:
+        nodes.append(Node(package='agt_field_test_bringup', executable='time_align.py', parameters=[{
+            'imu_input':v('imu_topic'), 'lidar_input':v('lidar_topic'),
+            'imu_offset_sec':imu_offset, 'lidar_offset_sec':lidar_offset,
+            'align_imu':align_imu, 'align_lidar':align_lidar, 'use_sim_time':sim}]))
+    nodes.extend([
+        Node(package='agt_mid360_adapter', executable='mid360_adapter_node',
+             parameters=[{'input_topic':'/field/self_filtered/lidar' if filtered else aligned_lidar_topic}]),
+        Node(package='fastlio2', namespace='fastlio2', executable='lio_node', name='fastlio_mapping',
+             parameters=[{'config_path':str(config), 'use_sim_time':sim}],
+             remappings=[(data['imu_topic'], aligned_imu_topic),
+                         (data['lidar_topic'], '/mapping/sensor/livox')]),
+        Node(package='agt_field_test_bringup', executable='lio_artifact', parameters=[{
+             'output_dir':v('output'), 'world_frame':data['world_frame'], 'use_sim_time':sim}])])
     if filtered:
-        nodes.append(Node(package='agt_field_test_bringup',executable='livox_self_filter',
-            name='field_livox_self_filter',parameters=[str(Path(__file__).resolve().parents[1]/'config'/'livox_self_filter.yaml'),
-            {'use_sim_time':sim,
-             'lio_filter_num':int(data['lidar_filter_num']),
-             'lio_min_range_m':float(data['lidar_min_range']),
-             'lio_max_range_m':float(data['lidar_max_range'])}]))
+        nodes.append(Node(package='agt_field_test_bringup', executable='livox_self_filter',
+            name='field_livox_self_filter',parameters=[
+                str(Path(__file__).resolve().parents[1]/'config'/'livox_self_filter.yaml'),
+                {'input_topic':aligned_lidar_topic, 'use_sim_time':sim,
+                 'lio_filter_num':int(data['lidar_filter_num']),
+                 'lio_min_range_m':float(data['lidar_min_range']),
+                 'lio_max_range_m':float(data['lidar_max_range'])}]))
     if v('base_adapter')=='true':
         nodes.append(Node(package='agt_fastlio_adapter',executable='fastlio_adapter',name='mapping_base_adapter',parameters=[{
             'input_topic':'/fastlio2/lio_odom','output_topic':'/mapping/base_odometry',
