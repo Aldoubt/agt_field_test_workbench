@@ -34,6 +34,33 @@ class StudioSmoke(unittest.TestCase):
         self.assertEqual(window.record_btn.text(), '开始录制')
         self.assertEqual(window.stop_ros_btn.text(), '停止全部 ROS')
 
+    def test_mapping_save_is_awaited_and_final_state_matches_bbs_result(self):
+        window=self.window()
+        window.mapping_job_id='job-1'
+        window.mapping_saving=True
+        window._on_api('refresh_jobs',True,[{
+            'id':'job-1','kind':'mapping_live','robot':'bunker',
+            'state':'RUNNING','save_requested_at':'2026-10-24T00:00:00Z',
+            'save_status':{'stage':'BBS_ASSETS'}}])
+        self.assertIn('正在保存',window.mapping_state.text())
+        self.assertIn('BBS',window.mapping_save_status.text())
+        self.assertFalse(window.glim_btn.isEnabled())
+        window._on_api('refresh_jobs',True,[{
+            'id':'job-1','kind':'mapping_live','robot':'bunker',
+            'state':'PASS','output':'/tmp/mapping1',
+            'result':{'map_version':'map-version-1',
+                'relocalization_assets':{'state':'READY'}}}])
+        self.assertIsNone(window.mapping_job_id)
+        self.assertFalse(window.mapping_saving)
+        self.assertIn('地图已经保存',window.mapping_save_status.text())
+        self.assertIn('BBS 索引已生成',window.mapping_save_status.text())
+        window.mapping_job_id='job-2'
+        window.mapping_saving=True
+        window._on_api('refresh_jobs',True,[{
+            'id':'job-2','kind':'mapping_live','robot':'bunker',
+            'state':'FAILED','log':'/tmp/failed.log','output':'/tmp/mapping2'}])
+        self.assertIn('失败',window.mapping_save_status.text())
+
     def test_global_status_bar_follows_sessions_and_topic_rates_on_every_page(self):
         window=self.window()
         self.assertIn('离线演示',window.mode_state_label.text())
