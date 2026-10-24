@@ -49,6 +49,26 @@ class StudioSmoke(unittest.TestCase):
                          ['/api/devices/camera/start','/api/devices/camera/stop'])
         window.api=None
 
+    def test_navigation_waypoint_position_then_heading_clicks(self):
+        import math
+        window=self.window()
+        goals=[]
+        window.nav_view.goal_clicked.connect(goals.append)
+        window.nav_view.select_heading_point(1.0,2.0)
+        self.assertEqual(goals,[])
+        self.assertEqual(window.nav_view.pending_goal,(1.0,2.0))
+        window.nav_view.select_heading_point(1.01,2.0)
+        self.assertEqual(goals,[])
+        window.nav_view.select_heading_point(1.0,3.0)
+        self.assertEqual(len(goals),1)
+        self.assertAlmostEqual(goals[0]['yaw'],math.pi/2)
+        self.assertEqual((goals[0]['x'],goals[0]['y']),(1.,2.))
+        self.assertIsNone(window.nav_view.pending_goal)
+        window.nav_view.select_heading_point(4.,5.)
+        window.nav_view.reset_heading()
+        self.assertIsNone(window.nav_view.pending_goal)
+        self.assertEqual(len(goals),1)
+
     def test_mapping_save_is_awaited_and_final_state_matches_bbs_result(self):
         window=self.window()
         window.mapping_job_id='job-1'
