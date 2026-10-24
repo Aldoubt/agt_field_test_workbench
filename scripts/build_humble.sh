@@ -70,7 +70,7 @@ set -u
 colcon build --base-paths src --packages-select agt_global_relocalization_native \
   --cmake-args "-DBBS3D_INCLUDE_DIR=$BBS_PREFIX/include" \
   "-DBBS3D_CPU_LIBRARY=$BBS_PREFIX/lib/libcpu_bbs3d.so"
-colcon build --base-paths src --packages-up-to agt_asensing_driver agt_mapping_bringup agt_pcd2grid_exporter agt_field_test_bringup \
+colcon build --base-paths src --packages-up-to agt_asensing_driver agt_mapping_bringup agt_pcd2grid_exporter agt_field_test_bringup agt_dynamic_map_cleaner \
   --packages-ignore ugv_sdk bunker_base
 colcon test --base-paths src --packages-select agt_asensing_driver fwmini_chassis_adapter agt_field_test_bringup agt_pcd2grid_exporter agt_mapping_bringup \
   --packages-ignore ugv_sdk bunker_base

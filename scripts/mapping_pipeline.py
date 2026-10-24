@@ -163,6 +163,26 @@ def main():
         from workbench.map_cleanup import clean_mapping
         cleanup = clean_mapping(output, ROOT, os.environ['FIELD_CALIBRATION_BUNDLE'])
         selected_pcd = Path(cleanup['cleaned_pcd'])
+    # Deliberately candidate-only: first-stage temporal cleanup remains the
+    # default map source. Optional independent clearance evidence must be
+    # reviewed before a later explicit map-version promotion.
+    start_clearance = {'state': 'NOT_REQUESTED'}
+    if cleanup and os.environ.get('AGT_START_CLEARANCE_CANDIDATES','0') == '1':
+        save_stage('START_CLEARANCE')
+        candidate_dir = output/'temporal_cleanup'/'start_clearance_candidate'
+        try:
+            from agt_dynamic_map_cleaner.cli import run as clean_start
+            candidate = clean_start(
+                selected_pcd, output/'temporal_cleanup'/'keyframes', candidate_dir,
+                REPO/'agt_dynamic_map_cleaner'/'config'/'start_clearance.yaml',
+                output/'temporal_cleanup'/'manifest.json')
+            start_clearance = dict(candidate, output=str(candidate_dir))
+        except Exception as error:
+            start_clearance = {'state':'FAILED','error':str(error)[:800],
+                               'original_static_pcd':str(selected_pcd)}
+            # The operator should still be able to inspect the independently
+            # generated first-stage map; do not call this optional run READY.
+            print('Start clearance candidate FAILED: '+str(error),flush=True)
     cloud=clouds.import_pcd(selected_pcd,calibration=calibration_meta,bag=args.bag or str(output/'raw_bag'),name=args.map_name,
                             cleanup=cleanup)
     save_stage('GRID_EXPORT', cloud_id=cloud['id'])
@@ -177,6 +197,7 @@ def main():
                'raw_bag_integrity': raw_integrity, 'mount_profile': mount_metadata,
                'relocalization_assets': assets, 'status': 'DRAFT',
                'temporal_cleanup': cleanup or {'state':'NOT_RUN', 'reason':'requires indexed FAST-LIO export and selected Bunker bundle'},
+               'start_clearance_candidate': start_clearance,
                'save_state': result_stage})
     print('Map Studio version:', version['id'], flush=True)
     return 0

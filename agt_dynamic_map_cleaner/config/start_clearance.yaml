@@ -1,0 +1,17 @@
+# Candidate-only. Never mutate the existing ACCEPTED map automatically.
+voxel_m: 0.25
+start_radius_m: 4.0
+initial_window_sec: 20.0
+min_early_frames: 3
+ground_clearance_m: 0.45
+max_above_ground_m: 2.3
+later_frame_stride: 5
+max_rays_per_frame: 300
+max_observer_distance_m: 15.0
+ray_tolerance_m: 0.13
+min_penetration_m: 0.65
+min_clear_after_hit_sec: 0.5
+min_distinct_viewpoints: 3
+viewpoint_cell_m: 0.40
+max_candidate_voxels: 15000
+max_removed_fraction: 0.08
