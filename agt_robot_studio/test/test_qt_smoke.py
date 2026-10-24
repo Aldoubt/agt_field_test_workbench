@@ -90,7 +90,7 @@ class StudioSmoke(unittest.TestCase):
         window.global_backend_box.setCurrentIndex(window.global_backend_box.findData('kiss'))
         payload = window._session_payload('navigation', 'map-1')
         self.assertEqual(payload['global_backend'], 'kiss')
-        self.assertEqual(payload['lio_backend'], 'batch_lio')
+        self.assertEqual(payload['lio_backend'], 'fastlio2')
         self.assertTrue(payload['enable_camera_gimbal'])
         self.assertNotIn('global_backend', window._session_payload('sensors'))
         window.api = None
@@ -173,6 +173,30 @@ class StudioSmoke(unittest.TestCase):
         window.export_map('DRAFT')
         self.assertEqual(calls[0][2],'/api/maps/map-1/revise')
         self.assertEqual(calls[0][3]['keepout_polygons_px'],[[[10,10],[20,10],[20,20],[10,20]]])
+        window.api=None
+
+    def test_pcd_roi_cleanup_uses_full_resolution_backend_and_version(self):
+        from unittest.mock import patch
+        from PyQt5.QtWidgets import QMessageBox
+        window=self.window()
+        calls=[]
+        class FakeApi:
+            def call(self,*args):calls.append(args)
+        window.cloud_box.addItem('原始地图','cloud-original')
+        for axis in ('x','y','z'):
+            window.cloud_roi_edits[(axis,'min')].setValue(-.2)
+            window.cloud_roi_edits[(axis,'max')].setValue(.3)
+        window.demo=False
+        window.api=FakeApi()
+        with patch('agt_robot_studio.ui.QMessageBox.question',return_value=QMessageBox.Yes):
+            window.clean_cloud_roi()
+        self.assertEqual(calls[-1][2],'/api/clouds/cloud-original/clean')
+        self.assertEqual(calls[-1][3]['operations'][0]['type'],'delete')
+        self.assertEqual(calls[-1][3]['operations'][0]['min'],[-.2,-.2,-.2])
+        self.assertFalse(window.cloud_clean_btn.isEnabled())
+        window._on_api('cloud_clean',True,{'id':'cloud-cleaned'})
+        self.assertEqual(window.pending_cloud_id,'cloud-cleaned')
+        self.assertTrue(window.cloud_clean_btn.isEnabled())
         window.api=None
 
     def test_pcd_import_keeps_map_name(self):
