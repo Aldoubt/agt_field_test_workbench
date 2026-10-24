@@ -419,7 +419,7 @@ class Studio(QMainWindow):
         self.ros_display_connected=False;self.topic_rates={}
         self.recorder_id=None;self.recorder_output='';self.jobs_in_flight=False;self.mapping_job_id=None
         self.mapping_saving=False;self.map_saving=False;self.grid_building=False;self.pending_load_map_id=None
-        self.camera_job_state={'state':'STOPPED'};self.jobs_cache=[];self.last_capture_job_id=None
+        self.camera_job_state={'state':'STOPPED'};self.camera_health_state={};self.jobs_cache=[];self.last_capture_job_id=None
         self.routes_by_id={};self.route_points=[];self.current_route_id=None
         self.setWindowTitle('AGT Robot Studio  ·  ROS 2 Humble')
         self.ui_scale,self.sidebar_width=fit_to_screen(self)
@@ -1033,6 +1033,11 @@ class Studio(QMainWindow):
                     self._mapping_backend_changed()
             self.jobs_cache=list(value)
             self.camera_job_state=next((j for j in value if j.get('kind')=='camera_gimbal'),{'state':'STOPPED'})
+            if self.camera_job_state.get('state')=='RUNNING' and self.camera_health_state:
+                self.camera_job_state.update({k:v for k,v in self.camera_health_state.items()
+                                              if k in ('readiness','ready','health','health_error')})
+            elif self.camera_job_state.get('state')!='RUNNING':
+                self.camera_health_state={}
             captures=[j for j in value if j.get('kind')=='camera_capture' and j.get('id')!=self.last_capture_job_id]
             if captures:
                 newest=captures[0]
@@ -1123,6 +1128,7 @@ class Studio(QMainWindow):
             self.refresh_jobs();return
         if name=='camera_health':
             health=value.get('health') or {}
+            self.camera_health_state=dict(value)
             self.camera_job_state.update(value)
             if value.get('ready'):
                 self.camera_status_label.setText('云台：READY · 相机、串口、反馈与 Action 均在线')
