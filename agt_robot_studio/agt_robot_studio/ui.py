@@ -994,6 +994,7 @@ class Studio(QMainWindow):
                     if mapping.get('save_requested_at') or self.mapping_saving:
                         self.mapping_saving=True
                         phases={'PCD_IMPORT':'正在保存：登记三维 PCD',
+                                'START_CLEARANCE':'正在分析：起点人员自由空间证据（候选不自动替换导航地图）',
                                 'GRID_EXPORT':'正在保存：生成二维栅格',
                                 'BBS_ASSETS':'正在保存：构建同源 3D-BBS 索引',
                                 'COMPLETE':'正在保存：最终校验',
