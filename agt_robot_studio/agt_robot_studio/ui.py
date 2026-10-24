@@ -69,6 +69,10 @@ QPushButton#nav:checked{background:#23323a;color:#fff;border-left:3px solid #53c
 QPushButton#nav:hover{background:#20313b}
 QDoubleSpinBox,QSpinBox,QComboBox,QTextEdit,QLineEdit{background:#111b24;color:#eaf2f5;border:1px solid #364957;border-radius:8px;padding:8px}
 QComboBox::drop-down{border:0}
+QComboBox QAbstractItemView{background:#15232e;color:#edf3f6;border:1px solid #47606f;
+selection-background-color:#206e69;selection-color:#ffffff;outline:0}
+QComboBox QAbstractItemView::item{background:#15232e;color:#edf3f6;min-height:26px}
+QComboBox QAbstractItemView::item:selected{background:#206e69;color:#ffffff}
 QCheckBox{spacing:10px;color:#ced8dc}
 QSplitter::handle{background:#24333e}
 '''
