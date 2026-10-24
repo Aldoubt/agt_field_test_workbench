@@ -28,7 +28,7 @@ DEFAULT_CONFIG = {
     'auto_start_workbench':True, 'calibration_bundle':'', 'mount_profile':'',
     'geometry_file':'', 'livox_config':'', 'safety_report':'', 'session_checks':{},
     'record_template':'full_field_test', 'record_topics':[],
-    'global_backend':'bbs', 'lio_backend':'batch_lio', 'mapping_backend':'fastlio',
+    'global_backend':'bbs', 'lio_backend':'fastlio2', 'mapping_backend':'fastlio',
     'save_mapping_data':True, 'enable_camera_gimbal':True,
     'camera_device_path':'/dev/video0',
     'gimbal_port_name':'/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0',
@@ -709,8 +709,12 @@ class Studio(QMainWindow):
                 env=os.environ.copy();env['PYTHONPATH']=str(root)+os.pathsep+env.get('PYTHONPATH','')
                 self.backend=QProcess(self);self.backend.setProgram('python3')
                 self.backend.setArguments(['-m','workbench.server','--host','127.0.0.1','--port','8765'])
-                self.backend.setWorkingDirectory(str(root));self.backend.setEnvironment(
-                    [k+'='+v for k,v in env.items()]);self.backend.setProcessChannelMode(QProcess.MergedChannels)
+                self.backend.setWorkingDirectory(str(root))
+                from PyQt5.QtCore import QProcessEnvironment
+                process_env=QProcessEnvironment.systemEnvironment()
+                process_env.insert('PYTHONPATH',env['PYTHONPATH'])
+                self.backend.setProcessEnvironment(process_env)
+                self.backend.setProcessChannelMode(QProcess.MergedChannels)
                 self.backend.readyReadStandardOutput.connect(lambda:self._proc_output(self.backend,'Workbench'))
                 self.backend.start();self.write_log('正在启动本机 Workbench 服务')
         QTimer.singleShot(1300,lambda:self._api('profile_get','GET','/api/profiles'))
@@ -1136,7 +1140,7 @@ class Studio(QMainWindow):
             profile[key]=editor.value()
         result=QMessageBox.question(self,'确认保存 Bunker 参数版本',
             '将创建新的机器人运动参数 YAML，并用于下次启动的 Bunker 会话。'
-            '不会立即向电机发命令，也不会改变急停和人工接管。\\n\\n'
+            '不会立即向电机发命令，也不会改变急停和人工接管。\n\n'
             '请确认这些限速、加速度及超时参数符合现场底盘能力。',
             QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
         if result!=QMessageBox.Yes:return
