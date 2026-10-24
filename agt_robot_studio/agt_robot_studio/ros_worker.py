@@ -149,8 +149,12 @@ class RosWorker(QThread):
             map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                                  reliability=ReliabilityPolicy.RELIABLE)
             node.create_subscription(Odometry, self.cfg['odom_topic'], self._on_odom, qos_profile_sensor_data)
+            # Rate accounting needs only message arrival, not 400KB+ of decoded
+            # CustomPoint objects. Full Python deserialization at 10 Hz starves
+            # the IMU callback on the same executor (measured ~81 vs ~203 Hz).
             rate_node.create_subscription(CustomMsg, self.cfg['raw_lidar_topic'],
-                                          lambda _m: self.rates['lidar'].add(), qos_profile_sensor_data)
+                                          lambda _m: self.rates['lidar'].add(),
+                                          qos_profile_sensor_data, raw=True)
             rate_node.create_subscription(Imu, self.cfg['imu_topic'],
                                           lambda _m: self.rates['imu'].add(), qos_profile_sensor_data)
             node.create_subscription(OccupancyGrid, self.cfg['map_topic'], self._on_grid, map_qos)
