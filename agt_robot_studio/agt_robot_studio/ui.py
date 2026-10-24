@@ -716,6 +716,17 @@ class Studio(QMainWindow):
         row=QHBoxLayout();l.addLayout(row);imp2=button('导入 PGM + YAML');imp2.clicked.connect(self.import_pgm);row.addWidget(imp2)
         draft=button('保存草稿');draft.clicked.connect(lambda:self.export_map('DRAFT'));row.addWidget(draft)
         save=button('保存为导航地图','primary');save.clicked.connect(lambda:self.export_map('ACCEPTED'));row.addWidget(save)
+        diff=card(l,'3. 正式地图差异更新（自动比较，只生成待审核版本）')
+        diff.addWidget(text_label('基准必须是 ACCEPTED 地图；候选必须是来自新 PCD 的 DRAFT。分辨率、地图朝向与栅格原点需可对齐。不会自动覆盖正式地图。'))
+        diff_row=QHBoxLayout();diff.addLayout(diff_row)
+        self.diff_base_box=QComboBox();self.diff_base_box.setMinimumWidth(180);diff_row.addWidget(self.diff_base_box,1)
+        self.diff_candidate_box=QComboBox();self.diff_candidate_box.setMinimumWidth(180);diff_row.addWidget(self.diff_candidate_box,1)
+        compare=button('比较并生成更新候选','primary');compare.clicked.connect(self.compare_map_versions);diff_row.addWidget(compare)
+        self.diff_status_label=text_label('差异报告：尚未运行');diff.addWidget(self.diff_status_label)
+        self.diff_preview_label=QLabel('差异图将在此显示');self.diff_preview_label.setAlignment(Qt.AlignCenter)
+        self.diff_preview_label.setMinimumSize(500,220);self.diff_preview_label.setMaximumHeight(300)
+        self.diff_preview_label.setStyleSheet('background:#101820;border:1px solid #2b3b46;border-radius:8px;color:#90a1ae')
+        diff.addWidget(self.diff_preview_label)
         row.addStretch();self.map_info=text_label('地图：未加载；Unknown 始终保持未知，不会自动变空闲');l.addWidget(self.map_info)
         self.map_write_status=text_label('地图写入：空闲');l.addWidget(self.map_write_status)
 
@@ -928,6 +939,16 @@ class Studio(QMainWindow):
         self._api('refresh_maps','GET','/api/maps');self._api('refresh_clouds','GET','/api/clouds')
         self._api('refresh_routes','GET','/api/routes')
 
+    def compare_map_versions(self):
+        base_id=self.diff_base_box.currentData()
+        candidate_id=self.diff_candidate_box.currentData()
+        if not base_id or not candidate_id:
+            QMessageBox.warning(self,'地图版本不足','需要一个 ACCEPTED 基准和一个有同源 PCD 的 DRAFT 候选。');return
+        if base_id==candidate_id:
+            QMessageBox.warning(self,'版本选择错误','基准和候选不能是同一个地图版本。');return
+        self.diff_status_label.setText('正在对齐栅格并计算地图差异……')
+        self._api('map_diff','POST','/api/maps/diff',{'base_id':base_id,'candidate_id':candidate_id})
+
     def refresh_live(self):
         if not self.live_in_flight:
             self.live_in_flight=True;self._api('refresh_live','GET','/api/live')
@@ -960,6 +981,8 @@ class Studio(QMainWindow):
                 self.camera_status_label.setText('云台操作失败：'+str(value)[:140])
             if name in ('camera_capture','camera_move'):
                 self.capture_status_label.setText('云台/拍照失败：'+str(value)[:160])
+            if name=='map_diff' and hasattr(self,'diff_status_label'):
+                self.diff_status_label.setText('地图差异失败：'+str(value)[:180])
             if name=='map_revise':
                 self.map_saving=False
                 self.map_write_status.setText('保存失败：'+str(value)[:160])
@@ -998,6 +1021,12 @@ class Studio(QMainWindow):
             self.maps_by_id={m['id']:m for m in value}
             self._fill_combo(self.map_box,value,self.current_map_id)
             self._fill_combo(self.nav_map_box,value,self.current_map_id)
+            if hasattr(self,'diff_base_box'):
+                accepted=[m for m in value if m.get('status')=='ACCEPTED' and m.get('source_pcd')]
+                candidates=[m for m in value if m.get('status')=='DRAFT' and m.get('source_pcd')
+                            and m.get('update_type')!='AUTOMATIC_DIFF_DRAFT']
+                self._fill_combo(self.diff_base_box,accepted,self.diff_base_box.currentData())
+                self._fill_combo(self.diff_candidate_box,candidates,self.diff_candidate_box.currentData())
             if self.pending_load_map_id:
                 selected=self.maps_by_id.get(self.pending_load_map_id)
                 self.pending_load_map_id=None
@@ -1164,6 +1193,21 @@ class Studio(QMainWindow):
             self.map_write_status.setText('二维地图已经保存：'+value['id']+' · '+value.get('asset_summary','BBS 状态未知'))
             self.current_map_id=value['id'];self.write_log('二维地图已生成：'+value['id'])
             self.refresh_library();self._load_map(value);self.pages['地图'].click();return
+        if name=='map_diff':
+            report=value.get('report') or {};update=value.get('update_map') or {}
+            counts=report.get('counts') or {}
+            self.diff_status_label.setText(
+                f"差异完成 · 新障碍 {counts.get('new_obstacle_cells',0)} 格 · "
+                f"清除 {counts.get('cleared_obstacle_cells',0)} 格 · "
+                f"新增可观测 {counts.get('newly_observed_cells',0)} 格 · "
+                f"覆盖损失 {counts.get('coverage_lost_cells',0)} 格 · "
+                f"更新候选 {update.get('id','')}（DRAFT，未激活）")
+            image=QImage(report.get('overlay_png',''))
+            if not image.isNull():
+                self.diff_preview_label.setPixmap(QPixmap.fromImage(image).scaled(
+                    self.diff_preview_label.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation))
+            self.write_log('自动地图差异已生成待审核版本 '+str(update.get('id',''))+'；正式地图未改变')
+            self.refresh_library();return
         if name=='map_revise':
             self.map_saving=False
             self.map_write_status.setText('地图已经保存：'+value['id']+' · '+value['status'])

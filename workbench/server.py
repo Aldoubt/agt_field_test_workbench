@@ -263,6 +263,8 @@ class Handler(BaseHTTPRequestHandler):
             match = re.fullmatch(r'/api/jobs/([^/]+)/stop', self.path)
             if match:
                 return self.response(200, JOBS.stop(match.group(1)))
+            if self.path == '/api/maps/diff':
+                return self.response(200, MAPS.compare_and_propose(payload['base_id'],payload['candidate_id']))
             if self.path == '/api/maps/import':
                 return self.response(200, MAPS.import_yaml(payload['yaml_path'],
                                      payload.get('calibration'), payload.get('source_bag'), payload.get('name','')))
