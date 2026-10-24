@@ -799,6 +799,22 @@ class Studio(QMainWindow):
         if name=='refresh_live':
             self.live_status=value;self.current_session=value.get('session');self._update_live();return
         if name=='refresh_jobs':
+            # Re-attach after a Qt restart; the Workbench, not this window,
+            # owns the live mapping job and its raw rosbag.
+            if not self.mapping_job_id:
+                mapping_live=next((j for j in value if j.get('kind')=='mapping_live'
+                    and j.get('state')=='RUNNING' and j.get('robot')==self._robot()),None)
+                if mapping_live:
+                    self.mapping_job_id=mapping_live['id']
+                    self.current_run=Path(mapping_live['output'])
+                    self.glim_btn.setText('结束并保存建图')
+                    self.glim_btn.setEnabled(True)
+                    self.map_name_edit.setEnabled(False)
+                    self.mapping_backend_box.setEnabled(False)
+                    self.mapping_state.setText('已恢复后台 FAST-LIO2 建图任务')
+                    self.run_label.setText('后台建图任务：'+self.mapping_job_id+
+                                           ' · 输出：'+str(self.current_run))
+                    self._mapping_backend_changed()
             running=next((j for j in value if j.get('kind')=='recorder' and j.get('state')=='RUNNING'),None)
             self.recorder_id=running['id'] if running else None
             if running:self.recorder_output=running.get('output','')
@@ -1238,14 +1254,14 @@ class Studio(QMainWindow):
 
     def open_map_editor(self):
         path=str(self.current_run/'glim_dump') if self.current_run else ''
-        path=QFileDialog.getExistingDirectory(self,'选择 GLIM dump 目录',path or str(Path.home()))
+        path=QFileDialog.getExistingDirectory(self,'选择 GLIM dump 目录',path or str(Path.home()),QFileDialog.ShowDirsOnly | QFileDialog.DontUseNativeDialog)
         if path:self.editor=self._proc('ros2',['run',self.cfg['glim_package'],self.cfg['glim_editor'],path],'GLIM Map Editor')
 
     def open_rviz(self):
         if not self.demo:self.rviz=self._proc('rviz2',[],'RViz')
 
     def import_pcd(self):
-        path,_=QFileDialog.getOpenFileName(self,'导入建图三维 PCD',str(self.current_run or Path.home()),'PCD (*.pcd)')
+        path,_=QFileDialog.getOpenFileName(self,'导入建图三维 PCD',str(self.current_run or Path.home()),'PCD (*.pcd)',options=QFileDialog.DontUseNativeDialog)
         if not path:return
         calibration={'robot':self._robot(),'glim_config_path':self.cfg.get('glim_config_path')}
         bag=str(self.current_run/'raw_bag') if self.current_run else None
@@ -1292,7 +1308,7 @@ class Studio(QMainWindow):
         if manifest:self._load_map(manifest)
 
     def import_pgm(self):
-        path,_=QFileDialog.getOpenFileName(self,'导入二维 PGM（旁边必须有 YAML）',str(Path.home()),'PGM (*.pgm)')
+        path,_=QFileDialog.getOpenFileName(self,'导入二维 PGM（旁边必须有 YAML）',str(Path.home()),'PGM (*.pgm)',options=QFileDialog.DontUseNativeDialog)
         if not path:return
         yaml_path=Path(path).with_suffix('.yaml')
         if not yaml_path.is_file():QMessageBox.warning(self,'缺少 YAML','没有配套 YAML 时拒绝猜测分辨率和原点。');return
@@ -1306,11 +1322,18 @@ class Studio(QMainWindow):
 
     def export_map(self,status='DRAFT'):
         try:
+            if self.map_view.image.isNull():
+                QMessageBox.warning(self,'尚未加载地图','请先选择并加载一个二维地图版本。')
+                return
+            if not self.current_map_id and status=='ACCEPTED':
+                QMessageBox.warning(self,'未登记地图',
+                    '外部 PGM 尚未登记为 Workbench 地图版本，不能直接标记为已验收导航地图。')
+                return
             if self.current_map_id:
                 pixels=base64.b64encode(self.map_view.pixels().tobytes()).decode('ascii')
                 self._api('map_revise','POST',f'/api/maps/{self.current_map_id}/revise',
                           {'pixels':pixels,'status':status,'keepout_polygons_px':self.map_view.keepout});return
-            directory=QFileDialog.getExistingDirectory(self,'选择新地图的父目录',str(Path.home()))
+            directory=QFileDialog.getExistingDirectory(self,'选择新地图的父目录',str(Path.home()),QFileDialog.ShowDirsOnly | QFileDialog.DontUseNativeDialog)
             if not directory:return
             output=Path(directory)/('map_v'+datetime.now().strftime('%Y%m%d_%H%M%S'))
             path=save_nav2_map(output,self.map_view.pixels(),self.map_view.res,self.map_view.origin)
@@ -1347,7 +1370,7 @@ class Studio(QMainWindow):
             self.refresh_live();self.refresh_jobs()
 
     def save_logs(self):
-        path,_=QFileDialog.getSaveFileName(self,'保存日志',str(Path.home()/'agt_studio.log'),'日志 (*.log *.txt)')
+        path,_=QFileDialog.getSaveFileName(self,'保存日志',str(Path.home()/'agt_studio.log'),'日志 (*.log *.txt)',options=QFileDialog.DontUseNativeDialog)
         if path:Path(path).write_text(self.log.toPlainText()+'\n',encoding='utf8')
 
     def _setup_demo(self):
