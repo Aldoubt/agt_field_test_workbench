@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 import yaml
 from .maps import Maps,_new_id,hash_file
+from .goal_safety import validate_endpoints
 from .runtime import ROOT,write_json
 
 
@@ -34,6 +35,9 @@ class Routes:
         m=Maps(self.root).get(map_id)
         if not isinstance(points,list) or not 1<=len(points)<=500:raise ValueError('1..500 waypoints required')
         points=[pose(p) for p in points]
+        # Reject targets outside observed free cells when the route is created;
+        # enforce the active robot's full footprint again when dispatched.
+        validate_endpoints(m,points)
         route=dict(id=_new_id(),name=str(name)[:120],map_id=map_id,map_sha256=m['sha256'],
                    map_yaml_sha256=hash_file(m['yaml']),frame_id='map',points=points,parent=parent,status='DRAFT',
                    photo_task_executor='agt_navigation_runtime/mission_runtime' if any(p['photo'] for p in points) else None)

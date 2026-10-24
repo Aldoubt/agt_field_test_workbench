@@ -33,6 +33,7 @@ from agt_asensing_driver.msg import INSStatus
 from sensor_msgs.msg import NavSatFix,Imu
 from workbench.routes import Routes,relative,pose
 from workbench.maps import Maps,hash_file
+from workbench.goal_safety import validate_endpoints
 from workbench.gps import prior,load_alignment
 from workbench.runtime import write_json
 
@@ -138,6 +139,7 @@ class Bridge(Node):
         future=client.call_async(req);future.add_done_callback(lambda _:self.destroy_client(client));return future
     def goal(self,points,route_id=None):
         s=self.check_navigation()
+        validate_endpoints(Maps(ROOT).get(s['map_id']), points, s['profile'])
         if self.goals or self.pending_goal:raise ValueError('cancel the active goal before starting another')
         def stamped(p):
             msg=PoseStamped();msg.header.frame_id='map';msg.header.stamp=self.get_clock().now().to_msg()
@@ -175,6 +177,9 @@ class Bridge(Node):
     def start_mission(self,route):
         """Hand a map-bound photo route to V3's existing stop-and-shoot runtime."""
         s=self.check_navigation()
+        validate_endpoints(Maps(ROOT).get(s['map_id']), route['points'], s['profile'])
+        if any(p.get('photo') for p in route['points']) and not s.get('enable_camera_gimbal'):
+            raise ValueError('photo route requires the camera/gimbal executor enabled in this session')
         if self.goals or self.pending_goal:raise ValueError('cancel the active goal before starting another')
         if not self.mission.server_is_ready():raise ValueError('inspection mission action unavailable')
         mission_file=Path(route.get('mission_file',''))

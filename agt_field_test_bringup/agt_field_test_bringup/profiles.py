@@ -68,6 +68,9 @@ def navigation(p, config_dir, output):
         rotate_to_heading_radps=p['angular_radps'], controller_bootstrap_angular_accel=p['angular_accel_radps2'],
         linear_accel_mps2=p['linear_accel_mps2'],linear_decel_mps2=p['linear_decel_mps2'],
         angular_accel_radps2=p['angular_accel_radps2'],angular_decel_radps2=p['angular_decel_radps2'])
+    # The field map can contain unknown cells after local-ground projection.
+    # Never plan through unobserved space just to get a shorter Smac path.
+    params('planner_server')['GridBased']['allow_unknown'] = False
     params('controller_server')['FollowPath'].update(desired_linear_vel=p['forward_mps'],
         min_approach_linear_velocity=min(.03,p['forward_mps']),regulated_linear_scaling_min_speed=min(.03,p['forward_mps']),
         rotate_to_heading_angular_vel=p['angular_radps'],max_angular_accel=p['angular_accel_radps2'])
