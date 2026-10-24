@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from PyQt5.QtCore import Qt, QProcess, QTimer, QRectF, QPointF, pyqtSignal
 from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
-from PyQt5.QtWidgets import (QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout,
+from PyQt5.QtWidgets import (QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QLayout, QSizePolicy,
     QFrame, QLabel, QPushButton, QStackedWidget, QDoubleSpinBox, QComboBox,
     QMessageBox, QFileDialog, QTextEdit, QCheckBox, QLineEdit, QSpinBox,
     QFormLayout, QScrollArea)
@@ -83,7 +83,7 @@ def fit_to_screen(window):
     window.resize(min(width,available.width()),min(height,available.height()))
     window.setMinimumSize(min_width,min_height)
     window.move(available.center()-window.rect().center())
-    sidebar_width=max(176,min(int(218*dpi_scale),int(available.width()*.23)))
+    sidebar_width=max(155,min(int(190*dpi_scale),int(available.width()*.20)))
     return dpi_scale,sidebar_width
 
 
@@ -417,24 +417,41 @@ class Studio(QMainWindow):
 
     def _global_status(self,layout):
         self.global_status=QFrame();self.global_status.setObjectName('global_status')
-        row=QHBoxLayout(self.global_status);row.setContentsMargins(12,7,12,7);row.setSpacing(8)
+        row=QGridLayout(self.global_status);row.setContentsMargins(12,7,12,7)
+        row.setHorizontalSpacing(8);row.setVerticalSpacing(5)
         self.robot_state_label=text_label('设备：--','status_item')
         self.mode_state_label=text_label('状态：未连接','status_item')
         self.chassis_state_label=text_label('底盘：未连接','status_item')
         self.lidar_state_label=text_label('雷达：离线 -- Hz','status_item')
         self.imu_state_label=text_label('IMU：离线 -- Hz','status_item')
         self.odom_state_label=text_label('里程计：离线 -- Hz','status_item')
-        for label in (self.robot_state_label,self.mode_state_label,self.chassis_state_label,
-                      self.lidar_state_label,self.imu_state_label,self.odom_state_label):
-            label.setMinimumWidth(105);row.addWidget(label,1)
+        for index,label in enumerate((self.robot_state_label,self.mode_state_label,self.chassis_state_label,
+                      self.lidar_state_label,self.imu_state_label,self.odom_state_label)):
+            label.setMinimumWidth(0)
+            label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            row.addWidget(label,index//3,index%3)
+        for col in range(3):row.setColumnStretch(col,1)
         layout.addWidget(self.global_status)
 
-    def _page_shell(self):
-        page=QWidget();self.stack.addWidget(page)
-        l=QVBoxLayout(page);l.setContentsMargins(0,0,0,0);l.setSpacing(14);return l
+    def _page_shell(self, scroll=False):
+        page=QWidget()
+        l=QVBoxLayout(page)
+        l.setContentsMargins(0,0,7 if scroll else 0,0)
+        l.setSpacing(14)
+        if scroll:
+            l.setSizeConstraint(QLayout.SetMinAndMaxSize)
+            viewport=QScrollArea()
+            viewport.setFrameShape(QFrame.NoFrame)
+            viewport.setWidgetResizable(True)
+            viewport.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            viewport.setWidget(page)
+            self.stack.addWidget(viewport)
+        else:
+            self.stack.addWidget(page)
+        return l
 
     def _page_mapping(self):
-        l=self._page_shell();r=QHBoxLayout();l.addLayout(r)
+        l=self._page_shell(scroll=True);r=QHBoxLayout();l.addLayout(r)
         r.addWidget(text_label('建图','title'));r.addStretch()
         self.mapping_state=text_label('未启动');r.addWidget(self.mapping_state)
         c=card(l,'1. 选择车辆并连接设备')
@@ -443,11 +460,12 @@ class Studio(QMainWindow):
         self.robot_box.setCurrentText('FW-mini' if self.cfg['robot']=='fwmini' else 'Bunker')
         self.robot_box.currentTextChanged.connect(lambda _text:self._update_global_status())
         self.robot_box.setToolTip('选择 Workbench 中已加载的车辆 Profile；切换会话前请先停止当前会话')
-        row.addWidget(self.robot_box)
+        row.addWidget(self.robot_box,1)
         self.sensors_btn=button('连接传感器');self.sensors_btn.clicked.connect(self.connect_sensors);row.addWidget(self.sensors_btn)
         self.chassis_btn=button('连接底盘');self.chassis_btn.clicked.connect(self.connect_chassis);row.addWidget(self.chassis_btn)
+        row=QHBoxLayout();c.addLayout(row)
         self.record_btn=button('开始录制');self.record_btn.clicked.connect(self.toggle_recording);row.addWidget(self.record_btn)
-        self.stop_ros_btn=button('关闭所有 ROS 节点','danger');self.stop_ros_btn.clicked.connect(self.close_ros_nodes);row.addWidget(self.stop_ros_btn)
+        self.stop_ros_btn=button('停止全部 ROS','danger');self.stop_ros_btn.clicked.connect(self.close_ros_nodes);row.addWidget(self.stop_ros_btn)
         self.stop_ros_btn.setToolTip('仅关闭 Studio 与 Workbench 启动的 ROS 进程；不是硬件急停')
         row.addStretch()
         self.sensor_rate_label=text_label('MID360S：-- Hz    IMU：-- Hz    base_link 里程计：-- Hz')
@@ -459,8 +477,8 @@ class Studio(QMainWindow):
         backend_row=QHBoxLayout();c.addLayout(backend_row)
         backend_row.addWidget(text_label('建图后端'))
         self.mapping_backend_box=QComboBox()
-        self.mapping_backend_box.addItem('FAST-LIO2 无 PGO（Bunker 当前验收基线）','fastlio')
-        self.mapping_backend_box.addItem('GLIM（实验：依赖／配置／真实回放未验收）','glim_experimental')
+        self.mapping_backend_box.addItem('FAST-LIO2 · 无 PGO','fastlio')
+        self.mapping_backend_box.addItem('GLIM · 实验','glim_experimental')
         index=self.mapping_backend_box.findData(str(self.cfg.get('mapping_backend','fastlio')))
         self.mapping_backend_box.setCurrentIndex(max(0,index));backend_row.addWidget(self.mapping_backend_box,1)
         name_row=QHBoxLayout();c.addLayout(name_row)
@@ -468,11 +486,13 @@ class Studio(QMainWindow):
         self.map_name_edit=QLineEdit(self.current_map_name or '温室地图_'+datetime.now().strftime('%Y%m%d_%H%M'))
         self.map_name_edit.setMaxLength(120);self.map_name_edit.setPlaceholderText('例如：一号温室_东侧')
         name_row.addWidget(self.map_name_edit,1)
-        name_row.addWidget(text_label('后续按名称选择；不可变版本 ID 仍由 Workbench 管理'))
+        c.addWidget(text_label('后续按名称选择；不可变版本 ID 仍由 Workbench 管理'))
         row=QHBoxLayout();c.addLayout(row)
         self.glim_btn=button('开始建图','primary');self.glim_btn.clicked.connect(self.toggle_glim);row.addWidget(self.glim_btn)
         self.save_mapping_box=QCheckBox('保存 GLIM dump + rosbag')
         self.save_mapping_box.setChecked(bool(self.cfg.get('save_mapping_data',True)));row.addWidget(self.save_mapping_box)
+        row.addStretch()
+        row=QHBoxLayout();c.addLayout(row)
         self.glim_cfg_btn=button('GLIM 配置');self.glim_cfg_btn.clicked.connect(self.choose_glim_config);row.addWidget(self.glim_cfg_btn)
         self.editor_btn=button('编辑三维地图');self.editor_btn.clicked.connect(self.open_map_editor);row.addWidget(self.editor_btn)
         self.rviz_btn=button('RViz');self.rviz_btn.clicked.connect(self.open_rviz);row.addWidget(self.rviz_btn);row.addStretch()
@@ -488,7 +508,7 @@ class Studio(QMainWindow):
         row.addWidget(self.cloud_count);row.addStretch();self.odom_label=text_label('base_link 局部位姿：未收到');row.addWidget(self.odom_label)
 
     def _page_maps(self):
-        l=self._page_shell();l.addWidget(text_label('地图生成与编辑','title'))
+        l=self._page_shell(scroll=True);l.addWidget(text_label('地图生成与编辑','title'))
         cloud=card(l,'1. 从 FAST-LIO2／GLIM 导出三维 PCD，再生成二维格栅地图')
         row=QHBoxLayout();cloud.addLayout(row);self.cloud_box=QComboBox();row.addWidget(self.cloud_box,1)
         imp=button('导入 PCD');imp.clicked.connect(self.import_pcd);row.addWidget(imp)
@@ -502,7 +522,9 @@ class Studio(QMainWindow):
         self.map_brush.addItem('障碍（黑）',0);self.map_brush.addItem('空闲（白）',254);self.map_brush.addItem('未知（灰）',205)
         self.map_brush.addItem('电子围栏（多边形）','keepout')
         self.map_brush.currentIndexChanged.connect(self._map_tool_changed)
-        row.addWidget(self.map_brush);undo=button('撤销');undo.clicked.connect(self.map_view.undo_last);row.addWidget(undo)
+        row=QHBoxLayout();l.addLayout(row)
+        row.addWidget(self.map_brush,1)
+        undo=button('撤销');undo.clicked.connect(self.map_view.undo_last);row.addWidget(undo)
         fence_row=QHBoxLayout();l.addLayout(fence_row)
         finish=button('完成围栏');finish.clicked.connect(self.finish_keepout);fence_row.addWidget(finish)
         cancel=button('取消当前多边形');cancel.clicked.connect(self.cancel_keepout);fence_row.addWidget(cancel)
@@ -530,7 +552,7 @@ class Studio(QMainWindow):
         self.map_view.polygon=[];self.map_view.update()
 
     def _page_navigation(self):
-        l=self._page_shell();l.addWidget(text_label('定位与自主导航','title'))
+        l=self._page_shell(scroll=True);l.addWidget(text_label('定位与自主导航','title'))
         c=card(l,'1. 地图与定位后端')
         row=QHBoxLayout();c.addLayout(row);self.nav_map_box=QComboBox();row.addWidget(self.nav_map_box,1)
         self.nav_map_box.activated.connect(self.select_navigation_map)
@@ -539,13 +561,16 @@ class Studio(QMainWindow):
         self.lio_backend_box.addItem('FAST-LIO2 → base_link','fastlio2')
         self.lio_backend_box.setCurrentIndex(max(0,self.lio_backend_box.findData(self.cfg.get('lio_backend','batch_lio'))))
         self.lio_backend_box.setToolTip('两个后端互斥；FAST-LIO2 经 agt_fastlio_adapter 转换为 base_link 后输出 /agt/odometry/local')
-        row.addWidget(text_label('里程计后端'));row.addWidget(self.lio_backend_box)
+        row=QHBoxLayout();c.addLayout(row)
+        row.addWidget(text_label('里程计后端'));row.addWidget(self.lio_backend_box,1)
         self.global_backend_box=QComboBox()
         self.global_backend_box.addItem('3D-BBS + GICP','bbs')
         self.global_backend_box.addItem('KISS-Matcher + GICP（实验）','kiss')
         self.global_backend_box.setCurrentIndex(max(0,self.global_backend_box.findData(self.cfg.get('global_backend','bbs'))))
         self.global_backend_box.setToolTip('每次只使用一个粗定位后端；精化均为 GICP')
-        row.addWidget(text_label('重定位后端'));row.addWidget(self.global_backend_box)
+        row=QHBoxLayout();c.addLayout(row)
+        row.addWidget(text_label('重定位后端'));row.addWidget(self.global_backend_box,1)
+        row=QHBoxLayout();c.addLayout(row)
         for title,task in [('启动定位','localization'),('启动导航','navigation')]:
             b=button(title,'primary' if task=='navigation' else None)
             b.clicked.connect(lambda _,t=task:self.start_field_session(t));row.addWidget(b)
@@ -559,7 +584,7 @@ class Studio(QMainWindow):
         frame=QFrame();frame.setObjectName('viewer');l.addWidget(frame,1)
         v=QVBoxLayout(frame);v.addWidget(self.nav_view,1)
         row=QHBoxLayout();v.addLayout(row)
-        self.target_mode_box=QComboBox();self.target_mode_box.addItem('单击直接导航','goal');self.target_mode_box.addItem('添加航点（可拍照）','route')
+        self.target_mode_box=QComboBox();self.target_mode_box.addItem('单击导航','goal');self.target_mode_box.addItem('添加航点','route')
         row.addWidget(self.target_mode_box)
         self.photo_box=QCheckBox('到点拍照');self.photo_box.setChecked(True);row.addWidget(self.photo_box)
         self.gimbal_heading=QDoubleSpinBox();self.gimbal_heading.setRange(-180,180);self.gimbal_heading.setSuffix('° 航向');row.addWidget(self.gimbal_heading)
