@@ -9,12 +9,10 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <depend>rclcpp</depend>
-  <exec_depend>std_msgs</exec_depend>
   <depend>tf2_msgs</depend>
   <exec_depend>agt_system_bringup</exec_depend>
   <exec_depend>agt_base_control</exec_depend>
@@ -23,7 +21,6 @@
   <exec_depend>agt_fastlio_adapter</exec_depend>
   <exec_depend>agt_bunker_base</exec_depend>
   <exec_depend>tracked_chassis_description</exec_depend>
-  <exec_depend>livox_ros_driver2</exec_depend>
   <exec_depend>fwmini_bringup</exec_depend>
   <exec_depend>fwmini_chassis_adapter</exec_depend>
   <exec_depend>fwmini_odom_adapter</exec_depend>
@@ -32,6 +29,9 @@
   <depend>nav_msgs</depend>
   <depend>std_srvs</depend>
   <depend>std_msgs</depend>
+  <depend>livox_ros_driver2</depend>
+  <exec_depend>agt_mid360_adapter</exec_depend>
+  <exec_depend>fastlio2</exec_depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
   <depend>agt_pointcloud_core</depend>
