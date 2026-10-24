@@ -114,9 +114,19 @@ def relocalization_assets(record):
 def asset_summary(record):
     directory=Path(relocalization_assets(record)) if relocalization_assets(record) else None
     if directory is None:return '未找到重定位资产：使用整图 3D-BBS 回退'
-    polar=(directory/'polar_context.db').is_file()
-    voxels=(directory/'voxelmaps_coords').is_dir()
-    return ('AGT Polar Context（非 SC）：已生成' if polar else 'AGT Polar Context：未生成')+('；BBS 体素资产：已生成' if voxels else '；BBS 体素资产：未生成')
+    status_path=directory/'asset_status.json'
+    status={}
+    if status_path.is_file():
+        try: status=json.loads(status_path.read_text())
+        except (ValueError,OSError): pass
+    fresh=(status.get('source_sha256')==record.get('source_pcd_sha256'))
+    polar=(directory/'polar_context.db').is_file() and fresh
+    voxels=(directory/'voxelmaps_coords').is_dir() and fresh and status.get('bbs')=='READY'
+    bbs=('已生成（同源 SHA）' if voxels else '正在构建' if status.get('bbs')=='BUILDING'
+         else '构建失败：'+str(status.get('error','请检查依赖'))[:120] if status.get('bbs')=='FAILED'
+         else '未生成')
+    return ('AGT Polar Context（非 SC）：已生成' if polar
+            else 'AGT Polar Context：未生成（无 PGO 轨迹没有关键帧点云块）')+'；BBS 体素资产：'+bbs
 
 
 class Maps:

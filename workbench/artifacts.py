@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import math
 import shutil
+import os
 import yaml
 from .runtime import ROOT, ros_call, write_json
 from .maps import Maps, _new_id, hash_file, read_pgm
@@ -79,7 +80,56 @@ class Clouds:
         return self._save(ident,out,dict(parent=parent,parent_sha256=original['sha256'],operations=items,
             calibration=original.get('calibration'),source_bag=original.get('source_bag'),source_bag_sha256=original.get('source_bag_sha256'),
             name=original.get('name',''),source=original['pcd'],source_sha256=original['sha256']))
-    def grid(self,parent,params,name=None):
+    def build_assets(self, cloud_id):
+        """Build 3D-BBS cache from the SAME immutable cloud used by Nav2.
+
+        Polar Context requires actual keyframe patches; a fused no-PGO PCD
+        and trajectory.csv are not that dataset. Report NOT_GENERATED honestly.
+        """
+        cloud = self.get(cloud_id)
+        source = Path(cloud['pcd'])
+        directory = source.parent / 'relocalization'
+        status_path = directory / 'asset_status.json'
+        if status_path.is_file():
+            try:
+                old = json.loads(status_path.read_text())
+                if (old.get('state') == 'READY' and old.get('source_sha256') == cloud['sha256']
+                    and (directory / 'voxelmaps_coords').is_dir()
+                    and (directory / 'global_map_downsampled.pcd').is_file()):
+                    return old
+            except (ValueError, OSError):
+                pass
+        directory.mkdir(exist_ok=True)
+        state = {'state': 'BUILDING', 'source_sha256': cloud['sha256'],
+                 'source_pcd': str(source), 'bbs': 'BUILDING',
+                 'polar_context': 'NOT_GENERATED_NO_KEYFRAME_PATCHES'}
+        write_json(status_path, state)
+        temporary = source.parent / ('relocalization_build_' + _new_id())
+        try:
+            self.runner(['ros2', 'run', 'agt_global_relocalization_native',
+                         'build_relocalization_assets', '--map', str(source),
+                         '--output', str(temporary)], timeout=1200)
+            if not (temporary / 'voxelmaps_coords').is_dir() or not (
+                temporary / 'global_map_downsampled.pcd').is_file():
+                raise RuntimeError('BBS builder returned without mandatory voxel assets')
+            # Commit artifacts only after the builder completed. Existing PCD
+            # versions are immutable; a stale READY cache never crosses SHA.
+            for child in temporary.iterdir():
+                target = directory / child.name
+                if target.is_dir():
+                    if target.exists(): shutil.rmtree(target)
+                    os.replace(child, target)
+                else:
+                    os.replace(child, target)
+            state.update(state='READY', bbs='READY')
+        except Exception as error:
+            state.update(state='FAILED', bbs='FAILED', error=str(error)[:800])
+        finally:
+            if temporary.exists(): shutil.rmtree(temporary)
+        write_json(status_path, state)
+        return state
+
+    def grid(self,parent,params,name=None,build_assets=True):
         """Reuse the pinned, terrain-relative AGT exporter for a standalone PCD.
 
         The keyframe-dependent traversability mode is NOT available for a single
@@ -149,7 +199,7 @@ class Clouds:
         meta=yaml.safe_load((out/'map.yaml').read_text())
         w,h,pixels=read_pgm(out/'map.pgm')
         stats=yaml.safe_load((out/'metadata.yaml').read_text())
-        return Maps(self.root)._save(w,h,pixels,meta,dict(
+        result = Maps(self.root)._save(w,h,pixels,meta,dict(
             parent=None,cloud_id=parent,
             projection_mode='local_ground',projection_backend='agt_pcd2grid_exporter',
             projection_config=str(snapshot),projection_config_sha256=hash_file(snapshot),
@@ -160,3 +210,8 @@ class Clouds:
             calibration=original.get('calibration'),
             name=original.get('name','') if name is None else str(name).strip()[:120],
             source_yaml=str(out/'map.yaml'),source_pgm_sha256=hash_file(out/'map.pgm')))
+        if build_assets:
+            self.build_assets(parent)
+        from .maps import asset_summary, relocalization_assets
+        return dict(result, asset_summary=asset_summary(result),
+                    relocalization_assets=relocalization_assets(result))

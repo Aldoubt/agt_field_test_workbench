@@ -222,8 +222,14 @@ class Jobs:
                             record['result'] = json.loads(result_path.read_text())
                     write_json(self.root / 'runs' / record['id'] / 'run.json', record)
                 item['state'] = record['state']
-                result.append(dict(record, duration_sec=round(time.time() - process_start(record), 1)
-                                   if record['state'] == 'RUNNING' else None))
+                current = dict(record, duration_sec=round(time.time() - process_start(record), 1)
+                                   if record['state'] == 'RUNNING' else None)
+                if item['kind'].startswith('mapping'):
+                    stage_path = Path(record['output']) / 'save_status.json'
+                    if stage_path.is_file():
+                        try: current['save_status'] = json.loads(stage_path.read_text())
+                        except (OSError, ValueError): pass
+                result.append(current)
             for manifest in sorted((self.root / 'runs').glob('*/run.json'), reverse=True):
                 if manifest.parent.name in self.jobs:
                     continue
@@ -250,6 +256,8 @@ class Jobs:
             if not item or item['kind']!='mapping_live' or item['process'].poll() is not None:
                 raise ValueError('running live mapping required')
             os.kill(item['process'].pid,signal.SIGUSR1)
+            item['record']['save_requested_at']=utc_now()
+            write_json(self.root/'runs'/run_id/'run.json',item['record'])
             return dict(item['record'],finishing=True)
 
     def stop_all(self):

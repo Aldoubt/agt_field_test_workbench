@@ -143,6 +143,9 @@ def main():
     if args.live and raw_integrity['state'] != 'PASS':
         print(f'Live raw bag incomplete: {raw_integrity}; output preserved', file=sys.stderr)
         return 5
+    def save_stage(stage, **details):
+        write_json(output/'save_status.json',dict(stage=stage,**details))
+    save_stage('PCD_IMPORT')
     package = output / 'map_package'
     if not package.is_dir():
         print(f'Mapping package missing: {package}', file=sys.stderr)
@@ -154,10 +157,18 @@ def main():
     if os.environ.get('FIELD_CALIBRATION_BUNDLE'):
         bundle_path=Path(os.environ['FIELD_CALIBRATION_BUNDLE']);calibration_meta.update(bundle=str(bundle_path),bundle_sha256=sha256(bundle_path))
     cloud=clouds.import_pcd(package/'map.pcd',calibration=calibration_meta,bag=args.bag or str(output/'raw_bag'),name=args.map_name)
-    version=clouds.grid(cloud['id'], {})
+    save_stage('GRID_EXPORT', cloud_id=cloud['id'])
+    version=clouds.grid(cloud['id'], {},build_assets=False)
+    save_stage('BBS_ASSETS', cloud_id=cloud['id'], map_id=version['id'])
+    assets=clouds.build_assets(cloud['id'])
+    result_stage='COMPLETE' if assets['state']=='READY' else 'PARTIAL_ASSETS_FAILED'
+    save_stage(result_stage, cloud_id=cloud['id'], map_id=version['id'],
+               asset_state=assets['state'], asset_error=assets.get('error',''))
     write_json(output / 'field_test_result.json', {'robot': args.robot, 'calibration': args.calibration,
                'source_bag': args.bag or str(output / 'raw_bag'), 'map_version': version['id'],
-               'raw_bag_integrity': raw_integrity, 'mount_profile': mount_metadata, 'status': 'DRAFT'})
+               'raw_bag_integrity': raw_integrity, 'mount_profile': mount_metadata,
+               'relocalization_assets': assets, 'status': 'DRAFT',
+               'save_state': result_stage})
     print('Map Studio version:', version['id'], flush=True)
     return 0
 
