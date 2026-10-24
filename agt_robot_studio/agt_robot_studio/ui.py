@@ -32,7 +32,9 @@ DEFAULT_CONFIG = {
     'save_mapping_data':True, 'enable_camera_gimbal':True,
     'camera_device_path':'/dev/video0',
     'gimbal_port_name':'/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0',
-    'projection':{'resolution':.05,'z_min':.15,'z_max':2.0,'ground_min':-.3,'min_points':2},
+    'projection':{'resolution':.05,'ground_cell_size':.5,'ground_percentile':.10,
+                  'ground_tolerance':.10,'obstacle_min_height':.12,
+                  'obstacle_max_height':1.80,'occupied_threshold':2},
     'map_name':'', 'map_frame':'map', 'glim_package':'glim_ros', 'glim_node':'glim_rosnode',
     'glim_editor':'map_editor'}
 
@@ -637,14 +639,18 @@ class Studio(QMainWindow):
         form=QFormLayout();projection.addLayout(form)
         p=dict(DEFAULT_CONFIG['projection']);p.update(self.cfg.get('projection') or {})
         self.projection_edits={}
-        for key,label,low,high,step in [('resolution','分辨率（m/cell）',.01,1.,.01),
-                ('z_min','障碍高度下限（m）',-5.,10.,.05),('z_max','障碍高度上限（m）',-4.,20.,.05),
-                ('ground_min','地面高度下限（m）',-10.,5.,.05)]:
+        for key,label,low,high,step in [('resolution','栅格分辨率（m）',.01,1.,.01),
+                ('ground_cell_size','局部地面单元（m）',.1,5.,.1),
+                ('ground_percentile','地面高度分位数',0.,1.,.05),
+                ('ground_tolerance','地面点容差（m）',0.,2.,.02),
+                ('obstacle_min_height','相对地面障碍下限（m）',0.,5.,.02),
+                ('obstacle_max_height','相对地面障碍上限（m）',.01,10.,.1)]:
             editor=QDoubleSpinBox();editor.setRange(low,high);editor.setDecimals(3);editor.setSingleStep(step)
             editor.setValue(float(p[key]));self.projection_edits[key]=editor;form.addRow(label,editor)
-        self.min_points_box=QSpinBox();self.min_points_box.setRange(1,10000);self.min_points_box.setValue(int(p['min_points']))
-        form.addRow('每栅格最少点数',self.min_points_box)
-        projection.addWidget(text_label('地图 XY 范围和 origin 默认由同源 PCD 自动计算；这里采用固定高度区间投影，不是 Patchwork++。'))
+        self.min_points_box=QSpinBox();self.min_points_box.setRange(1,10000)
+        self.min_points_box.setValue(int(p.get('occupied_threshold',p.get('min_points',2))))
+        form.addRow('判障碍最少点数',self.min_points_box)
+        projection.addWidget(text_label('复用 agt_pcd2grid_exporter/local_ground：按局部地面高度判障碍。未观测区域保留 Unknown；静止扫描不会凭空补出可通行区域。'))
         camera=card(body,'C1 云台相机')
         form=QFormLayout();camera.addLayout(form)
         self.camera_device_edit=QLineEdit(str(self.cfg.get('camera_device_path','/dev/video0')))
@@ -686,6 +692,7 @@ class Studio(QMainWindow):
         if not self.api:self.write_log('Workbench 尚未初始化');return
         timeout=None
         if name in ('record_start','session_stop_all'):timeout=120
+        elif name in ('cloud_project','cloud_import'):timeout=600
         elif name in ('record_stop','session_stop') or name.startswith(('session_','device_')):timeout=30
         self.api.call(name,method,path,payload,timeout)
 
@@ -1040,9 +1047,9 @@ class Studio(QMainWindow):
             if any(not topic for topic in topics.values()):raise ValueError('显示话题不能为空')
             record_topics=parse_topics(self.record_topics_edit.toPlainText())
             projection={key:editor.value() for key,editor in self.projection_edits.items()}
-            projection['min_points']=self.min_points_box.value()
-            if projection['z_min']>=projection['z_max']:raise ValueError('障碍高度下限必须小于上限')
-            if projection['ground_min']>projection['z_min']:raise ValueError('地面高度下限不能高于障碍高度下限')
+            projection['occupied_threshold']=self.min_points_box.value()
+            if projection['obstacle_min_height']>=projection['obstacle_max_height']:
+                raise ValueError('相对地面障碍高度下限必须小于上限')
             self.cfg.update(topics)
             self.cfg.update(record_topics=record_topics,projection=projection,
                 record_template=self.record_template_box.currentText(),
@@ -1176,9 +1183,9 @@ class Studio(QMainWindow):
         cloud=self.cloud_box.currentData()
         if not cloud:QMessageBox.warning(self,'缺少三维地图','请先导入 FAST-LIO2 或 GLIM 导出的 PCD。');return
         projection={key:editor.value() for key,editor in self.projection_edits.items()}
-        projection['min_points']=self.min_points_box.value()
-        if projection['z_min']>=projection['z_max'] or projection['ground_min']>projection['z_min']:
-            QMessageBox.warning(self,'投影参数无效','请检查障碍与地面高度区间。');return
+        projection['occupied_threshold']=self.min_points_box.value()
+        if projection['obstacle_min_height']>=projection['obstacle_max_height']:
+            QMessageBox.warning(self,'投影参数无效','相对地面障碍下限必须小于上限。');return
         name=(self.clouds_by_id.get(cloud) or {}).get('name','')
         self._api('cloud_project','POST',f'/api/clouds/{cloud}/project',{'projection':projection,'name':name})
 
