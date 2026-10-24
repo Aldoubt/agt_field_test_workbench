@@ -3,8 +3,9 @@ import json
 from pathlib import Path
 import shutil
 import socket
+import time
 from .runtime import ROOT,REPO,ROS_EXEC,write_json,ros_ready
-from .maps import Maps,_new_id,hash_file
+from .maps import Maps,_new_id,hash_file,relocalization_assets
 from .fwmini import candidate_path,resolve_profile,load_profile,digest
 from .safety import setup,report
 from agt_field_test_bringup import profiles,calibration
@@ -32,7 +33,13 @@ class Sessions:
         except (OSError,ValueError):
             if any(j['kind']=='ros_bridge' and j['state']=='RUNNING' for j in self.jobs.list()):raise ValueError('ROS bridge starting; retry shortly')
             self.jobs._new('ros_bridge',['bash',str(ROS_EXEC),'python3',str(REPO/'scripts/ros_bridge.py')],{})
-            raise ValueError('ROS bridge starting; retry shortly')
+            # A GUI action should not require a second click merely because the
+            # bridge process needed a normal startup interval.
+            deadline=time.monotonic()+6
+            while time.monotonic()<deadline:
+                try:return rpc(self.root,'ping')
+                except (OSError,ValueError):time.sleep(.1)
+            raise ValueError('ROS bridge did not become ready within 6 seconds')
     def current(self):
         path=self.root/'work/current_session.json'
         return json.loads(path.read_text()) if path.is_file() else None
@@ -81,14 +88,24 @@ class Sessions:
                 copied.write_text(yaml.safe_dump(runtime_mount,sort_keys=False))
         backend=p.get('global_backend','bbs')
         if backend not in ('bbs','kiss'):raise ValueError('unknown global localization backend')
-        if backend=='kiss':raise ValueError('KISS is an offline experiment; complete its build and benchmark before live integration')
-        args+=['global_backend:='+backend]
+        lio_backend=p.get('lio_backend','batch_lio')
+        if lio_backend not in ('batch_lio','fastlio2'):raise ValueError('unknown local odometry backend')
+        args+=['global_backend:='+backend,'lio_backend:='+lio_backend]
+        assets=relocalization_assets(map_record) if map_record else ''
+        if assets:args+=['relocalization_assets:='+assets]
+        if task=='navigation':
+            args+=['enable_inspection:=true','enable_camera_gimbal:='+str(bool(p.get('enable_camera_gimbal',True))).lower()]
+            for key in ('camera_device_path','gimbal_port_name'):
+                if p.get(key):args+=[key+':='+str(p[key])]
         snapshot=dict(id=ident,robot=robot,task=task,profile=limits,profile_snapshot=str(profile),calibration=str(copied),
             calibration_sha256=cal_sha,calibration_snapshot_sha256=hash_file(copied),checks=checks,map_id=map_record['id'] if map_record else None,
             map_sha256=map_record['sha256'] if map_record else None,
             map_yaml_sha256=hash_file(map_record['yaml']) if map_record else None,
             localization_pcd=map_record.get('source_pcd') if map_record else None,
-            localization_pcd_sha256=map_record.get('source_pcd_sha256') if map_record else None,safety_report=acceptance)
+            localization_pcd_sha256=map_record.get('source_pcd_sha256') if map_record else None,
+            global_backend=backend,lio_backend=lio_backend,relocalization_assets=assets,
+            enable_camera_gimbal=bool(p.get('enable_camera_gimbal',True)) if task=='navigation' else False,
+            safety_report=acceptance)
         write_json(directory/'session.json',snapshot)
         job_meta=dict(snapshot);job_meta['session_id']=job_meta.pop('id')
         job=self.jobs._new('field_session',['bash',str(REPO/'scripts/run_field_test.sh'),*args],job_meta)
@@ -102,3 +119,8 @@ class Sessions:
             if job['kind']=='field_session' and job['state']=='RUNNING':result.append(self.jobs.stop(job['id']))
         (self.root/'work/current_session.json').unlink(missing_ok=True)
         return result
+    def stop_all(self):
+        """Stop every process owned by this Workbench, including recorder and bridge."""
+        self.stop()
+        self.jobs.stop_all()
+        return self.jobs.list()
