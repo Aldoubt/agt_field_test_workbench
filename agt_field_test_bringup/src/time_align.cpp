@@ -55,11 +55,13 @@ public:
     lidar_offset_ = offset_ns(declare_parameter<double>("lidar_offset_sec", 0.0));
     const auto imu_input = declare_parameter<std::string>("imu_input", "/livox/imu");
     const auto lidar_input = declare_parameter<std::string>("lidar_input", "/livox/lidar");
-    imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/field/aligned/imu", 400);
-    lidar_pub_ = create_publisher<livox_ros_driver2::msg::CustomMsg>("/field/aligned/lidar", 20);
+    const bool align_imu = declare_parameter<bool>("align_imu", true);
+    const bool align_lidar = declare_parameter<bool>("align_lidar", true);
     // Keep both streams native: Python conversion of a 20k-point scan must
     // never starve the 200 Hz IMU. No point or per-point time fields change.
-    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(imu_input,
+    if (align_imu) {
+      imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/field/aligned/imu", 400);
+      imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(imu_input,
       rclcpp::SensorDataQoS().keep_last(400),
       [this](sensor_msgs::msg::Imu::UniquePtr msg) {
         try {
@@ -69,7 +71,10 @@ public:
           RCLCPP_ERROR(get_logger(), "Rejected IMU timestamp: %s", error.what());
         }
       });
-    lidar_sub_ = create_subscription<livox_ros_driver2::msg::CustomMsg>(lidar_input,
+    }
+    if (align_lidar) {
+      lidar_pub_ = create_publisher<livox_ros_driver2::msg::CustomMsg>("/field/aligned/lidar", 20);
+      lidar_sub_ = create_subscription<livox_ros_driver2::msg::CustomMsg>(lidar_input,
       rclcpp::SensorDataQoS().keep_last(20),
       [this](livox_ros_driver2::msg::CustomMsg::UniquePtr msg) {
         try {
@@ -80,8 +85,10 @@ public:
           RCLCPP_ERROR(get_logger(), "Rejected LiDAR timestamp: %s", error.what());
         }
       });
-    RCLCPP_INFO(get_logger(), "Native time alignment; imu_offset_ns=%ld lidar_offset_ns=%ld",
-      static_cast<long>(imu_offset_), static_cast<long>(lidar_offset_));
+    }
+    RCLCPP_INFO(get_logger(),
+      "Native time alignment; IMU enabled=%d offset_ns=%ld LiDAR enabled=%d offset_ns=%ld",
+      align_imu, static_cast<long>(imu_offset_), align_lidar, static_cast<long>(lidar_offset_));
   }
 private:
   std::int64_t imu_offset_{0}, lidar_offset_{0};

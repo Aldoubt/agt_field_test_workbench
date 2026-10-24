@@ -144,8 +144,21 @@ def _configure(context):
         if bundle:
             fast,batch=calibration.configs(bundle,get_package_share_directory('agt_navigation_runtime'),
                 workspace/'src/agt-lio-pgo-mapping/bringup/agt_mapping_bringup/config/fastlio2_mid360.yaml', tempfile.mkdtemp(prefix='field_cal_'))
-            localization_args.update(fastlio_config=fast,batch_config=batch,lidar_topic='/field/aligned/lidar',imu_topic='/field/aligned/imu')
-            localization_nodes.append(Node(package='agt_field_test_bringup',executable='time_align.py',parameters=[bundle['time_sync']]))
+            imu_offset = float(bundle['time_sync']['imu_offset_sec'])
+            lidar_offset = float(bundle['time_sync']['lidar_offset_sec'])
+            align_imu = int(imu_offset * 1e9) != 0
+            align_lidar = int(lidar_offset * 1e9) != 0
+            aligned_imu_topic = '/field/aligned/imu' if align_imu else '/livox/imu'
+            aligned_lidar_topic = '/field/aligned/lidar' if align_lidar else '/livox/lidar'
+            localization_args.update(fastlio_config=fast,batch_config=batch,
+                                     lidar_topic=aligned_lidar_topic,imu_topic=aligned_imu_topic)
+            # A zero-offset candidate must not route full LiDAR scans through
+            # the timestamp relay. Only relay streams that require correction.
+            if align_imu or align_lidar:
+                localization_nodes.append(Node(
+                    package='agt_field_test_bringup', executable='time_align.py',
+                    parameters=[bundle['time_sync'], {
+                        'align_imu': align_imu, 'align_lidar': align_lidar}]))
         if value('gps_alignment_file'):
             from agt_field_test_bringup.gps import load_alignment
             map_sha=json.loads((Path(value('map_yaml')).parent/'manifest.json').read_text())['sha256']

@@ -1,0 +1,109 @@
+{
+  "python_tests_passed": 17,
+  "cpp_tests_passed": 18,
+  "native_transport_cases": [
+    {
+      "imu_offset_sec": 0.0,
+      "lidar_offset_sec": 0.0,
+      "align_imu": true,
+      "align_lidar": true,
+      "expected": {
+        "imu": 400,
+        "lidar": 20
+      },
+      "received": {
+        "imu": 400,
+        "lidar": 20
+      },
+      "errors": []
+    },
+    {
+      "imu_offset_sec": 0.012,
+      "lidar_offset_sec": -0.003,
+      "align_imu": true,
+      "align_lidar": true,
+      "expected": {
+        "imu": 400,
+        "lidar": 20
+      },
+      "received": {
+        "imu": 400,
+        "lidar": 20
+      },
+      "errors": []
+    },
+    {
+      "imu_offset_sec": 0.012,
+      "lidar_offset_sec": 0.0,
+      "align_imu": true,
+      "align_lidar": false,
+      "expected": {
+        "imu": 400,
+        "lidar": 0
+      },
+      "received": {
+        "imu": 400,
+        "lidar": 0
+      },
+      "errors": []
+    },
+    {
+      "imu_offset_sec": 0.0,
+      "lidar_offset_sec": -0.003,
+      "align_imu": false,
+      "align_lidar": true,
+      "expected": {
+        "imu": 0,
+        "lidar": 20
+      },
+      "received": {
+        "imu": 0,
+        "lidar": 20
+      },
+      "errors": []
+    }
+  ],
+  "merged_remote_head": "79e00e6a0ac9f7efac424d807586b092f5207e47",
+  "local_source_commit": "3efc2922855206200439ccdc9c383d16f77322b1",
+  "merge_policy": "Preserve tested native wrapper; retain remote zero-offset direct routing; honour independent stream enable flags in C++",
+  "merged_launch_prefix": {
+    "input_duration_sec": 30,
+    "state": "COMPLETE",
+    "frontend_poses": 286,
+    "canonical_poses": 286,
+    "adapter_rejected": 0,
+    "no_effective_points": 0,
+    "quality": {
+      "state": "PASS",
+      "reasons": [],
+      "pose_count": 286,
+      "path_length_m": 8.667847054314185,
+      "max_step_m": 0.060293252655813735,
+      "max_speed_mps": 0.6027606501901803,
+      "xyz_span_m": [
+        8.434734858394423,
+        0.27328065389429407,
+        0.16153456463981863
+      ],
+      "limits": {
+        "max_step_m": 10.0,
+        "max_speed_mps": 10.0,
+        "max_position_m": 10000.0
+      },
+      "scope": "Numerical plausibility only; accuracy and navigation acceptance require independent evidence"
+    },
+    "cleanup_state": "CANDIDATE",
+    "exact_pose_matches": 286,
+    "cleanup_metrics": {
+      "input_points": 868630,
+      "self_filtered_points": 5300,
+      "retained_points": 829298,
+      "removed_candidate_points": 34032,
+      "retained_near_or_single_observation_ground": 3046,
+      "near_field_only_points": 20407
+    }
+  },
+  "full_bag_merge_retest": "NOT_RUN: original full-bag artifacts predate the launch merge",
+  "physical_navigation": "NOT_RUN",
+  "motion": false
+}

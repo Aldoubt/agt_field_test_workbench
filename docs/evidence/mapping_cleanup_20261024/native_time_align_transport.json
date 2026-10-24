@@ -1,0 +1,62 @@
+[
+  {
+    "imu_offset_sec": 0.0,
+    "lidar_offset_sec": 0.0,
+    "align_imu": true,
+    "align_lidar": true,
+    "expected": {
+      "imu": 400,
+      "lidar": 20
+    },
+    "received": {
+      "imu": 400,
+      "lidar": 20
+    },
+    "errors": []
+  },
+  {
+    "imu_offset_sec": 0.012,
+    "lidar_offset_sec": -0.003,
+    "align_imu": true,
+    "align_lidar": true,
+    "expected": {
+      "imu": 400,
+      "lidar": 20
+    },
+    "received": {
+      "imu": 400,
+      "lidar": 20
+    },
+    "errors": []
+  },
+  {
+    "imu_offset_sec": 0.012,
+    "lidar_offset_sec": 0.0,
+    "align_imu": true,
+    "align_lidar": false,
+    "expected": {
+      "imu": 400,
+      "lidar": 0
+    },
+    "received": {
+      "imu": 400,
+      "lidar": 0
+    },
+    "errors": []
+  },
+  {
+    "imu_offset_sec": 0.0,
+    "lidar_offset_sec": -0.003,
+    "align_imu": false,
+    "align_lidar": true,
+    "expected": {
+      "imu": 0,
+      "lidar": 20
+    },
+    "received": {
+      "imu": 0,
+      "lidar": 20
+    },
+    "errors": []
+  }
+]

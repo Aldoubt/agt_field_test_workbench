@@ -15,12 +15,14 @@ from sensor_msgs.msg import Imu
 from livox_ros_driver2.msg import CustomMsg, CustomPoint
 
 
-def check(binary, domain, imu_offset, lidar_offset):
+def check(binary, domain, imu_offset, lidar_offset, align_imu=True, align_lidar=True):
     os.environ.update(ROS_DOMAIN_ID=str(domain), ROS_LOCALHOST_ONLY='1')
     log = open(os.devnull, 'w')
     process = subprocess.Popen([str(binary), '--ros-args',
         '-p', 'imu_offset_sec:=' + str(imu_offset),
         '-p', 'lidar_offset_sec:=' + str(lidar_offset),
+        '-p', 'align_imu:=' + str(align_imu).lower(),
+        '-p', 'align_lidar:=' + str(align_lidar).lower(),
         '-p', 'imu_input:=/test/imu', '-p', 'lidar_input:=/test/lidar'],
         stdout=log, stderr=log, start_new_session=True)
     rclpy.init()
@@ -29,6 +31,7 @@ def check(binary, domain, imu_offset, lidar_offset):
     lidar_pub = node.create_publisher(CustomMsg, '/test/lidar', 100)
     expected = {'imu': {}, 'lidar': {}}
     received = {'imu': set(), 'lidar': set()}
+    enabled = {'imu': align_imu, 'lidar': align_lidar}
     errors = []
 
     def observe(kind, raw):
@@ -56,7 +59,8 @@ def check(binary, domain, imu_offset, lidar_offset):
     timebase_position = 4 + ((16+string_length-4+7)//8)*8
     try:
         deadline = time.monotonic()+8
-        while (imu_pub.get_subscription_count() < 1 or lidar_pub.get_subscription_count() < 1):
+        while ((align_imu and imu_pub.get_subscription_count() < 1) or
+               (align_lidar and lidar_pub.get_subscription_count() < 1)):
             if process.poll() is not None or time.monotonic() > deadline:
                 raise RuntimeError('native node discovery failed')
             rclpy.spin_once(node, timeout_sec=.05)
@@ -64,6 +68,12 @@ def check(binary, domain, imu_offset, lidar_offset):
         ready = time.monotonic()+1
         while time.monotonic() < ready:
             rclpy.spin_once(node, timeout_sec=.02)
+        if not align_imu:
+            assert imu_pub.get_subscription_count() == 0
+            assert node.count_publishers('/field/aligned/imu') == 0
+        if not align_lidar:
+            assert lidar_pub.get_subscription_count() == 0
+            assert node.count_publishers('/field/aligned/lidar') == 0
 
         def publish(kind, index, stamp, offset, publisher):
             raw = bytearray(templates[kind])
@@ -75,7 +85,8 @@ def check(binary, domain, imu_offset, lidar_offset):
             struct.pack_into('<iI', output, 4, *divmod(shifted, 10**9))
             if kind == 'lidar':
                 struct.pack_into('<Q', output, timebase_position, shifted)
-            expected[kind][shifted] = bytes(output)
+            if enabled[kind]:
+                expected[kind][shifted] = bytes(output)
             publisher.publish(bytes(raw))
 
         begin = time.monotonic()
@@ -92,6 +103,7 @@ def check(binary, domain, imu_offset, lidar_offset):
         while time.monotonic() < deadline and any(len(received[k]) < len(expected[k]) for k in expected):
             rclpy.spin_once(node, timeout_sec=.01)
         report = dict(imu_offset_sec=imu_offset, lidar_offset_sec=lidar_offset,
+            align_imu=align_imu, align_lidar=align_lidar,
             expected={k: len(v) for k,v in expected.items()},
             received={k: len(v) for k,v in received.items()}, errors=errors)
         assert not errors and all(len(received[k]) == len(expected[k]) for k in expected), report
@@ -111,8 +123,9 @@ if __name__ == '__main__':
     parser.add_argument('--domain', type=int, default=142)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    reports = [check(args.binary, args.domain+i, *offsets)
-               for i,offsets in enumerate(((0.0,0.0),(.012,-.003)))]
+    reports = [check(args.binary, args.domain+i, *case)
+               for i,case in enumerate(((0.0,0.0),(.012,-.003),
+                                        (.012,0.,True,False),(0.,-.003,False,True)))]
     text = json.dumps(reports, indent=2)+'\n'
     if args.output:
         args.output.write_text(text)

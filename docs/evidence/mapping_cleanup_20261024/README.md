@@ -51,3 +51,19 @@ Workbench 分支 `feature/agt-robot-studio-v1` 保存 C++ 时间对齐、轨迹�
 不是可在任意机器直接运行的入口；需取得原始数据并调整 ROOT/BAG/BUNDLE/实验路径。
 产品清理入口为 `workbench/map_cleanup.py`，由 Bunker FAST-LIO 保存流程自动调用。
 原始 rosbag、大型 PCD、build/install 缓存保留在现场机器；本目录仅发布代码、图表及验证摘要。
+
+## 合并远端后的验证
+
+远端三个时间中转提交已纳入当前功能分支。`time_align.py` 保留本地 C++ 兼容入口；
+零偏移直接使用原 topic，需要修正时仅启用相应流。C++ 新增 align_imu/align_lidar
+开关，避免另一条流被意外订阅或发布。
+
+- 17 项相关 Python 测试通过；原生导出器 18 项通过。
+- 4 组原生传输测试通过：零偏移、双流偏移、仅 IMU、仅 LiDAR；所有启用流逐字节一致，
+  禁用流没有发布者或订阅者。
+- 合并后的零偏移启动链跑了同包 30 秒前缀：286 条前端/底盘里程计，拒收 0，
+  NO Effective Points 为 0；286 帧全部精确匹配位姿，清理保存链完成。
+- 上方完整包图片来自合并前已验证的原生中转链；合并后的启动路由只做上述前缀复核，
+  没有把它称作再次完成整包或实车导航验收。
+
+[本次发布验证](publication_validation.json) · [四组传输结果](native_time_align_transport.json)
