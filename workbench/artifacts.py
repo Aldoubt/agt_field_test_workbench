@@ -59,7 +59,7 @@ class Clouds:
         config.write_text(yaml.safe_dump(spec,sort_keys=False));output=self.directory/ident
         self.runner(['ros2','run','agt_field_test_bringup','pcd_ops',str(source),str(config),str(output)],timeout=3600)
         return ident,output,config
-    def import_pcd(self,path,calibration=None,bag=None):
+    def import_pcd(self,path,calibration=None,bag=None,name=''):
         source=Path(path).expanduser().resolve()
         if not source.is_file() or source.suffix.lower()!='.pcd': raise ValueError('existing PCD required')
         sha=hash_file(source)
@@ -67,7 +67,8 @@ class Clouds:
         shutil.copyfile(source,out/'original.pcd')
         if hash_file(source)!=sha or hash_file(out/'original.pcd')!=sha: raise ValueError('source changed during import')
         bag_sha={str(p.relative_to(Path(bag))):hash_file(p) for p in Path(bag).rglob('*') if p.is_file()} if bag and Path(bag).is_dir() else None
-        return self._save(ident,out,dict(source=str(source),source_sha256=sha,calibration=calibration,source_bag=bag,source_bag_sha256=bag_sha,parent=None,operations=[]))
+        return self._save(ident,out,dict(source=str(source),source_sha256=sha,calibration=calibration,source_bag=bag,source_bag_sha256=bag_sha,
+            name=str(name).strip()[:120],parent=None,operations=[]))
     def _save(self,ident,out,lineage):
         record=dict(id=ident,pcd=str(out/'cloud.pcd'),sha256=hash_file(out/'cloud.pcd'),status='DRAFT',
                     frame_id='map',processing=yaml.safe_load((out/'result.yaml').read_text()),**lineage)
@@ -76,16 +77,20 @@ class Clouds:
         original=self.get(parent);items=operations(items)
         ident,out,config=self._process(original['pcd'],{'operations':items})
         return self._save(ident,out,dict(parent=parent,parent_sha256=original['sha256'],operations=items,
-            calibration=original.get('calibration'),source_bag=original.get('source_bag'),source_bag_sha256=original.get('source_bag_sha256'),source=original['pcd'],source_sha256=original['sha256']))
-    def grid(self,parent,params):
+            calibration=original.get('calibration'),source_bag=original.get('source_bag'),source_bag_sha256=original.get('source_bag_sha256'),
+            name=original.get('name',''),source=original['pcd'],source_sha256=original['sha256']))
+    def grid(self,parent,params,name=None):
         original=self.get(parent)
-        if not params:
-            bounds=original['processing'];lo=bounds['bounds_min'];hi=bounds['bounds_max'];res=.05
-            params=dict(origin=[lo[0]-res,lo[1]-res,0.],range=[hi[0]-lo[0]+2*res,hi[1]-lo[1]+2*res])
-        p=projection(params)
+        requested=dict(params or {})
+        res=float(requested.get('resolution',.05))
+        bounds=original['processing'];lo=bounds['bounds_min'];hi=bounds['bounds_max']
+        automatic=dict(origin=[lo[0]-res,lo[1]-res,0.],range=[hi[0]-lo[0]+2*res,hi[1]-lo[1]+2*res])
+        automatic.update(requested)
+        p=projection(automatic)
         ident,out,config=self._process(original['pcd'],{'operations':[],'projection':p})
         meta=yaml.safe_load((out/'map.yaml').read_text());w,h,pixels=read_pgm(out/'map.pgm')
         return Maps(self.root)._save(w,h,pixels,meta,dict(parent=None,cloud_id=parent,projection=p,
             source_pcd=original['pcd'],source_pcd_sha256=original['sha256'],
             source_bag=original.get('source_bag'),source_bag_sha256=original.get('source_bag_sha256'),calibration=original.get('calibration'),
+            name=original.get('name','') if name is None else str(name).strip()[:120],
             source_yaml=str(out/'map.yaml'),source_pgm_sha256=hash_file(out/'map.pgm')))
