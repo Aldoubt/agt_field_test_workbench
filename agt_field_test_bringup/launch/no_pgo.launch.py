@@ -2,11 +2,13 @@
 from pathlib import Path
 import yaml
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument,OpaqueFunction,RegisterEventHandler,EmitEvent
+from launch.actions import DeclareLaunchArgument,OpaqueFunction,RegisterEventHandler,EmitEvent,LogInfo
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from agt_field_test_bringup.livox import validate_mid360s_config
+import json
 
 def configure(context):
     v=lambda n:LaunchConfiguration(n).perform(context)
@@ -27,11 +29,11 @@ def configure(context):
             'convert_body_to_base':True,'body_to_base_calibration_file':str(config),'mount_lidar_frame':'livox_frame',
             'mount_base_frame':'base_link','use_sim_time':sim}]))
     if v('livox_config'):
-        path=Path(v('livox_config')).resolve()
-        if not path.is_file():raise RuntimeError('Livox config missing')
-        nodes.append(Node(package='livox_ros_driver2',executable='livox_ros_driver2_node',parameters=[{
+        identity=validate_mid360s_config(v('livox_config'))
+        nodes.extend([LogInfo(msg='Livox startup identity: '+json.dumps(identity,sort_keys=True)),
+            Node(package='livox_ros_driver2',executable='livox_ros_driver2_node',parameters=[{
             'xfer_format':1,'multi_topic':0,'data_src':0,'publish_freq':10.,'output_data_type':0,
-            'frame_id':'livox_frame','lvx_file_path':'','user_config_path':str(path),'cmdline_input_bd_code':'livox0000000001'}]))
+            'frame_id':'livox_frame','lvx_file_path':'','user_config_path':identity['config_path']}])])
     handlers=[RegisterEventHandler(OnProcessExit(target_action=n,on_exit=[EmitEvent(event=Shutdown(reason='no-PGO critical node stopped'))])) for n in nodes]
     return handlers+nodes
 

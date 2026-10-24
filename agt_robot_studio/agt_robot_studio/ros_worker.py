@@ -99,7 +99,7 @@ class RosWorker(QThread):
             try:
                 pts = xyz_from_cloud(msg, limit=6500)
                 self.cloud_points = len(pts)
-                self.cloud.emit({'xyz': pts, 'source': 'GLIM 全局地图' if is_map else 'GLIM 实时点云'})
+                self.cloud.emit({'xyz': pts, 'source': '建图全局点云' if is_map else '实时建图点云'})
             except Exception as ex:
                 self.notice.emit('点云显示已跳过异常帧：' + repr(ex))
 
@@ -145,6 +145,9 @@ class RosWorker(QThread):
             node.create_subscription(OccupancyGrid, self.cfg['map_topic'], self._on_grid, map_qos)
             node.create_subscription(PointCloud2, self.cfg['points_topic'], lambda m:self._on_cloud(m, True), map_qos)
             node.create_subscription(PointCloud2, self.cfg['live_points_topic'],
+                                     lambda m:self._on_cloud(m, False), qos_profile_sensor_data)
+            # Read-only FAST-LIO2 preview; no additional mapping, driver or TF process.
+            node.create_subscription(PointCloud2, '/fastlio2/world_cloud',
                                      lambda m:self._on_cloud(m, False), qos_profile_sensor_data)
             self._decode_thread = threading.Thread(target=self._decode_loop, name='studio-cloud-display', daemon=True)
             self._decode_thread.start()

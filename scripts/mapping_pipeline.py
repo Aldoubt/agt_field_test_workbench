@@ -114,6 +114,7 @@ def main():
     parser.add_argument('--calibration')
     parser.add_argument('--mount-profile')
     parser.add_argument('--backend',choices=['fastlio','pgo_experiment'],default='fastlio')
+    parser.add_argument('--map-name',default='')
     args = parser.parse_args()
     output = Path(args.output).resolve()
     mapping = ROOT / 'src/agt-lio-pgo-mapping/scripts/run_mid360_mapping.sh'
@@ -152,7 +153,7 @@ def main():
     if calibration_meta['internal_config']:calibration_meta['internal_sha256']=sha256(Path(calibration_meta['internal_config']))
     if os.environ.get('FIELD_CALIBRATION_BUNDLE'):
         bundle_path=Path(os.environ['FIELD_CALIBRATION_BUNDLE']);calibration_meta.update(bundle=str(bundle_path),bundle_sha256=sha256(bundle_path))
-    cloud=clouds.import_pcd(package/'map.pcd',calibration=calibration_meta,bag=args.bag or str(output/'raw_bag'))
+    cloud=clouds.import_pcd(package/'map.pcd',calibration=calibration_meta,bag=args.bag or str(output/'raw_bag'),name=args.map_name)
     version=clouds.grid(cloud['id'], {})
     write_json(output / 'field_test_result.json', {'robot': args.robot, 'calibration': args.calibration,
                'source_bag': args.bag or str(output / 'raw_bag'), 'map_version': version['id'],
