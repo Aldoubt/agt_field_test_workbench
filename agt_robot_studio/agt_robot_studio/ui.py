@@ -651,6 +651,35 @@ class Studio(QMainWindow):
         self.min_points_box.setValue(int(p.get('occupied_threshold',p.get('min_points',2))))
         form.addRow('判障碍最少点数',self.min_points_box)
         projection.addWidget(text_label('复用 agt_pcd2grid_exporter/local_ground：按局部地面高度判障碍。未观测区域保留 Unknown；静止扫描不会凭空补出可通行区域。'))
+        chassis=card(body,'Bunker 运动限制与响应参数（版本化 YAML）')
+        form=QFormLayout();chassis.addLayout(form)
+        self.bunker_profile=None;self.bunker_profile_edits={}
+        for key,label,high,step in [
+                ('forward_mps','最大前进速度（m/s）',3.,.02),
+                ('reverse_mps','最大后退速度（m/s）',3.,.02),
+                ('angular_radps','最大转向角速度（rad/s）',3.,.02),
+                ('linear_accel_mps2','线加速度上限（m/s²）',4.,.02),
+                ('linear_decel_mps2','线减速度上限（m/s²）',4.,.02),
+                ('angular_accel_radps2','角加速度上限（rad/s²）',6.,.02),
+                ('angular_decel_radps2','角减速度上限（rad/s²）',6.,.02),
+                ('command_timeout_sec','命令超时（s）',2.,.02)]:
+            editor=QDoubleSpinBox();editor.setRange(.001,high);editor.setDecimals(3)
+            editor.setSingleStep(step);editor.setEnabled(False)
+            self.bunker_profile_edits[key]=editor;form.addRow(label,editor)
+        buttons=QHBoxLayout();chassis.addLayout(buttons)
+        load_profile_btn=button('读取当前底盘 YAML')
+        load_profile_btn.clicked.connect(lambda:self._api('profile_get','GET','/api/profiles'))
+        buttons.addWidget(load_profile_btn)
+        save_profile_btn=button('保存新版 Bunker YAML','primary')
+        save_profile_btn.clicked.connect(self.save_bunker_profile)
+        buttons.addWidget(save_profile_btn);buttons.addStretch()
+        self.bunker_profile_status=text_label('尚未读取 Bunker 配置')
+        chassis.addWidget(self.bunker_profile_status)
+        chassis.addWidget(text_label(
+            '仅编辑 Workbench 速度、加减速与时效限制；不是电机固件 PID，也不是 Nav2 跟踪增益。'
+            ' 保存会创建新 YAML 和 SHA，须先结束现场会话；下次启动才使用。'
+            ' 不改变急停、遥控接管和运动许可。'))
+
         camera=card(body,'C1 云台相机')
         form=QFormLayout();camera.addLayout(form)
         self.camera_device_edit=QLineEdit(str(self.cfg.get('camera_device_path','/dev/video0')))
@@ -684,6 +713,7 @@ class Studio(QMainWindow):
                     [k+'='+v for k,v in env.items()]);self.backend.setProcessChannelMode(QProcess.MergedChannels)
                 self.backend.readyReadStandardOutput.connect(lambda:self._proc_output(self.backend,'Workbench'))
                 self.backend.start();self.write_log('正在启动本机 Workbench 服务')
+        QTimer.singleShot(1300,lambda:self._api('profile_get','GET','/api/profiles'))
         QTimer.singleShot(1400,self.refresh_library);QTimer.singleShot(1600,self.refresh_live)
         QTimer.singleShot(1800,self.refresh_jobs)
 
@@ -730,6 +760,28 @@ class Studio(QMainWindow):
             if name in ('session_sensors','mapping_start'):self.mapping_state.setText('启动失败')
             if name=='mapping_finish':
                 self.glim_btn.setEnabled(True);self.mapping_state.setText('保存请求失败；建图任务仍在运行')
+            return
+        if name=='profile_get':
+            value=next((p for p in value if p.get('robot')=='bunker'),None)
+            if not value or not value.get('runtime_valid',False):
+                self.bunker_profile=None
+                self.bunker_profile_status.setText('Bunker 配置无效；请检查 YAML：'+str((value or {}).get('error','not found')))
+                return
+            self.bunker_profile=dict(value)
+            for key,editor in self.bunker_profile_edits.items():
+                if key not in value:
+                    self.bunker_profile=None
+                    self.bunker_profile_status.setText('缺少必要参数：'+key)
+                    return
+                editor.setEnabled(True);editor.setValue(float(value[key]))
+            self.bunker_profile_status.setText('当前版本：'+str(value.get('profile_path',''))
+                +'  SHA '+str(value.get('profile_sha256',''))[:12])
+            return
+        if name=='profile_save':
+            self.bunker_profile_status.setText('已保存并激活下次会话的 Bunker 参数版本：'
+                +str(value.get('profile_path','')))
+            self.write_log('Bunker 控制参数已生成不可变 YAML，新会话才生效；已运行会话不受影响')
+            self._api('profile_get','GET','/api/profiles')
             return
         if name=='refresh_maps':
             self.maps_by_id={m['id']:m for m in value}
@@ -1072,6 +1124,23 @@ class Studio(QMainWindow):
             self.write_log('参数已保存到用户配置；设备参数下次会话生效，显示话题重连后生效')
         except (ValueError,OSError) as ex:
             QMessageBox.warning(self,'参数未保存',str(ex))
+
+    def save_bunker_profile(self):
+        if not self.bunker_profile:
+            QMessageBox.warning(self,'未读取 Bunker 参数','请先读取当前底盘 YAML。');return
+        if self.live_status.get('session'):
+            QMessageBox.warning(self,'现场会话仍在运行',
+                '请先正常结束传感器／手动／导航会话，再保存新版 Bunker 参数。');return
+        profile=dict(self.bunker_profile)
+        for key,editor in self.bunker_profile_edits.items():
+            profile[key]=editor.value()
+        result=QMessageBox.question(self,'确认保存 Bunker 参数版本',
+            '将创建新的机器人运动参数 YAML，并用于下次启动的 Bunker 会话。'
+            '不会立即向电机发命令，也不会改变急停和人工接管。\\n\\n'
+            '请确认这些限速、加速度及超时参数符合现场底盘能力。',
+            QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
+        if result!=QMessageBox.Yes:return
+        self._api('profile_save','POST','/api/profiles/bunker',{'profile':profile})
 
     def choose_glim_config(self):
         path=QFileDialog.getExistingDirectory(self,'选择 GLIM 配置目录',str(Path.home()))
