@@ -1473,7 +1473,8 @@ class Studio(QMainWindow):
             self._interrupt(p)
             if p and p.state()!=QProcess.NotRunning:
                 if not p.waitForFinished(1800):p.kill();p.waitForFinished(700)
-        if self.api and callable(getattr(self.api,'shutdown',None)):\n            self.api.shutdown()
+        if self.api and callable(getattr(self.api,'shutdown',None)):
+            self.api.shutdown()
         if self.backend and self.backend.state()!=QProcess.NotRunning:
             self.backend.terminate();self.backend.waitForFinished(1800)
         event.accept()
