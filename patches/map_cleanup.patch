@@ -1,0 +1,231 @@
+diff --git a/bringup/agt_mapping_bringup/agt_mapping_bringup/live_launch.py b/bringup/agt_mapping_bringup/agt_mapping_bringup/live_launch.py
+index 91a826d..8e8cafd 100644
+--- a/bringup/agt_mapping_bringup/agt_mapping_bringup/live_launch.py
++++ b/bringup/agt_mapping_bringup/agt_mapping_bringup/live_launch.py
+@@ -11,6 +11,7 @@ Differences from the offline replay (session_launch.py):
+     finalizer (mapping_export_verified) produces map_package.
+ """
+ import atexit
++import os
+ from pathlib import Path
+ import signal
+ 
+@@ -59,13 +60,15 @@ def launch_live_session(context, *, sensor_only=False):
+         'drain_seconds': validate_number(value('drain_seconds'), 'drain_seconds', allow_zero=True),
+         'publish_freq': source.publish_freq,
+         'frame_id': value('frame_id'),
+-        'mapping_sensor_owner': 'yhs_sensor_only' if sensor_only else 'bunker_legacy_hardware',
++        'mapping_sensor_owner': os.environ.get('AGT_FIELD_TEST_ROBOT', 'yhs_sensor_only') if sensor_only else 'bunker_legacy_hardware',
+         **{key: parse_bool(value(key)) for key in ('start_rviz', 'keep_open')},
+     }
+     if options['export_timeout'] <= options['drain_seconds']:
+         raise ValueError('export_timeout must exceed drain_seconds')
+     share = Path(get_package_share_directory('agt_mapping_bringup'))
+-    lio_config = share / 'config' / 'fastlio2_mid360.yaml'
++    lio_config = Path(os.environ.get('AGT_FIELD_TEST_FASTLIO_CONFIG', str(share / 'config' / 'fastlio2_mid360.yaml'))).resolve()
++    if not lio_config.is_file():
++        raise RuntimeError(f'FAST-LIO2 calibration not found: {lio_config}')
+     remappings = frontend_remappings(lio_config, source.imu_topic)
+     text = lambda v: ParameterValue(str(v), value_type=str)
+     if sensor_only:
+diff --git a/bringup/agt_mapping_bringup/agt_mapping_bringup/session_launch.py b/bringup/agt_mapping_bringup/agt_mapping_bringup/session_launch.py
+index 5650495..514d590 100644
+--- a/bringup/agt_mapping_bringup/agt_mapping_bringup/session_launch.py
++++ b/bringup/agt_mapping_bringup/agt_mapping_bringup/session_launch.py
+@@ -1,5 +1,6 @@
+ """Launch composition and explicit lifecycle for one offline mapping session."""
+ import atexit
++import os
+ from pathlib import Path
+ 
+ from ament_index_python.packages import get_package_share_directory
+@@ -38,7 +39,9 @@ def launch_session(context):
+     if options['export_timeout'] <= options['drain_seconds']:
+         raise ValueError('export_timeout must exceed drain_seconds')
+     share = Path(get_package_share_directory('agt_mapping_bringup'))
+-    lio_config = share / 'config' / 'fastlio2_mid360.yaml'
++    lio_config = Path(os.environ.get('AGT_FIELD_TEST_FASTLIO_CONFIG', str(share / 'config' / 'fastlio2_mid360.yaml'))).resolve()
++    if not lio_config.is_file():
++        raise RuntimeError(f'FAST-LIO2 calibration not found: {lio_config}')
+     remappings = frontend_remappings(lio_config, bag.imu_topic)
+     text = lambda value: ParameterValue(str(value), value_type=str)
+     nodes = [
+diff --git a/exporters/agt_pcd2grid_exporter/include/agt_pcd2grid_exporter/TraversabilityGridBuilder.hpp b/exporters/agt_pcd2grid_exporter/include/agt_pcd2grid_exporter/TraversabilityGridBuilder.hpp
+index b162059..15f35b4 100644
+--- a/exporters/agt_pcd2grid_exporter/include/agt_pcd2grid_exporter/TraversabilityGridBuilder.hpp
++++ b/exporters/agt_pcd2grid_exporter/include/agt_pcd2grid_exporter/TraversabilityGridBuilder.hpp
+@@ -27,6 +27,11 @@ public:
+                     const ProjectionParameters &parameters, OccupancyGrid *grid,
+                     ProjectionStats *stats, TraversabilityStats *traversability,
+                     std::string *error, const std::string &debug_dir = "");
++  static bool build(const std::string &package_dir,
++                    const ProjectionParameters &parameters, OccupancyGrid *grid,
++                    ProjectionStats *stats, TraversabilityStats *traversability,
++                    std::string *error, const std::string &debug_dir,
++                    const std::string &cloud_output_dir);
+ };
+ 
+ }  // namespace agt_pcd2grid_exporter
+diff --git a/exporters/agt_pcd2grid_exporter/src/TraversabilityGridBuilder.cpp b/exporters/agt_pcd2grid_exporter/src/TraversabilityGridBuilder.cpp
+index 5056bf0..8a6bf04 100644
+--- a/exporters/agt_pcd2grid_exporter/src/TraversabilityGridBuilder.cpp
++++ b/exporters/agt_pcd2grid_exporter/src/TraversabilityGridBuilder.cpp
+@@ -351,6 +351,15 @@ bool TraversabilityGridBuilder::build(const std::string &package_dir,
+                                       OccupancyGrid *grid, ProjectionStats *stats,
+                                       TraversabilityStats *traversability, std::string *error,
+                                       const std::string &debug_dir) {
++  return build(package_dir, parameters, grid, stats, traversability, error, debug_dir, "");
++}
++
++bool TraversabilityGridBuilder::build(const std::string &package_dir,
++                                      const ProjectionParameters &parameters,
++                                      OccupancyGrid *grid, ProjectionStats *stats,
++                                      TraversabilityStats *traversability, std::string *error,
++                                      const std::string &debug_dir,
++                                      const std::string &cloud_output_dir) {
+   if (!grid || !stats || !traversability) {
+     if (error) *error = "grid, stats and traversability stats must not be null";
+     return false;
+@@ -727,6 +736,43 @@ bool TraversabilityGridBuilder::build(const std::string &package_dir,
+     stats->accepted_y_max = std::max(stats->accepted_y_max, point.y);
+   }
+   stats->accepted_points = stats->ground_points + stats->obstacle_points;
++  // Use the SAME world-voxel observations as the grid. Ground remains useful
++  // even when observed only nearby; unconfirmed elevated returns are retained
++  // separately as candidates, not labelled as semantically detected people.
++  if (!cloud_output_dir.empty()) {
++    pcl::PointCloud<pcl::PointXYZ> retained, removed;
++    std::size_t retained_ground = 0U;
++    for (const auto &point : points) {
++      const bool keep = point.persistent || point.kind == kGround;
++      auto &cloud = keep ? retained : removed;
++      cloud.push_back(pcl::PointXYZ(point.x, point.y, point.z));
++      if (keep && !point.persistent) ++retained_ground;
++    }
++    std::filesystem::create_directories(cloud_output_dir);
++    const auto root = std::filesystem::path(cloud_output_dir);
++    const auto save = [](const std::filesystem::path &path,
++                         const pcl::PointCloud<pcl::PointXYZ> &cloud) {
++      if (!cloud.empty()) return pcl::io::savePCDFileBinary(path.string(), cloud);
++      // PCL throws for an empty cloud. No rejected candidates is a valid result.
++      std::ofstream empty(path, std::ios::binary);
++      empty << "VERSION 0.7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\n"
++               "WIDTH 0\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS 0\nDATA binary\n";
++      return empty.good() ? 0 : -1;
++    };
++    if (save(root / "static_map.pcd", retained) != 0 ||
++        save(root / "removed_candidates.pcd", removed) != 0) {
++      if (error) *error = "cannot write temporal cloud outputs";
++      return false;
++    }
++    std::ofstream report(root / "cloud_cleanup.yaml");
++    report << "input_points: " << stats->input_points << '\n'
++           << "self_filtered_points: " << traversability->self_filtered_points << '\n'
++           << "retained_points: " << retained.size() << '\n'
++           << "removed_candidate_points: " << removed.size() << '\n'
++           << "retained_near_or_single_observation_ground: " << retained_ground << '\n'
++           << "near_field_only_points: " << traversability->near_field_only_points << '\n';
++    if (!report.good()) { if (error) *error = "cannot write cleanup report"; return false; }
++  }
+   if (!have_bounds) {
+     if (error) *error = "no points remain after traversability classification";
+     return false;
+diff --git a/exporters/agt_pcd2grid_exporter/src/main.cpp b/exporters/agt_pcd2grid_exporter/src/main.cpp
+index c876167..3a96639 100644
+--- a/exporters/agt_pcd2grid_exporter/src/main.cpp
++++ b/exporters/agt_pcd2grid_exporter/src/main.cpp
+@@ -15,7 +15,8 @@ namespace {
+ void usage(const char *program) {
+   std::cerr << "Usage: " << program
+             << " (--pcd input.pcd | --package mapping_package)"
+-               " --output navigation_map [--config projection.yaml]\n";
++               " --output navigation_map [--config projection.yaml]"
++               " [--cloud-output new_directory (traversability only)]\n";
+ }
+ 
+ }  // namespace
+@@ -25,15 +26,17 @@ int main(int argc, char **argv) {
+   std::string package_path;
+   std::string output_dir;
+   std::string config_path;
++  std::string cloud_output;
+   for (int i = 1; i < argc; ++i) {
+     const std::string argument(argv[i]);
+     if ((argument == "--pcd" || argument == "--package" || argument == "--output" ||
+-         argument == "--config") &&
++         argument == "--config" || argument == "--cloud-output") &&
+         i + 1 < argc) {
+       const std::string value(argv[++i]);
+       if (argument == "--pcd") pcd_path = value;
+       else if (argument == "--package") package_path = value;
+       else if (argument == "--output") output_dir = value;
++      else if (argument == "--cloud-output") cloud_output = value;
+       else config_path = value;
+     } else if (argument == "--help" || argument == "-h") {
+       usage(argv[0]);
+@@ -55,6 +58,12 @@ int main(int argc, char **argv) {
+     std::cerr << "Parameter error: " << error << '\n';
+     return 1;
+   }
++  if (!cloud_output.empty() &&
++      (parameters.projection_mode != agt_pcd2grid_exporter::ProjectionMode::Traversability ||
++       std::filesystem::exists(cloud_output))) {
++    std::cerr << "--cloud-output requires traversability mode and a new directory\n";
++    return 2;
++  }
+   if (parameters.projection_mode == agt_pcd2grid_exporter::ProjectionMode::Traversability) {
+     if (package_path.empty()) {
+       std::cerr << "projection_mode 'traversability' needs --package (keyframes + poses)\n";
+@@ -65,7 +74,8 @@ int main(int argc, char **argv) {
+     agt_pcd2grid_exporter::TraversabilityStats traversability;
+     const std::string debug_dir = (std::filesystem::path(output_dir) / "debug").string();
+     if (!agt_pcd2grid_exporter::TraversabilityGridBuilder::build(
+-            package_path, parameters, &grid, &stats, &traversability, &error, debug_dir)) {
++            package_path, parameters, &grid, &stats, &traversability, &error, debug_dir,
++            cloud_output)) {
+       std::cerr << "Traversability error: " << error << '\n';
+       return 1;
+     }
+diff --git a/exporters/agt_pcd2grid_exporter/test/test_traversability.cpp b/exporters/agt_pcd2grid_exporter/test/test_traversability.cpp
+index 90d279c..53de35c 100644
+--- a/exporters/agt_pcd2grid_exporter/test/test_traversability.cpp
++++ b/exporters/agt_pcd2grid_exporter/test/test_traversability.cpp
+@@ -306,17 +306,36 @@ TEST(TraversabilityGridBuilderTest, FollowerSeenOnlyUpCloseIsNotAnObstacle) {
+   ProjectionStats stats;
+   TraversabilityStats traversability;
+   std::string error;
++  const auto clouds = root / "cleaned";
+   ASSERT_TRUE(TraversabilityGridBuilder::build(root.string(), parameters, &grid, &stats,
+-                                               &traversability, &error))
++                                               &traversability, &error, "", clouds.string()))
+       << error;
+   EXPECT_EQ(value_at(grid, 2.05F, 1.05F), 100) << "static post must stay";
+   EXPECT_NE(value_at(grid, -0.95F, 0.35F), 100) << "follower trail must not become an obstacle";
+   EXPECT_GT(traversability.near_field_only_points, 0U);
++  pcl::PointCloud<pcl::PointXYZ> kept, removed;
++  ASSERT_EQ(pcl::io::loadPCDFile((clouds / "static_map.pcd").string(), kept), 0);
++  ASSERT_EQ(pcl::io::loadPCDFile((clouds / "removed_candidates.pcd").string(), removed), 0);
++  EXPECT_EQ(removed.size(), 2U * poses.size());
++  EXPECT_EQ(kept.size() + removed.size(), stats.input_points - traversability.self_filtered_points);
++  bool have_post = false, have_ground = false;
++  for (const auto &p : kept) {
++    have_post |= std::abs(p.x - 2.05F) < 0.01F && p.z > 0.4F;
++    have_ground |= std::abs(p.z) < 0.01F;
++    EXPECT_FALSE(std::abs(p.y - 0.35F) < 0.01F && p.z > 1.1F);
++  }
++  EXPECT_TRUE(have_post);
++  EXPECT_TRUE(have_ground);
+   parameters.traversability.obstacle_min_observation_range = 0.0F;
++  const auto all_kept = root / "all_kept";
+   ASSERT_TRUE(TraversabilityGridBuilder::build(root.string(), parameters, &grid, &stats,
+-                                               &traversability, &error))
++                                               &traversability, &error, "", all_kept.string()))
+       << error;
+   EXPECT_EQ(value_at(grid, -0.95F, 0.35F), 100) << "without the rule the trail is baked in";
++  std::ifstream cleanup_report(all_kept / "cloud_cleanup.yaml");
++  const std::string report((std::istreambuf_iterator<char>(cleanup_report)),
++                          std::istreambuf_iterator<char>());
++  EXPECT_NE(report.find("removed_candidate_points: 0\n"), std::string::npos);
+   std::filesystem::remove_all(root);
+ }
+ 

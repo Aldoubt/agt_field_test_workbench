@@ -1,0 +1,6 @@
+{
+  "static_map.pcd": true,
+  "removed_candidates.pcd": true,
+  "cloud_cleanup.yaml": true,
+  "native_grid_pgm_identical": true
+}

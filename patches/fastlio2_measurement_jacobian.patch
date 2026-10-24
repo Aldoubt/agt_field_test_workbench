@@ -1,0 +1,143 @@
+diff --git a/fastlio2/CMakeLists.txt b/fastlio2/CMakeLists.txt
+index 1c4e820..6ef86e7 100644
+--- a/fastlio2/CMakeLists.txt
++++ b/fastlio2/CMakeLists.txt
+@@ -67,6 +67,11 @@ install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+ 
+ 
+ if(BUILD_TESTING)
++  enable_testing()
++  add_executable(test_point_plane_jacobian test/test_point_plane_jacobian.cpp)
++  target_include_directories(test_point_plane_jacobian PRIVATE src/map_builder)
++  target_link_libraries(test_point_plane_jacobian Sophus::Sophus)
++  add_test(NAME point_plane_rotation_jacobian COMMAND test_point_plane_jacobian)
+   find_package(ament_lint_auto REQUIRED)
+   # the following line skips the linter which checks for copyrights
+   # comment the line when a copyright and license is added to all source files
+diff --git a/fastlio2/src/lio_node.cpp b/fastlio2/src/lio_node.cpp
+index 90fe825..950a696 100644
+--- a/fastlio2/src/lio_node.cpp
++++ b/fastlio2/src/lio_node.cpp
+@@ -48,6 +48,8 @@ public:
+     LIONode() : Node("lio_node")
+     {
+         RCLCPP_INFO(this->get_logger(), "LIO Node Started");
++        RCLCPP_INFO(this->get_logger(),
++            "Measurement model: imu-point-jacobian-v1 (R_il * p_l + t_il)");
+         loadParameters();
+ 
+         m_imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(m_node_config.imu_topic, 10, std::bind(&LIONode::imuCB, this, std::placeholders::_1));
+diff --git a/fastlio2/src/map_builder/lidar_processor.cpp b/fastlio2/src/map_builder/lidar_processor.cpp
+index 674d35b..f9f7c47 100644
+--- a/fastlio2/src/map_builder/lidar_processor.cpp
++++ b/fastlio2/src/map_builder/lidar_processor.cpp
+@@ -1,4 +1,5 @@
+ #include "lidar_processor.h"
++#include "point_plane_jacobian.h"
+ 
+ LidarProcessor::LidarProcessor(Config &config, std::shared_ptr<IESKF> kf) : m_config(config), m_kf(kf)
+ {
+@@ -242,7 +243,8 @@ void LidarProcessor::updateLossFunc(State &state, SharedState &share_data)
+         const PointType &norm_p = m_effect_norm_vec->points[i];
+         Eigen::Vector3d laser_p_vec(laser_p.x, laser_p.y, laser_p.z);
+         Eigen::Vector3d norm_vec(norm_p.x, norm_p.y, norm_p.z);
+-        Eigen::Matrix<double, 1, 3> B = -norm_vec.transpose() * state.r_wi * Sophus::SO3d::hat(state.r_il * laser_p_vec + state.t_wi);
++        Eigen::Matrix<double, 1, 3> B = fastlio2::pointPlaneRotationJacobian(
++            state.r_wi, state.r_il, state.t_il, laser_p_vec, norm_vec);
+         J.block<1, 3>(0, 0) = B;
+         J.block<1, 3>(0, 3) = norm_vec.transpose();
+         if (m_config.esti_il)
+@@ -265,4 +267,4 @@ CloudType::Ptr LidarProcessor::transformCloud(CloudType::Ptr inp, const M3D &r,
+     CloudType::Ptr ret(new CloudType);
+     pcl::transformPointCloud(*inp, *ret, transform);
+     return ret;
+-}
+\ No newline at end of file
++}
+diff --git a/fastlio2/src/map_builder/point_plane_jacobian.h b/fastlio2/src/map_builder/point_plane_jacobian.h
+new file mode 100644
+index 0000000..10a3e38
+--- /dev/null
++++ b/fastlio2/src/map_builder/point_plane_jacobian.h
+@@ -0,0 +1,19 @@
++#pragma once
++
++#include <Eigen/Core>
++#include <sophus/so3.hpp>
++
++namespace fastlio2 {
++
++// State applies a right SO(3) increment to R_wi.  The rotated lever arm is
++// the point in IMU coordinates; world translation is outside that rotation.
++inline Eigen::RowVector3d pointPlaneRotationJacobian(
++    const Eigen::Matrix3d &r_wi, const Eigen::Matrix3d &r_il,
++    const Eigen::Vector3d &t_il, const Eigen::Vector3d &point_lidar,
++    const Eigen::Vector3d &normal_world)
++{
++    return -normal_world.transpose() * r_wi *
++           Sophus::SO3d::hat(r_il * point_lidar + t_il);
++}
++
++}  // namespace fastlio2
+diff --git a/fastlio2/test/test_point_plane_jacobian.cpp b/fastlio2/test/test_point_plane_jacobian.cpp
+new file mode 100644
+index 0000000..37d8b9e
+--- /dev/null
++++ b/fastlio2/test/test_point_plane_jacobian.cpp
+@@ -0,0 +1,56 @@
++#include "point_plane_jacobian.h"
++
++#include <cmath>
++#include <iostream>
++#include <random>
++
++int main()
++{
++    std::mt19937 generator(20261024);
++    std::normal_distribution<double> gaussian;
++    auto vector = [&]() {
++        return Eigen::Vector3d(gaussian(generator), gaussian(generator),
++                               gaussian(generator));
++    };
++    double worst_error = 0.0;
++    double worst_old_error = 0.0;
++    constexpr double epsilon = 1e-6;
++    for (int sample = 0; sample < 500; ++sample) {
++        const Eigen::Matrix3d r_wi = Sophus::SO3d::exp(vector()).matrix();
++        const Eigen::Matrix3d r_il = Sophus::SO3d::exp(vector()).matrix();
++        const Eigen::Vector3d t_il = 0.05 * vector();
++        const Eigen::Vector3d t_wi = 100.0 * vector();
++        const Eigen::Vector3d point = 10.0 * vector();
++        const Eigen::Vector3d normal = vector().normalized();
++        // Differentiate the complete world point-to-plane residual using the
++        // right rotation increment used by State::operator+=.
++        auto residual = [&](const Eigen::Vector3d &delta) {
++            const Eigen::Vector3d world_point =
++                r_wi * Sophus::SO3d::exp(delta).matrix() *
++                (r_il * point + t_il) + t_wi;
++            return normal.dot(world_point) + 0.37;
++        };
++        Eigen::RowVector3d numerical;
++        for (int axis = 0; axis < 3; ++axis) {
++            Eigen::Vector3d delta = Eigen::Vector3d::Zero();
++            delta(axis) = epsilon;
++            numerical(axis) = (residual(delta) - residual(-delta)) /
++                              (2.0 * epsilon);
++        }
++        const auto analytic = fastlio2::pointPlaneRotationJacobian(
++            r_wi, r_il, t_il, point, normal);
++        worst_error = std::max(worst_error,
++                              (analytic - numerical).cwiseAbs().maxCoeff());
++        const Eigen::RowVector3d old = -normal.transpose() * r_wi *
++            Sophus::SO3d::hat(r_il * point + t_wi);
++        worst_old_error = std::max(worst_old_error,
++                                  (old - numerical).cwiseAbs().maxCoeff());
++    }
++    std::cout << "cases=500 max_abs_error=" << worst_error
++              << " old_max_abs_error=" << worst_old_error << '\n';
++    if (!std::isfinite(worst_error) || worst_error > 2e-6 ||
++        worst_old_error < 1.0) {
++        return 1;
++    }
++    return 0;
++}

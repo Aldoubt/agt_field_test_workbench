@@ -60,7 +60,7 @@ class Clouds:
         config.write_text(yaml.safe_dump(spec,sort_keys=False));output=self.directory/ident
         self.runner(['ros2','run','agt_field_test_bringup','pcd_ops',str(source),str(config),str(output)],timeout=3600)
         return ident,output,config
-    def import_pcd(self,path,calibration=None,bag=None,name=''):
+    def import_pcd(self,path,calibration=None,bag=None,name='',cleanup=None):
         source=Path(path).expanduser().resolve()
         if not source.is_file() or source.suffix.lower()!='.pcd': raise ValueError('existing PCD required')
         sha=hash_file(source)
@@ -69,7 +69,7 @@ class Clouds:
         if hash_file(source)!=sha or hash_file(out/'original.pcd')!=sha: raise ValueError('source changed during import')
         bag_sha={str(p.relative_to(Path(bag))):hash_file(p) for p in Path(bag).rglob('*') if p.is_file()} if bag and Path(bag).is_dir() else None
         return self._save(ident,out,dict(source=str(source),source_sha256=sha,calibration=calibration,source_bag=bag,source_bag_sha256=bag_sha,
-            name=str(name).strip()[:120],parent=None,operations=[]))
+            name=str(name).strip()[:120],parent=None,operations=[],temporal_cleanup=cleanup))
     def _save(self,ident,out,lineage):
         record=dict(id=ident,pcd=str(out/'cloud.pcd'),sha256=hash_file(out/'cloud.pcd'),status='DRAFT',
                     frame_id='map',processing=yaml.safe_load((out/'result.yaml').read_text()),**lineage)
@@ -208,6 +208,7 @@ class Clouds:
             source_bag=original.get('source_bag'),
             source_bag_sha256=original.get('source_bag_sha256'),
             calibration=original.get('calibration'),
+            pre_projection_cleanup=original.get('temporal_cleanup'),
             name=original.get('name','') if name is None else str(name).strip()[:120],
             source_yaml=str(out/'map.yaml'),source_pgm_sha256=hash_file(out/'map.pgm')))
         if build_assets:

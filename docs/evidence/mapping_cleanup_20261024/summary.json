@@ -1,0 +1,52 @@
+{
+  "status": "DRAFT",
+  "input_bag_id": "20261024T112750Z-c714f7dc",
+  "input_duration_sec": 491.364131588,
+  "raw_lidar_messages": 4914,
+  "raw_imu_messages": 98265,
+  "input_bag_sha256": {
+    "metadata.yaml": "244a4fe763759337d344aeeafec44aecd2a3ba8eb94557d934ddc98477a407fd",
+    "raw_bag_0.db3": "e639d7353d5fa4cb225a1fa015abf37fdcaced3f8a4454eadc22fa33832425fc"
+  },
+  "bag_unchanged": true,
+  "exported_scans": 4912,
+  "exact_pose_matches": 4912,
+  "input_map_sha256": "d0167fd191b76d4a603e784f182aa5a3435b089de413b3b3f331297206430a96",
+  "cleaned_map_sha256": "dc30ac23d8b2bcb857b8836d44c57f6250633cc66aff808d49f8c7523ffc85c6",
+  "removed_map_sha256": "a4f57cc121c5b08a9db5dc08b3c461c9d9047d30d940048c9a660244afe3a047",
+  "calibration_sha256": "da48ebe46b97dd0f9ff59df22694a0e351dc28db8f86b83df81b4935c1a44a99",
+  "projection_config_sha256": "66402a8d58c7e57fb8ce64233a9acdb4b716208095f65125053f05089da96afa",
+  "cleanup_metrics": {
+    "input_points": 10201128,
+    "self_filtered_points": 95363,
+    "retained_points": 9758165,
+    "removed_candidate_points": 347600,
+    "retained_near_or_single_observation_ground": 50621,
+    "near_field_only_points": 3728
+  },
+  "cleanup_elapsed_sec": 16.63129388500056,
+  "method": "agt_traversability_world_voxel_persistence_and_near_field_evidence",
+  "semantic_person_detection": false,
+  "physical_geometry": "NOT_VERIFIED",
+  "physical_navigation": "NOT_RUN",
+  "experiment_motion": false,
+  "active_map_changed": false,
+  "source_map_id": "20261024T121141Z-88b7e986",
+  "cloud_id": "20261024T124930Z-714128a2",
+  "map_id": "20261024T124938Z-f71341f4",
+  "native_tests_passed": 18,
+  "python_cleanup_tests_passed": 9,
+  "files_sha256": {
+    "cleanup_comparison.png": "b580bef7aae87f9c88700cb340a9ad777f63c7ef8ae04c0b6f0a83f07a6a180f",
+    "cleanup_detail.png": "9efa112c64aec20cf957a38efecf38f4240715ccfdc926bfe3be6418d58dddb4",
+    "grid_cleanup_comparison.png": "77133de005c54aad52c34aee5408abce0f9b0767a73855340485ecd92eea7b34",
+    "grid_cleanup_overview.png": "e6240264db753eee47574c827e91a29cb45705b497f9a87d81beee7005196d8a",
+    "visual_metrics.json": "9ab48b8aecd43d2473837c6433fb12cb3cd467dff73148d818b1f77d2eb392d9",
+    "grid_comparison_metrics.json": "e3f499a65b1517ca08b13085b44f78b18df3ace9efc13bb829c9c2c7bb2c205b",
+    "installed_equivalence.json": "bb2655ef3c0c240718592cf27beb4a8b4662ccaef44c392dde924e2a72292059",
+    "trajectory_quality.json": "10cd75325ad4ca036ae6fe25a8bf0b11406b94d21beb10a9599a29fb7aa7c83c",
+    "corrected_map_topview.png": "1d4127f5245a12a12d4974531e057762e07ae9ae8ebd9c1e0c4d73c9ea18db2c",
+    "trajectory_comparison.png": "f9619f9d534b55795174c99292f57531628dd322774f734ab13b1bb733403c94",
+    "corrected_grid_preview.png": "c7834f67484b6ce7e413dc1c9d7ecaa666cdd76023d6d0733a176af1447dd8ca"
+  }
+}

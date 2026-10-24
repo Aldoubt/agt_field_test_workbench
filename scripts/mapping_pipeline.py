@@ -156,7 +156,15 @@ def main():
     if calibration_meta['internal_config']:calibration_meta['internal_sha256']=sha256(Path(calibration_meta['internal_config']))
     if os.environ.get('FIELD_CALIBRATION_BUNDLE'):
         bundle_path=Path(os.environ['FIELD_CALIBRATION_BUNDLE']);calibration_meta.update(bundle=str(bundle_path),bundle_sha256=sha256(bundle_path))
-    cloud=clouds.import_pcd(package/'map.pcd',calibration=calibration_meta,bag=args.bag or str(output/'raw_bag'),name=args.map_name)
+    cleanup = None
+    selected_pcd = package/'map.pcd'
+    if args.backend == 'fastlio' and args.robot == 'bunker' and os.environ.get('FIELD_CALIBRATION_BUNDLE'):
+        save_stage('TEMPORAL_CLEANUP')
+        from workbench.map_cleanup import clean_mapping
+        cleanup = clean_mapping(output, ROOT, os.environ['FIELD_CALIBRATION_BUNDLE'])
+        selected_pcd = Path(cleanup['cleaned_pcd'])
+    cloud=clouds.import_pcd(selected_pcd,calibration=calibration_meta,bag=args.bag or str(output/'raw_bag'),name=args.map_name,
+                            cleanup=cleanup)
     save_stage('GRID_EXPORT', cloud_id=cloud['id'])
     version=clouds.grid(cloud['id'], {},build_assets=False)
     save_stage('BBS_ASSETS', cloud_id=cloud['id'], map_id=version['id'])
@@ -168,6 +176,7 @@ def main():
                'source_bag': args.bag or str(output / 'raw_bag'), 'map_version': version['id'],
                'raw_bag_integrity': raw_integrity, 'mount_profile': mount_metadata,
                'relocalization_assets': assets, 'status': 'DRAFT',
+               'temporal_cleanup': cleanup or {'state':'NOT_RUN', 'reason':'requires indexed FAST-LIO export and selected Bunker bundle'},
                'save_state': result_stage})
     print('Map Studio version:', version['id'], flush=True)
     return 0

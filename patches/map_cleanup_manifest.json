@@ -1,0 +1,32 @@
+{
+  "agt-lio-pgo-mapping": {
+    "commit": "62e80002cf2db12fce8332688dc63f4a94b87f12",
+    "patch": "patches/map_cleanup.patch",
+    "files": {
+      "bringup/agt_mapping_bringup/agt_mapping_bringup/live_launch.py": {
+        "before": "df2266d2f5c1b4545eb691b6a8922b944144e460536718f32c283363807f6f2d",
+        "after": "64240ebe9b23971f30dabb386688aa7a5a33b92b5d0dc945c6451cbd2d54492b"
+      },
+      "bringup/agt_mapping_bringup/agt_mapping_bringup/session_launch.py": {
+        "before": "886b2f55de8dfab64096a80171c86ac1ee1fd39abf7b10a336b344b0ce6f69c4",
+        "after": "fd7a0625da99d1ee4f30dbc1db5dab98dc1afe7d24bab01756167463aa09e74c"
+      },
+      "exporters/agt_pcd2grid_exporter/include/agt_pcd2grid_exporter/TraversabilityGridBuilder.hpp": {
+        "before": "7c2d9f2d5e0d07af4b67234fdc9443eb2e75e9eb4465165047a1925248986af1",
+        "after": "c542bb99f97ff23c2fc2fb7a9a4ceb48c0729ee3197f1da7b9b294aa123e600b"
+      },
+      "exporters/agt_pcd2grid_exporter/src/TraversabilityGridBuilder.cpp": {
+        "before": "bb4385476f25608cca0f9e2c53a514610b17a0d5a98efac80776124dedc615f7",
+        "after": "7e03314aafdc8d7e5030e5ea72eb344d9298e5bcebeb3bacdcecaf49a8019bfd"
+      },
+      "exporters/agt_pcd2grid_exporter/src/main.cpp": {
+        "before": "89d4f1b99b3a98f66ca18166bfc75efc75c2e936915622cda2429cd6fc2e29a0",
+        "after": "c830cf296bd1065126ac6a484e92309826d77710ea0d7ba026f00693bd55aa05"
+      },
+      "exporters/agt_pcd2grid_exporter/test/test_traversability.cpp": {
+        "before": "a2c91e6720154af2632fa42f0d5dd42296b6b8fe705ca0d10b8d2955754e5ed4",
+        "after": "1aa1560c2f309540c65b6ef50d188b49d570e7778134650bab23d466bdd3adb5"
+      }
+    }
+  }
+}

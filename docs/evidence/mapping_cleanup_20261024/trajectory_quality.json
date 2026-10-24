@@ -1,0 +1,19 @@
+{
+  "state": "PASS",
+  "reasons": [],
+  "pose_count": 4912,
+  "path_length_m": 318.53631391608934,
+  "max_step_m": 0.11177369465269867,
+  "max_speed_mps": 1.1169231483041546,
+  "xyz_span_m": [
+    83.01794444011053,
+    45.724948684667055,
+    0.4611089652788667
+  ],
+  "limits": {
+    "max_step_m": 10.0,
+    "max_speed_mps": 10.0,
+    "max_position_m": 10000.0
+  },
+  "scope": "Numerical plausibility only; accuracy and navigation acceptance require independent evidence"
+}
