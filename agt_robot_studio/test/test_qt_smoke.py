@@ -32,7 +32,7 @@ class StudioSmoke(unittest.TestCase):
         self.assertEqual(window.sensors_btn.text(), '连接传感器')
         self.assertEqual(window.chassis_btn.text(), '连接底盘')
         self.assertEqual(window.record_btn.text(), '开始录制')
-        self.assertEqual(window.stop_ros_btn.text(), '关闭所有 ROS 节点')
+        self.assertEqual(window.stop_ros_btn.text(), '停止全部 ROS')
 
     def test_global_status_bar_follows_sessions_and_topic_rates_on_every_page(self):
         window=self.window()
@@ -151,8 +151,9 @@ class StudioSmoke(unittest.TestCase):
         window.clouds_by_id={'cloud-1':{'id':'cloud-1','name':'一号温室'}}
         window.projection_edits['resolution'].setValue(.1)
         window.generate_grid()
-        self.assertEqual(calls[0][3]['name'],'一号温室')
-        self.assertEqual(calls[0][3]['projection']['resolution'],.1)
+        project=next(call for call in calls if call[0]=='cloud_project')
+        self.assertEqual(project[3]['name'],'一号温室')
+        self.assertEqual(project[3]['projection']['resolution'],.1)
         window.api=None
 
     def test_keepout_polygon_is_baked_undoable_and_sent_with_new_map_version(self):
