@@ -62,7 +62,7 @@ def test_local_ground_reuses_pinned_exporter_and_preserves_unknown(fixture_root)
     assert result['projection_mode'] == 'local_ground'
     assert result['source_pcd_sha256'] == hash_file(root / 'raw.pcd')
     assert result['projection_stats']['unknown_cells'] == 2
-    assert read_pgm(result['pgm'])[2] == bytes([205, 0, 254, 205])
+    assert read_pgm(Path(result['pgm']))[2] == bytes([205, 0, 254, 205])
 
 
 def test_legacy_absolute_heights_are_not_misread_as_relative_heights(fixture_root):
