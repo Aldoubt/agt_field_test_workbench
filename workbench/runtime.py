@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -83,6 +84,20 @@ def topics():
         if sep and type_part.endswith(']'):
             found[name] = type_part[:-1]
     return found
+
+
+def validate_recording_topics(items):
+    """Optional exact topic list; an omitted/empty list retains template behavior."""
+    if items is None or items == []:return None
+    if not isinstance(items,list) or len(items)>128:raise ValueError('custom topics must be a list of at most 128 names')
+    result=[]
+    for item in items:
+        if not isinstance(item,str):raise ValueError('custom topic names must be strings')
+        topic=item.strip()
+        if len(topic)>255 or not re.fullmatch(r'/[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*',topic):
+            raise ValueError('invalid absolute ROS topic: '+topic[:80])
+        if topic not in result:result.append(topic)
+    return result or None
 
 
 def status():
@@ -322,9 +337,10 @@ class Jobs:
                           'ros_domain_id': int(env.get('FIELD_MAPPING_DOMAIN','89')), 'sensor_only': live and not bool(live_session), 'reuse_runtime':bool(live and live_session), 'backend':backend,
                           'raw_bag': str(output / 'raw_bag') if live else None}, env)
 
-    def start_recorder(self, template, robot, calibration=None, map_version=None, label='', mount_profile=None):
+    def start_recorder(self, template, robot, calibration=None, map_version=None, label='', mount_profile=None, requested_topics=None):
         if template not in TEMPLATES or robot not in ('bunker', 'fwmini'):
             raise ValueError('unknown template or robot')
+        custom_topics=validate_recording_topics(requested_topics)
         if not ros_ready():
             raise ValueError('ROS Humble unified overlay not built')
         mount_metadata = None
@@ -341,10 +357,12 @@ class Jobs:
         if free < 2 * 1024**3:
             raise ValueError(f'only {free // 1024**3} GiB free; require at least 2 GiB')
         actual = topics()
-        desired = [t for t in TEMPLATES[template] if robot == 'fwmini' or t not in ('/ctrl_cmd', '/chassis_info_fb')]
+        desired = custom_topics if custom_topics is not None else [
+            t for t in TEMPLATES[template] if robot == 'fwmini' or t not in ('/ctrl_cmd', '/chassis_info_fb')]
         selected = [t for t in desired if t in actual]
         if not selected:
-            raise ValueError('none of the template topics currently exists')
+            raise ValueError('none of the requested topics currently exists' if custom_topics is not None
+                             else 'none of the template topics currently exists')
         run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]
         output = self.root / 'bags' / run_id
         command = ['bash', str(ROS_EXEC), 'ros2', 'bag', 'record', '-o', str(output),
@@ -358,6 +376,7 @@ class Jobs:
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 qos[topic] = 'UNAVAILABLE'
         return self._new('recorder', command, {'template': template, 'robot': robot,
+                         'topic_source': 'custom' if custom_topics is not None else 'template',
                          'output': str(output), 'topics': {t: actual[t] for t in selected},
                          'offered_qos': qos,
                          'missing_topics': [t for t in desired if t not in actual],
