@@ -2,23 +2,56 @@ robot: bunker
 points_topic: /glim_rosnode/map
 live_points_topic: /glim_rosnode/aligned_points
 map_topic: /map
-odom_topic: /odom
+odom_topic: /agt/odometry/local
 raw_lidar_topic: /livox/lidar
 imu_topic: /livox/imu
-# The default is NOT /cmd_vel; route this through an independently verified velocity guard.
-drive_action: /drive_on_heading
-spin_action: /spin
-# Hard lock until independent Motion Guard and final velocity-chain watchdog are proven.
-live_motion_enabled: false
-drive_speed_mps: 0.08
-# Until rear obstacle coverage, reverse clearance and braking are measured.
-allow_reverse: false
 safety_permitted_topic: /agt/safety/motion_permitted
-max_linear_mps: 0.10
-max_angular_rps: 0.25
-max_acceleration_mps2: 0.15
-guard_max_age_s: 1.5
-motion_timeout_s: 20.0
+
+# Existing Field Test Workbench. The GUI starts a localhost service when needed.
+workbench_api: http://127.0.0.1:8765
+workbench_root: ''
+auto_start_workbench: true
+
+# Reuse already completed calibration and field evidence; no per-run recalibration.
+calibration_bundle: ''
+mount_profile: ''
+geometry_file: ''
+livox_config: ''
+safety_report: ''
+# Reuse operator setup already confirmed for this deployment. Nothing is auto-confirmed.
+# Required by the existing backend for manual/navigation: wiring, physical_estop,
+# remote_takeover, clear_area, supervised.
+session_checks: {}
+
 bag_root: ~/agt_studio_runs
-# Absolute path to a valid GLIM config directory. The app will not invent extrinsics.
+record_template: full_field_test
+# Empty list uses the template above. Otherwise recording uses this exact custom
+# list; the independent recorder still records only topics currently present.
+record_topics: []
+# Partial projection parameters are allowed in the API; XY origin/range still
+# come from the source PCD bounds when not explicitly supplied.
+projection:
+  resolution: 0.05
+  z_min: 0.15
+  z_max: 2.0
+  ground_min: -0.3
+  min_points: 2
+# Coarse global relocalization backend; both use small_gicp refinement.
+# KISS additionally requires its locked native build and replay/field acceptance.
+global_backend: bbs
+# Mutually exclusive local odometry frontend; both publish base_link odometry.
+lio_backend: batch_lio  # batch_lio or fastlio2
+save_mapping_data: true
+# Autolabor C1 capability used by V3 stop-and-shoot missions.
+enable_camera_gimbal: true
+camera_device_path: /dev/video0
+gimbal_port_name: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+# Absolute path to a valid GLIM config directory. The app never invents extrinsics.
 glim_config_path: ''
+glim_package: glim_ros
+glim_node: glim_rosnode
+glim_editor: map_editor
+map_frame: map
+
+# GUI-saved overrides are stored outside the install tree in
+# ~/.config/agt_robot_studio/studio.yaml and loaded after this deployment file.

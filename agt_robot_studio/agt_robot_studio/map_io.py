@@ -9,7 +9,8 @@ def occupancy_to_gray(values, width, height):
     gray[(cells >= 0) & (cells <= 19)] = 254
     gray[cells >= 65] = 0
     # OccupancyGrid begins at bottom-left; PGM first row is top-left.
-    return np.flipud(gray)
+    # QImage requires a contiguous buffer rather than NumPy's negative-stride view.
+    return np.ascontiguousarray(np.flipud(gray))
 
 
 def grayscale_to_occupancy(gray):

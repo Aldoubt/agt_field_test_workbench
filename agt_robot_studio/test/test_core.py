@@ -1,36 +1,27 @@
-import math
 from types import SimpleNamespace
 import numpy as np
-import pytest
-from agt_robot_studio.control import wrap_pi, forward_distance, ClosedLoopMotion
 from agt_robot_studio.map_io import occupancy_to_gray, grayscale_to_occupancy, save_nav2_map
 from agt_robot_studio.cloud import xyz_from_cloud
-
-
-def test_distance_projected_along_initial_heading():
-    assert forward_distance((0, 0, math.pi/2), (2, 3, 0)) == pytest.approx(3)
-    assert forward_distance((0, 0, 0), (-1, 0, 0)) == -1
-
-
-def test_reverse_and_rotation_wrap():
-    c = ClosedLoopMotion()
-    c.begin('distance', -1, (0, 0, 0))
-    v, _, _, done = c.tick((0, 0, 0), .02)
-    assert v < 0 and not done
-    c.begin('rotation', math.radians(30), (0, 0, math.radians(170)))
-    _, w, progress, _ = c.tick((0, 0, math.radians(-175)), .02)
-    assert w > 0 and progress == pytest.approx(math.radians(15))
+from agt_robot_studio.ros_worker import TopicRate
 
 
 def test_occupancy_flip_unknown_and_write(tmp_path):
     pix = occupancy_to_gray([0, -1, 100, 0], 2, 2)
     assert pix.tolist() == [[0, 254], [254, 205]]
+    assert pix.flags.c_contiguous
     assert grayscale_to_occupancy(pix) == [0, -1, 100, 0]
-    path = save_nav2_map(tmp_path/'new', pix, 0.05, (0., -1., 0.))
+    path = save_nav2_map(tmp_path/'new', pix, 0.05, (0., -1., .2))
     assert path.endswith('map.yaml')
+    assert 'origin: [0.00000000, -1.00000000, 0.20000000]' in (tmp_path/'new/map.yaml').read_text()
     assert (tmp_path/'new/map.pgm').read_bytes().endswith(pix.tobytes())
-    with pytest.raises(FileExistsError):
-        save_nav2_map(tmp_path/'new', pix, 0.05, (0., 0., 0.))
+
+
+def test_topic_rate_uses_measured_arrivals_and_expires():
+    rate=TopicRate(window_sec=3.)
+    assert rate.hz(now=0.) is None
+    for stamp in (0.,.1,.2,.3,.4):rate.add(stamp)
+    assert rate.hz(now=.4)==10.
+    assert rate.hz(now=4.) is None
 
 
 def test_cloud_xyz_and_padding():

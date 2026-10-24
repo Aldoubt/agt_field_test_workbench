@@ -1,32 +1,31 @@
-"""Static regression checks; run without ROS, Qt, vehicle or internet."""
+"""Architecture checks: Qt is an operator UI, never a second motion backend."""
 import ast
 from pathlib import Path
-
 
 PKG = Path(__file__).resolve().parents[1]
 
 
-def test_gui_never_publishes_twist_or_runs_closed_loop_servo():
+def test_ros_adapter_is_read_only_and_has_no_motion_action_client():
     code = (PKG/'agt_robot_studio'/'ros_worker.py').read_text()
     tree = ast.parse(code)
-    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
-    names = [n.func.attr for n in calls if isinstance(n.func, ast.Attribute)]
+    names = [n.func.attr for n in ast.walk(tree) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute)]
     assert 'create_publisher' not in names
-    assert 'publish' not in names
+    assert 'ActionClient' not in code
+    assert 'DriveOnHeading' not in code
     assert 'ClosedLoopMotion' not in code
-    assert 'DriveOnHeading' in code and 'Spin' in code
 
 
-def test_odom_is_display_only_not_a_hard_kill_gate():
-    code = (PKG/'agt_robot_studio'/'ros_worker.py').read_text()
-    assert 'odom_max_age_s' not in code
-    assert 'obstacle_clear_topic' not in code
-    assert 'spin_once(node, timeout_sec=.04)' in code
-    assert '_decode_queue' in code and '_decode_loop' in code
+def test_ui_reuses_workbench_for_all_motion_and_relocalization():
+    code = (PKG/'agt_robot_studio'/'ui.py').read_text()
+    assert "'/api/control/goal'" in code
+    assert "'/api/control/distance'" in code
+    assert "'/api/control/relocalize'" in code
+    assert "'/api/control/stop'" in code
+    assert 'create_publisher' not in code
 
 
-def test_motion_defaults_fail_closed_and_reverse_blocked():
-    text = (PKG/'config'/'studio.yaml').read_text()
-    assert 'live_motion_enabled: false' in text
-    assert 'allow_reverse: false' in text
-    assert 'guard_max_age_s: 1.5' in text
+def test_map_requires_yaml_and_keeps_unknown():
+    ui = (PKG/'agt_robot_studio'/'ui.py').read_text()
+    assert '没有配套 YAML 时拒绝猜测分辨率和原点' in ui
+    assert "'未知（灰）',205" in ui
