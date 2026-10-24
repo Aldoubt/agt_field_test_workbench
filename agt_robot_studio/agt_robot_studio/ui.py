@@ -1324,7 +1324,7 @@ class Studio(QMainWindow):
                 lio_backend=self.lio_backend_box.currentData(),
                 mapping_backend=self.mapping_backend_box.currentData(),
                 save_mapping_data=self.save_mapping_box.isChecked(),
-                enable_camera_gimbal=self.camera_enabled_box.isChecked(),
+                enable_camera_gimbal=False,
                 map_name=self.map_name_edit.text().strip()[:120])
             import yaml
             USER_CONFIG.parent.mkdir(parents=True,exist_ok=True)

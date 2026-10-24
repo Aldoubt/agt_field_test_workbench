@@ -308,8 +308,7 @@ class StudioSmoke(unittest.TestCase):
             def call(self, *args): calls.append(args)
         window.demo = False
         window.api = FakeApi()
-        window.cfg['session_checks'] = {'wiring':True, 'physical_estop':True,
-            'remote_takeover':True, 'clear_area':True, 'supervised':True}
+        for checkbox in window.motion_checks.values():checkbox.setChecked(True)
         window.connect_sensors()
         window.connect_chassis()
         window.record_topics_edit.setPlainText('/livox/lidar\n/camera/image_raw')
