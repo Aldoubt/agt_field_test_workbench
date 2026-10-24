@@ -35,11 +35,18 @@ public:
       declare_parameter<double>("z_min",-0.10),declare_parameter<double>("z_max",0.45));
     max_fraction_=declare_parameter<double>("max_removed_fraction",0.30);
     max_end_trim_ns_=declare_parameter<int>("max_end_time_trim_ns",1000000);
+    lio_filter_num_=declare_parameter<int>("lio_filter_num",6);
+    lio_min_range_=declare_parameter<double>("lio_min_range_m",0.5);
+    lio_max_range_=declare_parameter<double>("lio_max_range_m",30.0);
+    min_lio_samples_=declare_parameter<int>("min_lio_sampled_points",100);
     min_remaining_=declare_parameter<int>("min_remaining_points",1000);
     tf_timeout_=declare_parameter<double>("tf_timeout_sec",0.03);
     if(!box_->valid() || !std::isfinite(near) || near<0 || !std::isfinite(far) || far<=near
       || !std::isfinite(max_fraction_) || max_fraction_<=0 || max_fraction_>=1
       || min_remaining_<1 || max_end_trim_ns_<0
+      || lio_filter_num_<1 || min_lio_samples_<1
+      || !std::isfinite(lio_min_range_) || lio_min_range_<0
+      || !std::isfinite(lio_max_range_) || lio_max_range_<=lio_min_range_
       || !std::isfinite(tf_timeout_) || tf_timeout_<0) {
       throw std::runtime_error("invalid self-filter limits");
     }
@@ -111,17 +118,32 @@ private:
       }
     }
     const std::size_t n=msg->points.size(), kept=n-masked;
-    auto valid_lio=[](const auto &p) {
+    const auto valid_lio=[this](const auto &p) {
       const auto kind=p.tag & 0x30U;
-      return p.line<4 && (kind==0x00U || kind==0x10U);
+      const double x=p.x,y=p.y,z=p.z;
+      const double distance2=x*x+y*y+z*z;
+      return p.line<4 && (kind==0x00U || kind==0x10U) &&
+        std::isfinite(distance2) &&
+        distance2>=lio_min_range_*lio_min_range_ &&
+        distance2<=lio_max_range_*lio_max_range_;
     };
-    // FAST-LIO2 computes scan-end from surviving valid offset_time; guard it.
+    // Mirror pinned FAST-LIO2 livox2PCL's fixed input-index stride.
     std::uint32_t old_end=0,new_end=0;
-    for(const auto &p:msg->points) if(valid_lio(p)) old_end=std::max(old_end,p.offset_time);
-    for(const auto &p:output.points) if(valid_lio(p)) new_end=std::max(new_end,p.offset_time);
+    int usable_lio_samples=0;
+    for(std::size_t i=0;i<n;i+=static_cast<std::size_t>(lio_filter_num_)) {
+      if(valid_lio(msg->points[i]))
+        old_end=std::max(old_end,msg->points[i].offset_time);
+      if(valid_lio(output.points[i])) {
+        new_end=std::max(new_end,output.points[i].offset_time);
+        ++usable_lio_samples;
+      }
+    }
     if(old_end>new_end &&
        old_end-new_end>static_cast<std::uint32_t>(max_end_trim_ns_)) {
       publisher_->publish(*msg);report("BYPASS_TIME_BOUND",n,n);return;
+    }
+    if(usable_lio_samples<min_lio_samples_) {
+      publisher_->publish(*msg);report("BYPASS_LIO_SAMPLES",n,n);return;
     }
     if(n==0 || kept<static_cast<std::size_t>(min_remaining_)
        || double(masked)/double(n)>max_fraction_) {
@@ -137,7 +159,9 @@ private:
   std::unique_ptr<agt_pointcloud_core::BoxFilter> box_;
   std::unique_ptr<agt_pointcloud_core::RangeFilter> range_;
   double max_fraction_{0.30},tf_timeout_{0.03};
+  double lio_min_range_{0.5},lio_max_range_{30.0};
   int min_remaining_{1000},max_end_trim_ns_{1000000};
+  int lio_filter_num_{6},min_lio_samples_{100};
   std::size_t scans_{0},active_{0},tf_fail_{0},guard_bypass_{0},removed_{0};
   rclcpp::Publisher<livox_ros_driver2::msg::CustomMsg>::SharedPtr publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
