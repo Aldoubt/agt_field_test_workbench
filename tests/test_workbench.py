@@ -1,4 +1,7 @@
 import base64
+import hashlib
+import json
+import os
 from pathlib import Path
 import struct
 import tempfile
@@ -11,7 +14,7 @@ from workbench.maps import Maps, read_pgm, hash_file
 from workbench.routes import Routes
 from workbench.cloud import sample_pcd
 from workbench.artifacts import Clouds
-from workbench.runtime import Jobs, check_bag, validate_recording_topics
+from workbench.runtime import Jobs, TEMPLATES, check_bag, validate_recording_topics
 
 
 class WorkbenchTests(unittest.TestCase):
@@ -119,9 +122,96 @@ class WorkbenchTests(unittest.TestCase):
             self.assertEqual(check_bag(path)['state'], 'INCOMPLETE')
             (path / 'metadata.yaml').write_text(yaml.safe_dump({'rosbag2_bagfile_information': {
                 'relative_file_paths': ['missing.db3'],
-                'topics_with_message_count': [{'topic_metadata': {'name': '/livox/imu'}, 'message_count': 10}]
+                'topics_with_message_count': [{'topic_metadata': {'name': '/livox/imu',
+                    'type': 'sensor_msgs/msg/Imu'}, 'message_count': 10}]
             }}))
             self.assertEqual(check_bag(path)['state'], 'INCOMPLETE')
+
+    @staticmethod
+    def _write_bag(path, storage_entry='bag.db3', messages=10):
+        path.mkdir(parents=True, exist_ok=True)
+        (path / 'bag.db3').write_bytes(b'synthetic non-empty storage')
+        (path / 'metadata.yaml').write_text(yaml.safe_dump({'rosbag2_bagfile_information': {
+            'relative_file_paths': [storage_entry],
+            'topics_with_message_count': [{'topic_metadata': {'name': '/livox/lidar',
+                'type': 'livox_ros_driver2/msg/CustomMsg'}, 'message_count': messages}]
+        }}))
+
+    def test_humble_string_and_mapping_storage_entries_pass_with_hashes(self):
+        # Synthetic format fixtures only; these are not represented as the real B+C bag.
+        for entry in ('bag.db3', {'path': 'bag.db3'}):
+            with self.subTest(entry=entry), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp)
+                self._write_bag(path, entry)
+                result = check_bag(path, {'/livox/lidar': 'livox_ros_driver2/msg/CustomMsg'})
+                self.assertEqual(result['state'], 'PASS', result)
+                self.assertEqual(result['messages'], 10)
+                self.assertEqual(result['files'][0]['path'], 'bag.db3')
+                self.assertEqual(result['files'][0]['sha256'],
+                                 hashlib.sha256((path / 'bag.db3').read_bytes()).hexdigest())
+                self.assertEqual(result['metadata_sha256'],
+                                 hashlib.sha256((path / 'metadata.yaml').read_bytes()).hexdigest())
+
+    def test_bag_rejects_empty_escape_absolute_zero_and_type_mismatch(self):
+        cases = ('empty', 'escape', 'absolute', 'invalid', 'zero', 'type')
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp);path = root / 'bag'
+                entry = {'escape': '../outside.db3', 'absolute': '/tmp/outside.db3',
+                         'invalid': 3}.get(case, 'bag.db3')
+                self._write_bag(path, entry, messages=0 if case == 'zero' else 10)
+                if case == 'empty':(path / 'bag.db3').write_bytes(b'')
+                expected = {'/livox/lidar': 'sensor_msgs/msg/PointCloud2'} if case == 'type' else None
+                result = check_bag(path, expected)
+                self.assertEqual(result['state'], 'INCOMPLETE', result)
+                self.assertIn('metadata_sha256', result)
+
+    @unittest.skipUnless(os.environ.get('AGT_BC_BAG_METADATA'),
+                         'real B+C metadata is not present; set AGT_BC_BAG_METADATA to its metadata.yaml')
+    def test_existing_real_b_plus_c_bag_metadata(self):
+        metadata = Path(os.environ['AGT_BC_BAG_METADATA']).expanduser().resolve()
+        self.assertEqual(metadata.name, 'metadata.yaml')
+        result = check_bag(metadata.parent)
+        self.assertEqual(result['state'], 'PASS', result)
+        self.assertTrue(result['files'])
+
+    def test_full_field_template_requires_custommsg_and_records_missing_evidence(self):
+        from unittest.mock import patch
+        required = {'/bunker_status', '/agt/hmi/cmd_vel', '/wheel/odom', '/tf',
+                    '/agt/odometry/local', '/agt/localization/status'}
+        self.assertTrue(required.issubset(TEMPLATES['full_field_test']))
+        with tempfile.TemporaryDirectory() as temp:
+            jobs = Jobs(temp);captured = {}
+            actual = {'/livox/lidar': 'livox_ros_driver2/msg/CustomMsg',
+                      '/livox/imu': 'sensor_msgs/msg/Imu'}
+            with patch('workbench.runtime.ros_ready', return_value=True), \
+                 patch('workbench.runtime.topics', return_value=actual), \
+                 patch('workbench.runtime.ros_call', return_value='qos'), \
+                 patch('workbench.runtime.source_versions', return_value={}), \
+                 patch.object(jobs, '_new', side_effect=lambda kind, command, meta: captured.update(meta) or meta):
+                jobs.start_recorder('full_field_test', 'bunker')
+            self.assertIn('/bunker_status', captured['missing_topics'])
+            self.assertEqual(captured['required_topic_types']['/livox/lidar'],
+                             'livox_ros_driver2/msg/CustomMsg')
+            self.assertEqual(captured['configuration_snapshot']['missing_topics'], captured['missing_topics'])
+            self.assertEqual(captured['configuration_snapshot']['topic_types'], actual)
+            actual['/livox/lidar'] = 'sensor_msgs/msg/PointCloud2'
+            with patch('workbench.runtime.ros_ready', return_value=True), \
+                 patch('workbench.runtime.topics', return_value=actual), \
+                 patch('workbench.runtime.source_versions', return_value={}):
+                with self.assertRaisesRegex(ValueError, 'required topic type mismatch'):
+                    jobs.start_recorder('full_field_test', 'bunker')
+
+    def test_recorder_configuration_snapshot_is_saved_and_hashed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            jobs = Jobs(temp)
+            record = jobs._new('recorder', ['sleep', '30'], {
+                'output': str(Path(temp) / 'bags/test'),
+                'configuration_snapshot': {'template': 'full_field_test', 'missing_topics': ['/bunker_status']}})
+            config = Path(record['configuration_path'])
+            self.assertEqual(json.loads(config.read_text())['missing_topics'], ['/bunker_status'])
+            self.assertEqual(record['configuration_sha256'], hashlib.sha256(config.read_bytes()).hexdigest())
+            jobs.stop(record['id'])
 
     def test_cancel_only_owned_process_group(self):
         with tempfile.TemporaryDirectory() as temp:

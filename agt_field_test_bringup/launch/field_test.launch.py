@@ -17,6 +17,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from agt_field_test_bringup import profiles, calibration
 from agt_field_test_bringup.fwmini import load_profile, require_mode, robot_description, lio_configs
+from agt_field_test_bringup.livox import validate_mid360s_config
 
 
 def _include(package, filename, args=None):
@@ -31,6 +32,18 @@ def _sha256(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _mid360s_nodes(config_path):
+    identity = validate_mid360s_config(config_path)
+    # This is configuration identity only. No serial number or online state is
+    # claimed before the driver has communicated with the physical sensor.
+    announcement = LogInfo(msg='Livox startup identity: ' + json.dumps(identity, sort_keys=True))
+    driver = Node(package='livox_ros_driver2', executable='livox_ros_driver2_node', parameters=[{
+        'user_config_path': identity['config_path'], 'xfer_format': 1, 'multi_topic': 0,
+        'data_src': 0, 'publish_freq': 10., 'output_data_type': 0,
+        'frame_id': 'livox_frame', 'lvx_file_path': ''}])
+    return [announcement, driver]
 
 
 def _configure(context):
@@ -72,9 +85,7 @@ def _configure(context):
         nodes = ([Node(package='robot_state_publisher',executable='robot_state_publisher',parameters=[{'robot_description':calibration.description(bundle,value('lio_backend'))}])]
                  if bundle else [_include('tracked_chassis_description','display.launch.py',{'start_rviz':'false'})])
         if value('enable_mid360').lower() == 'true':
-            if value('livox_config'):
-                nodes.append(Node(package='livox_ros_driver2',executable='livox_ros_driver2_node',parameters=[{'user_config_path':value('livox_config'),'xfer_format':1,'multi_topic':0,'data_src':0,'publish_freq':10.,'output_data_type':0,'frame_id':'livox_frame','lvx_file_path':'','cmdline_input_bd_code':'livox0000000001'}]))
-            else:nodes.append(_include('livox_ros_driver2','msg_MID360_launch.py'))
+            nodes.extend(_mid360s_nodes(value('livox_config')))
         if chassis:
             nodes.append(Node(package='agt_bunker_base', executable='agt_bunker_base_node', parameters=[
                 str(Path(get_package_share_directory('agt_bunker_base'))/'config/bunker.yaml'),
@@ -102,9 +113,7 @@ def _configure(context):
                           'robot_description': robot_description(profile, value('fwmini_internal_config') or None),
                           'use_sim_time': value('use_sim_time').lower() == 'true'}])]
         if value('enable_mid360').lower() == 'true':
-            if value('livox_config'):
-                nodes.append(Node(package='livox_ros_driver2',executable='livox_ros_driver2_node',parameters=[{'user_config_path':value('livox_config'),'xfer_format':1,'multi_topic':0,'data_src':0,'publish_freq':10.,'output_data_type':0,'frame_id':'livox_frame','lvx_file_path':'','cmdline_input_bd_code':'livox0000000001'}]))
-            else:nodes.append(_include('livox_ros_driver2','msg_MID360_launch.py'))
+            nodes.extend(_mid360s_nodes(value('livox_config')))
         if chassis:
             # Adapter starts disabled and needs explicit /fwmini/enable_motion.
             if not navigation:
@@ -238,7 +247,8 @@ def generate_launch_description():
         DeclareLaunchArgument('robot_profile_file', default_value=''),
         DeclareLaunchArgument('calibration_bundle', default_value=''),
         DeclareLaunchArgument('safety_report', default_value=''),
-        DeclareLaunchArgument('livox_config', default_value=''),
+        DeclareLaunchArgument('livox_config', default_value=str(
+            Path(get_package_share_directory('agt_field_test_bringup')) / 'config/MID360s_config.json')),
         DeclareLaunchArgument('enable_chassis', default_value='false'),
         DeclareLaunchArgument('enable_mid360', default_value='true'),
         DeclareLaunchArgument('enable_localization', default_value='false'),
