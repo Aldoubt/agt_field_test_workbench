@@ -103,7 +103,9 @@ class Sessions:
         assets=relocalization_assets(map_record) if map_record else ''
         if assets:args+=['relocalization_assets:='+assets]
         if task=='navigation':
-            args+=['enable_inspection:=true','enable_camera_gimbal:='+str(bool(p.get('enable_camera_gimbal',True))).lower()]
+            # Camera has its own supervised job, not a child of Nav2 launch.
+            # If it drops, the navigation session must remain alive.
+            args+=['enable_inspection:=true','enable_camera_gimbal:=false']
             for key in ('camera_device_path','gimbal_port_name'):
                 if p.get(key):args+=[key+':='+str(p[key])]
         snapshot=dict(id=ident,robot=robot,task=task,profile=limits,profile_snapshot=str(profile),calibration=str(copied),
@@ -113,7 +115,7 @@ class Sessions:
             localization_pcd=map_record.get('source_pcd') if map_record else None,
             localization_pcd_sha256=map_record.get('source_pcd_sha256') if map_record else None,
             global_backend=backend,lio_backend=lio_backend,relocalization_assets=assets,livox=livox_identity,
-            enable_camera_gimbal=bool(p.get('enable_camera_gimbal',True)) if task=='navigation' else False,
+            enable_camera_gimbal=False, camera_launch_owner='camera_gimbal_job',
             safety_report=acceptance)
         write_json(directory/'session.json',snapshot)
         job_meta=dict(snapshot);job_meta['session_id']=job_meta.pop('id')

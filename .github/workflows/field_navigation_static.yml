@@ -19,7 +19,7 @@ jobs:
         run: |
           python -m compileall -q workbench agt_field_test_bringup/agt_field_test_bringup scripts/ros_bridge.py scripts/mapping_pipeline.py scripts/no_pgo_mapping.py agt_robot_studio/agt_robot_studio
       - name: Run ROS-independent regressions
-        run: PYTHONPATH=.:agt_field_test_bringup python -m pytest -q tests/test_goal_safety.py tests/test_local_ground_workbench.py tests/test_workbench.py tests/test_mapping_assets.py tests/test_livox_self_filter_contract.py
+        run: PYTHONPATH=.:agt_field_test_bringup python -m pytest -q tests/test_goal_safety.py tests/test_local_ground_workbench.py tests/test_workbench.py tests/test_mapping_assets.py tests/test_livox_self_filter_contract.py tests/test_device_supervisor.py
   qt-smoke:
     runs-on: ubuntu-22.04
     env:
