@@ -1463,7 +1463,7 @@ class Studio(QMainWindow):
 
     def closeEvent(self,event):
         critical={'mapping_finish','cloud_clean','cloud_project','cloud_import','map_revise'}
-        if self.mapping_job_id or (self.api and self.api.active_request in critical):
+        if self.mapping_job_id or (self.api and getattr(self.api,'active_request',None) in critical):
             QMessageBox.warning(self,'后台保存尚未结束',
                 'FAST-LIO2 建图或地图资产保存仍在运行。请先等任务完成，再关闭界面；'
                 '当前关闭可能中断 Workbench 并留下不完整地图。')

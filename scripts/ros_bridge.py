@@ -28,6 +28,12 @@ from rclpy.action import ActionClient
 from tf2_ros import Buffer,TransformListener
 from agt_robot_interfaces.msg import LocalizationStatus,MissionStatus
 from agt_robot_interfaces.action import ExecuteInspectionMission
+# Some deployments ship the camera-gimbal stack as an additional ROS overlay.
+# A missing action definition must not break ordinary mapping/navigation.
+try:
+    from camera_gimbal_interfaces.action import AcquireView
+except ImportError:
+    AcquireView = None
 from bunker_msgs.msg import BunkerStatus
 from agt_asensing_driver.msg import INSStatus
 from sensor_msgs.msg import NavSatFix,Imu
@@ -50,6 +56,8 @@ class Bridge(Node):
         self.navigate=ActionClient(self,NavigateToPose,'/navigate_to_pose')
         self.waypoints=ActionClient(self,FollowWaypoints,'/follow_waypoints')
         self.mission=ActionClient(self,ExecuteInspectionMission,'/agt/mission/execute')
+        self.acquire_view=(ActionClient(self,AcquireView,'/camera_gimbal/acquire_view')
+                           if AcquireView is not None else None)
         self.mission_status={}
         self.states={};self.state_clients={n:self.create_client(GetState,'/'+n+'/get_state') for n in ('controller_server','bt_navigator')}
         def sub(typ,topic,name,qos=10):
@@ -178,8 +186,13 @@ class Bridge(Node):
         """Hand a map-bound photo route to V3's existing stop-and-shoot runtime."""
         s=self.check_navigation()
         validate_endpoints(Maps(ROOT).get(s['map_id']), route['points'], s['profile'])
-        if any(p.get('photo') for p in route['points']) and not s.get('enable_camera_gimbal'):
-            raise ValueError('photo route requires the camera/gimbal executor enabled in this session')
+        if any(p.get('photo') for p in route['points']):
+            if not s.get('enable_camera_gimbal'):
+                raise ValueError('photo route requires the camera/gimbal executor enabled in this session')
+            if self.acquire_view is None:
+                raise ValueError('camera_gimbal_interfaces/AcquireView is missing from the ROS environment')
+            if not self.acquire_view.server_is_ready():
+                raise ValueError('/camera_gimbal/acquire_view action unavailable; test camera and gimbal before driving')
         if self.goals or self.pending_goal:raise ValueError('cancel the active goal before starting another')
         if not self.mission.server_is_ready():raise ValueError('inspection mission action unavailable')
         mission_file=Path(route.get('mission_file',''))
