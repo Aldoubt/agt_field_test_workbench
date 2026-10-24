@@ -365,6 +365,7 @@ class Studio(QMainWindow):
         self.live_status={};self.live_in_flight=False;self.pending_session=None
         self.ros_display_connected=False;self.topic_rates={}
         self.recorder_id=None;self.recorder_output='';self.jobs_in_flight=False;self.mapping_job_id=None
+        self.mapping_saving=False;self.map_saving=False;self.grid_building=False;self.pending_load_map_id=None
         self.routes_by_id={};self.route_points=[];self.current_route_id=None
         self.setWindowTitle('AGT Robot Studio  ·  ROS 2 Humble')
         self.ui_scale,self.sidebar_width=fit_to_screen(self)
@@ -456,6 +457,7 @@ class Studio(QMainWindow):
         l=self._page_shell(scroll=True);r=QHBoxLayout();l.addLayout(r)
         r.addWidget(text_label('建图','title'));r.addStretch()
         self.mapping_state=text_label('未启动');r.addWidget(self.mapping_state)
+        self.mapping_save_status=text_label('保存状态：尚未开始');l.addWidget(self.mapping_save_status)
         c=card(l,'1. 选择车辆并连接设备')
         row=QHBoxLayout();c.addLayout(row)
         self.robot_box=QComboBox();self.robot_box.addItems(['Bunker','FW-mini'])
@@ -557,6 +559,7 @@ class Studio(QMainWindow):
         draft=button('保存草稿');draft.clicked.connect(lambda:self.export_map('DRAFT'));row.addWidget(draft)
         save=button('保存为导航地图','primary');save.clicked.connect(lambda:self.export_map('ACCEPTED'));row.addWidget(save)
         row.addStretch();self.map_info=text_label('地图：未加载；Unknown 始终保持未知，不会自动变空闲');l.addWidget(self.map_info)
+        self.map_write_status=text_label('地图写入：空闲');l.addWidget(self.map_write_status)
 
     def _map_tool_changed(self):
         keepout=self.map_brush.currentData()=='keepout'
@@ -756,7 +759,9 @@ class Studio(QMainWindow):
         if not self.api:self.write_log('Workbench 尚未初始化');return
         timeout=None
         if name in ('record_start','session_stop_all'):timeout=120
-        elif name in ('cloud_project','cloud_import','cloud_clean'):timeout=600
+        elif name=='cloud_project':timeout=1500
+        elif name in ('cloud_import','cloud_clean'):timeout=600
+        elif name=='map_revise':timeout=120
         elif name=='cloud_preview':timeout=30
         elif name in ('record_stop','session_stop') or name.startswith(('session_','device_')):timeout=30
         self.api.call(name,method,path,payload,timeout)
@@ -793,8 +798,16 @@ class Studio(QMainWindow):
             if name=='session_stop':self.pending_session=None
             if not name.startswith('refresh_'):QMessageBox.warning(self,'操作未完成',str(value))
             if name in ('session_sensors','mapping_start'):self.mapping_state.setText('启动失败')
+            if name=='map_revise':
+                self.map_saving=False
+                self.map_write_status.setText('保存失败：'+str(value)[:160])
+            if name=='cloud_project':
+                self.grid_building=False
+                self.map_write_status.setText('二维地图/索引生成失败：'+str(value)[:160])
             if name=='mapping_finish':
-                self.glim_btn.setEnabled(True);self.mapping_state.setText('保存请求失败；建图任务仍在运行')
+                self.glim_btn.setEnabled(True);self.mapping_saving=False
+                self.mapping_state.setText('保存请求失败；建图任务仍在运行')
+                self.mapping_save_status.setText('保存请求失败：'+str(value)[:160])
             if name=='cloud_clean':self.cloud_clean_btn.setEnabled(True)
             return
         if name=='profile_get':
@@ -822,7 +835,12 @@ class Studio(QMainWindow):
         if name=='refresh_maps':
             self.maps_by_id={m['id']:m for m in value}
             self._fill_combo(self.map_box,value,self.current_map_id)
-            self._fill_combo(self.nav_map_box,value,self.current_map_id);return
+            self._fill_combo(self.nav_map_box,value,self.current_map_id)
+            if self.pending_load_map_id:
+                selected=self.maps_by_id.get(self.pending_load_map_id)
+                self.pending_load_map_id=None
+                if selected:self._load_map(selected)
+            return
         if name=='refresh_clouds':
             selected=getattr(self,'pending_cloud_id',None) or self.cloud_box.currentData()
             self.clouds_by_id={c['id']:c for c in value}
@@ -857,25 +875,59 @@ class Studio(QMainWindow):
             self._update_recording()
             if self.mapping_job_id:
                 mapping=next((j for j in value if j.get('id')==self.mapping_job_id),None)
-                if mapping and mapping.get('state')!='RUNNING':
-                    self.write_log(f"FAST-LIO2 建图任务结束：{mapping.get('state')} · {mapping.get('output','')}")
-                    self.mapping_job_id=None;self.current_run=Path(mapping['output']) if mapping.get('output') else self.current_run
+                if mapping and mapping.get('state')=='RUNNING':
+                    if mapping.get('save_requested_at') or self.mapping_saving:
+                        self.mapping_saving=True
+                        phases={'PCD_IMPORT':'正在保存：登记三维 PCD',
+                                'GRID_EXPORT':'正在保存：生成二维栅格',
+                                'BBS_ASSETS':'正在保存：构建同源 3D-BBS 索引',
+                                'COMPLETE':'正在保存：最终校验',
+                                'PARTIAL_ASSETS_FAILED':'地图已导出，BBS 构建有问题'}
+                        phase=(mapping.get('save_status') or {}).get('stage','LIO_EXPORT')
+                        message=phases.get(phase,'正在保存：导出 FAST-LIO2 点云和 rosbag')
+                        self.mapping_state.setText(message)
+                        self.mapping_save_status.setText('保存状态：'+message)
+                        self.glim_btn.setEnabled(False)
+                elif mapping and mapping.get('state')!='RUNNING':
+                    state=mapping.get('state')
+                    result=mapping.get('result') or {}
+                    assets=result.get('relocalization_assets') or {}
+                    saved=state=='PASS' and bool(result.get('map_version'))
+                    self.mapping_job_id=None;self.mapping_saving=False
+                    self.current_run=Path(mapping['output']) if mapping.get('output') else self.current_run
                     self.glim_btn.setEnabled(True);self.glim_btn.setText('开始建图')
                     self.map_name_edit.setEnabled(True);self.mapping_backend_box.setEnabled(True)
-                    self.mapping_state.setText('建图已结束：'+str(mapping.get('state')))
+                    if saved:
+                        self.current_map_id=result['map_version']
+                        self.pending_load_map_id=self.current_map_id
+                        bbs='BBS 索引已生成' if assets.get('state')=='READY' else 'BBS 索引未就绪（查看日志）'
+                        label='地图已经保存 · '+bbs
+                        self.mapping_state.setText(label)
+                        self.mapping_save_status.setText('保存状态：'+label+' · 地图版本 '+self.current_map_id)
+                        self.write_log(label+' · '+str(mapping.get('output','')))
+                    else:
+                        self.mapping_state.setText('保存失败 · '+str(state))
+                        self.mapping_save_status.setText('保存状态：失败／未完成；请检查任务日志 '+str(mapping.get('log','')))
+                        self.write_log('FAST-LIO2 建图未成功保存：'+str(mapping.get('log','')))
                     self._mapping_backend_changed();self.refresh_library()
             return
         if name=='session_sensors':self._start_mapping_processes();return
         if name=='mapping_start':
-            self.mapping_job_id=value['id'];self.current_run=Path(value['output'])
+            self.mapping_job_id=value['id'];self.mapping_saving=False
+            self.current_run=Path(value['output'])
             self.glim_btn.setEnabled(True);self.glim_btn.setText('结束并保存建图')
             self.map_name_edit.setEnabled(False);self.mapping_backend_box.setEnabled(False);self._mapping_backend_changed()
             self.mapping_state.setText('FAST-LIO2 无 PGO 建图运行中')
+            self.mapping_save_status.setText('保存状态：建图中，尚未开始保存')
             self.run_label.setText(f"地图：{self.current_map_name} · Workbench 任务：{self.mapping_job_id} · 输出：{self.current_run}")
             self.write_log('FAST-LIO2 复用当前传感器与 TF 会话；未启动额外雷达驱动或独立录包器')
             self.refresh_jobs();return
         if name=='mapping_finish':
-            self.write_log('FAST-LIO2 保存请求已发送；等待地图资产与 rosbag 完整性结果');self.refresh_jobs();return
+            self.mapping_saving=True
+            self.mapping_state.setText('正在保存：导出 FAST-LIO2 地图与原始 rosbag')
+            self.mapping_save_status.setText('保存状态：正在保存；尚未验证文件或索引')
+            self.write_log('保存请求已接收，等待地图、BBS 索引与 rosbag 完整性结果')
+            self.refresh_jobs();return
         if name in ('device_sensors','device_manual','session_localization','session_navigation'):
             self.write_log('会话已启动：'+value.get('task',name));self.refresh_live();return
         if name=='session_stop':
@@ -907,9 +959,13 @@ class Studio(QMainWindow):
             self.refresh_library()
             return
         if name=='cloud_project':
+            self.grid_building=False
+            self.map_write_status.setText('二维地图已经保存：'+value['id']+' · '+value.get('asset_summary','BBS 状态未知'))
             self.current_map_id=value['id'];self.write_log('二维地图已生成：'+value['id'])
             self.refresh_library();self._load_map(value);self.pages['地图'].click();return
         if name=='map_revise':
+            self.map_saving=False
+            self.map_write_status.setText('地图已经保存：'+value['id']+' · '+value['status'])
             self.current_map_id=value['id'];self.write_log(f"地图版本已保存：{value['id']} ({value['status']})")
             self.refresh_library();self._load_map(value)
             message=f"版本：{value['id']}\n状态：{value['status']}\n电子围栏：{len(value.get('keepout_polygons_px',[]))} 个（已烘焙进 PGM）"
@@ -1021,7 +1077,8 @@ class Studio(QMainWindow):
 
     def _on_cloud(self,d):
         self.cloud_view.set_cloud(d);self.cloud_count.setText(f'{d.get("source")}  ·  {len(d["xyz"]):,} 点（抽样渲染）')
-        self.mapping_state.setText('正在接收建图点云')
+        if not self.mapping_saving and not self.mapping_save_status.text().startswith('保存状态：地图已经保存'):
+            self.mapping_state.setText('正在接收建图点云')
 
     def _on_grid(self,info):
         if self.current_map_id:return
@@ -1241,7 +1298,10 @@ class Studio(QMainWindow):
         if self.demo:self.write_log('演示模式禁止启动建图');return
         self._ensure_ros_worker()
         if self.mapping_job_id:
+            if self.mapping_saving:return
+            self.mapping_saving=True
             self.mapping_state.setText('正在保存 FAST-LIO2 地图与原始 rosbag')
+            self.mapping_save_status.setText('保存状态：正在保存；导出／转换／BBS 索引尚未完成')
             self.glim_btn.setEnabled(False)
             self._api('mapping_finish','POST',f'/api/jobs/{self.mapping_job_id}/finish',{})
             return
@@ -1346,6 +1406,9 @@ class Studio(QMainWindow):
         if projection['obstacle_min_height']>=projection['obstacle_max_height']:
             QMessageBox.warning(self,'投影参数无效','相对地面障碍下限必须小于上限。');return
         name=(self.clouds_by_id.get(cloud) or {}).get('name','')
+        if self.grid_building:return
+        self.grid_building=True
+        self.map_write_status.setText('正在保存：生成二维地图，并为同源 PCD 构建 BBS 索引')
         self._api('cloud_project','POST',f'/api/clouds/{cloud}/project',{'projection':projection,'name':name})
 
     def refresh_maps_and_select(self,map_id):self.current_map_id=map_id;self.refresh_library()
@@ -1400,7 +1463,10 @@ class Studio(QMainWindow):
                     '外部 PGM 尚未登记为 Workbench 地图版本，不能直接标记为已验收导航地图。')
                 return
             if self.current_map_id:
+                if self.map_saving:return
                 pixels=base64.b64encode(self.map_view.pixels().tobytes()).decode('ascii')
+                self.map_saving=True
+                self.map_write_status.setText('正在保存：写入新版 PGM、YAML、围栏与 SHA')
                 self._api('map_revise','POST',f'/api/maps/{self.current_map_id}/revise',
                           {'pixels':pixels,'status':status,'keepout_polygons_px':self.map_view.keepout});return
             directory=QFileDialog.getExistingDirectory(self,'选择新地图的父目录',str(Path.home()),QFileDialog.ShowDirsOnly | QFileDialog.DontUseNativeDialog)
@@ -1467,7 +1533,7 @@ class Studio(QMainWindow):
         # worker's currently active HTTP call misses this shutdown race.
         pending=bool(self.api and callable(getattr(self.api,'has_pending',None))
                      and self.api.has_pending(critical))
-        if self.mapping_job_id or pending or (self.api and getattr(self.api,'active_request',None) in critical):
+        if self.mapping_job_id or self.mapping_saving or self.map_saving or self.grid_building or pending or (self.api and getattr(self.api,'active_request',None) in critical):
             QMessageBox.warning(self,'后台保存尚未结束',
                 'FAST-LIO2 建图或地图资产保存仍在运行。请先等任务完成，再关闭界面；'
                 '当前关闭可能中断 Workbench 并留下不完整地图。')

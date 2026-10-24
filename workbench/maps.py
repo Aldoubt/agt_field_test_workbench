@@ -250,4 +250,5 @@ class Maps:
                     'keepout_zones': str(directory / 'keepout_zones.yaml'),
                     'keepout_bake': str(directory / 'keepout_bake.yaml'), **lineage}
         write_json(directory / 'manifest.json', manifest)
-        return manifest
+        return dict(manifest, asset_summary=asset_summary(manifest),
+                    relocalization_assets=relocalization_assets(manifest))
