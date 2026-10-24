@@ -220,6 +220,15 @@ class Jobs:
                         result_path = Path(record['output']) / 'field_test_result.json'
                         if result_path.is_file():
                             record['result'] = json.loads(result_path.read_text())
+                    elif item['kind'] == 'camera_capture':
+                        result_path = Path(record.get('result_path',''))
+                        if result_path.is_file():
+                            try:record['capture_result']=json.loads(result_path.read_text())
+                            except (OSError,ValueError):record['capture_result']={'success':False,'message':'invalid capture result JSON'}
+                        if code != 0 or not record.get('capture_result',{}).get('success'):
+                            record['state']='FAILED'
+                        else:
+                            record['state']='PASS'
                     write_json(self.root / 'runs' / record['id'] / 'run.json', record)
                 item['state'] = record['state']
                 current = dict(record, duration_sec=round(time.time() - process_start(record), 1)

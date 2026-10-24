@@ -9,8 +9,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 import numpy as np
-from PyQt5.QtCore import Qt, QProcess, QTimer, QRectF, QPointF, pyqtSignal
-from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
+from PyQt5.QtCore import Qt, QProcess, QTimer, QRectF, QPointF, pyqtSignal, QUrl
+from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPolygonF, QDesktopServices
 from PyQt5.QtWidgets import (QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QLayout, QSizePolicy,
     QFrame, QLabel, QPushButton, QStackedWidget, QDoubleSpinBox, QComboBox,
     QMessageBox, QFileDialog, QTextEdit, QCheckBox, QLineEdit, QSpinBox,
@@ -419,7 +419,7 @@ class Studio(QMainWindow):
         self.ros_display_connected=False;self.topic_rates={}
         self.recorder_id=None;self.recorder_output='';self.jobs_in_flight=False;self.mapping_job_id=None
         self.mapping_saving=False;self.map_saving=False;self.grid_building=False;self.pending_load_map_id=None
-        self.camera_job_state={'state':'STOPPED'}
+        self.camera_job_state={'state':'STOPPED'};self.jobs_cache=[];self.last_capture_job_id=None
         self.routes_by_id={};self.route_points=[];self.current_route_id=None
         self.setWindowTitle('AGT Robot Studio  ·  ROS 2 Humble')
         self.ui_scale,self.sidebar_width=fit_to_screen(self)
@@ -536,6 +536,18 @@ class Studio(QMainWindow):
         self.camera_stop_btn=button('停止 C1 云台')
         self.camera_stop_btn.clicked.connect(self.stop_camera);row.addWidget(self.camera_stop_btn)
         self.camera_status_label=text_label('云台：未启动');camera.addWidget(self.camera_status_label)
+        angle_row=QHBoxLayout();camera.addLayout(angle_row)
+        self.camera_heading_edit=QDoubleSpinBox();self.camera_heading_edit.setRange(-160,160)
+        self.camera_heading_edit.setDecimals(1);self.camera_heading_edit.setSuffix('° 航向');angle_row.addWidget(self.camera_heading_edit)
+        self.camera_pitch_edit=QDoubleSpinBox();self.camera_pitch_edit.setRange(-90,90)
+        self.camera_pitch_edit.setDecimals(1);self.camera_pitch_edit.setSuffix('° 俯仰');angle_row.addWidget(self.camera_pitch_edit)
+        self.camera_move_btn=button('仅移动云台');self.camera_move_btn.clicked.connect(self.move_camera);angle_row.addWidget(self.camera_move_btn)
+        self.camera_capture_btn=button('移动并拍照','primary');self.camera_capture_btn.clicked.connect(self.capture_camera);angle_row.addWidget(self.camera_capture_btn)
+        health_row=QHBoxLayout();camera.addLayout(health_row)
+        health=button('检查相机健康');health.clicked.connect(self.check_camera_health);health_row.addWidget(health)
+        open_dir=button('打开采集目录');open_dir.clicked.connect(self.open_capture_directory);health_row.addWidget(open_dir)
+        export=button('导出本次采集');export.clicked.connect(self.export_capture_session);health_row.addWidget(export)
+        self.capture_status_label=text_label('采集：尚未执行');camera.addWidget(self.capture_status_label)
         records=card(l,'四、独立录包')
         row=QHBoxLayout();records.addLayout(row)
         record=button('开始/停止独立录包')
@@ -559,6 +571,43 @@ class Studio(QMainWindow):
         if self.demo:
             self.write_log('演示模式：无云台进程');return
         self._api('camera_stop','POST','/api/devices/camera/stop',{})
+
+    def check_camera_health(self):
+        if self.demo:self.write_log('演示模式没有真实相机健康状态');return
+        self._api('camera_health','GET','/api/devices/camera?probe=1')
+
+    def move_camera(self):
+        self._camera_request(save_image=False)
+
+    def capture_camera(self):
+        self._camera_request(save_image=True)
+
+    def _camera_request(self,save_image):
+        if self.demo:self.write_log('演示模式不执行云台运动或拍照');return
+        pose=self.live_status.get('pose')
+        metadata={'robot':self._robot(),'task':(self.live_status.get('session') or {}).get('task','manual_capture'),
+                  'session_id':(self.live_status.get('session') or {}).get('id'),
+                  'map_version':self.current_map_id,
+                  'pose':dict(x=pose['x'],y=pose['y'],yaw=pose['yaw']) if pose else None}
+        tag='capture_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        payload={'heading':self.camera_heading_edit.value(),'pitch':self.camera_pitch_edit.value(),
+                 'roll':0.0,'tag':tag,'metadata':metadata}
+        self.capture_status_label.setText(('拍照请求：' if save_image else '云台移动请求：')+tag)
+        self._api('camera_capture' if save_image else 'camera_move','POST',
+                  '/api/devices/camera/capture' if save_image else '/api/devices/camera/move',payload)
+
+    def open_capture_directory(self):
+        root=self.camera_job_state.get('capture_root')
+        if not root:
+            QMessageBox.information(self,'采集目录','请先启动一次 C1 相机，创建独立采集会话。');return
+        path=Path(root)
+        path.mkdir(parents=True,exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def export_capture_session(self):
+        if self.demo:self.write_log('演示模式没有可导出的照片');return
+        base=str(self.cfg.get('workbench_api','http://127.0.0.1:8765')).rstrip('/')
+        QDesktopServices.openUrl(QUrl(base+'/api/devices/captures/export'))
 
     def _page_mapping(self):
         l=self._page_shell(scroll=True);r=QHBoxLayout();l.addLayout(r)
@@ -909,6 +958,8 @@ class Studio(QMainWindow):
             if name in ('session_sensors','mapping_start'):self.mapping_state.setText('启动失败')
             if name in ('camera_start','camera_stop'):
                 self.camera_status_label.setText('云台操作失败：'+str(value)[:140])
+            if name in ('camera_capture','camera_move'):
+                self.capture_status_label.setText('云台/拍照失败：'+str(value)[:160])
             if name=='map_revise':
                 self.map_saving=False
                 self.map_write_status.setText('保存失败：'+str(value)[:160])
@@ -980,7 +1031,19 @@ class Studio(QMainWindow):
                     self.run_label.setText('后台建图任务：'+self.mapping_job_id+
                                            ' · 输出：'+str(self.current_run))
                     self._mapping_backend_changed()
+            self.jobs_cache=list(value)
             self.camera_job_state=next((j for j in value if j.get('kind')=='camera_gimbal'),{'state':'STOPPED'})
+            captures=[j for j in value if j.get('kind')=='camera_capture' and j.get('id')!=self.last_capture_job_id]
+            if captures:
+                newest=captures[0]
+                if newest.get('state') in ('PASS','FAILED','CANCELLED'):
+                    self.last_capture_job_id=newest.get('id')
+                    result=newest.get('capture_result') or {}
+                    if newest.get('state')=='PASS':
+                        self.capture_status_label.setText('拍照成功：'+str(result.get('image_path','未返回路径')))
+                    else:
+                        self.capture_status_label.setText('拍照失败：'+str(result.get('message',newest.get('state'))))
+            self._update_global_status()
             self.camera_status_label.setText('云台：'+self.camera_job_state.get('state','STOPPED')+
                 ('（驱动进程，图像仍待验证）' if self.camera_job_state.get('state')=='RUNNING' else ''))
             self._update_global_status()
@@ -1058,6 +1121,19 @@ class Studio(QMainWindow):
         if name in ('camera_start','camera_stop'):
             self.write_log(name+'：'+str(value.get('id',value.get('state','未知'))))
             self.refresh_jobs();return
+        if name=='camera_health':
+            health=value.get('health') or {}
+            self.camera_job_state.update(value)
+            if value.get('ready'):
+                self.camera_status_label.setText('云台：READY · 相机、串口、反馈与 Action 均在线')
+            else:
+                self.camera_status_label.setText('云台：'+str(value.get('readiness','UNKNOWN'))+' · '+str(value.get('health_error',health.get('last_error','未就绪')))[:120])
+            self.write_log('C1 健康检查：'+str(value.get('readiness','UNKNOWN')))
+            self._update_global_status();return
+        if name in ('camera_capture','camera_move'):
+            self.write_log(('拍照任务已提交：' if name=='camera_capture' else '云台移动任务已提交：')+str(value.get('id','')))
+            self.capture_status_label.setText('动作执行中：'+str(value.get('tag','')))
+            self.refresh_jobs();return
         if name=='record_start':
             self.recorder_id=value['id'];self.recorder_output=value.get('output','')
             self.write_log('独立录包已启动：'+self.recorder_output);self._update_recording();return
@@ -1118,8 +1194,11 @@ class Studio(QMainWindow):
                 self._indicator(label,f'{name}：演示 {value:.1f} Hz','good')
             return
         state=self.camera_job_state.get('state','STOPPED')
-        if state=='RUNNING':
-            self._indicator(self.camera_state_label,'云台：进程运行/图像待验','warn')
+        health_name=(self.camera_job_state.get('readiness') or '')
+        if state=='RUNNING' and health_name=='READY':
+            self._indicator(self.camera_state_label,'云台：硬件 READY','good')
+        elif state=='RUNNING':
+            self._indicator(self.camera_state_label,'云台：进程运行/'+(health_name or '待验'),'warn')
         elif state in ('FAILED','ORPHANED','INCOMPLETE'):
             self._indicator(self.camera_state_label,'云台：'+state,'bad')
         else:self._indicator(self.camera_state_label,'云台：未启动')

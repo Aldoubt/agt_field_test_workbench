@@ -187,8 +187,8 @@ class Bridge(Node):
         s=self.check_navigation()
         validate_endpoints(Maps(ROOT).get(s['map_id']), route['points'], s['profile'])
         if any(p.get('photo') for p in route['points']):
-            if not s.get('enable_camera_gimbal'):
-                raise ValueError('photo route requires the camera/gimbal executor enabled in this session')
+            # Camera/gimbal is a separately supervised component; it is not a
+            # child of the navigation session. Check the actual Action server.
             if self.acquire_view is None:
                 raise ValueError('camera_gimbal_interfaces/AcquireView is missing from the ROS environment')
             if not self.acquire_view.server_is_ready():

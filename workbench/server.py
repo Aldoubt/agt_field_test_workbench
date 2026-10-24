@@ -74,9 +74,30 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, status())
             if self.path == '/api/jobs':
                 return self.response(200, JOBS.list())
-            if self.path == '/api/devices/camera':
+            if self.path.split('?',1)[0] == '/api/devices/camera':
                 from .devices import camera_status
-                return self.response(200, camera_status(JOBS))
+                return self.response(200, camera_status(JOBS, probe='probe=1' in self.path))
+            if self.path == '/api/devices/captures':
+                from .devices import list_captures
+                return self.response(200, list_captures(JOBS))
+            if self.path == '/api/devices/captures/export':
+                from .devices import list_captures
+                listing=list_captures(JOBS)
+                if listing.get('state')!='READY':raise ValueError('no capture session to export')
+                root=Path(listing['capture_root']).resolve()
+                buffer=BytesIO()
+                with zipfile.ZipFile(buffer,'w',compression=zipfile.ZIP_DEFLATED) as archive:
+                    for item in listing['captures']:
+                        path=Path(item['path']).resolve()
+                        if path.is_relative_to(root) and path.is_file():
+                            archive.write(path,path.relative_to(root).as_posix())
+                    for path in root.rglob('*.jsonl'):
+                        if path.is_file() and path.resolve().is_relative_to(root):
+                            archive.write(path,path.resolve().relative_to(root).as_posix())
+                data=buffer.getvalue()
+                self.send_response(200);self.send_header('Content-Type','application/zip')
+                self.send_header('Content-Disposition','attachment; filename="agt_captures_'+str(listing.get('capture_session_id','session'))+'.zip"')
+                self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
             if self.path == '/api/maps':
                 return self.response(200, MAPS.list())
             if self.path == '/api/templates':
@@ -148,6 +169,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/devices/camera/stop':
                 from .devices import stop_camera
                 return self.response(200, stop_camera(JOBS))
+            if self.path == '/api/devices/camera/move':
+                from .devices import start_capture
+                return self.response(200, start_capture(JOBS,payload,save_image=False))
+            if self.path == '/api/devices/camera/capture':
+                from .devices import start_capture
+                return self.response(200, start_capture(JOBS,payload,save_image=True))
             match=re.fullmatch(r'/api/profiles/(bunker|fwmini)',self.path)
             if match:
                 if any(j['kind']=='field_session' and j['state'] in ('RUNNING','ORPHANED') for j in JOBS.list()):raise ValueError('stop the active session before selecting a new profile')
