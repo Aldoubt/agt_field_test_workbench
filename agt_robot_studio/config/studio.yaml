@@ -40,7 +40,7 @@ projection:
 # KISS additionally requires its locked native build and replay/field acceptance.
 global_backend: bbs
 # Mutually exclusive local odometry frontend; both publish base_link odometry.
-lio_backend: batch_lio  # batch_lio or fastlio2
+lio_backend: fastlio2  # prefer Bunker FAST-LIO2; batch_lio is optional
 # FAST-LIO2 without PGO is the current Bunker baseline. GLIM remains experimental
 # until its dependencies, configuration and real-bag replay are accepted.
 mapping_backend: fastlio  # fastlio or glim_experimental
