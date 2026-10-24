@@ -367,6 +367,7 @@ class Studio(QMainWindow):
         self.ros_display_connected=False;self.topic_rates={}
         self.recorder_id=None;self.recorder_output='';self.jobs_in_flight=False;self.mapping_job_id=None
         self.mapping_saving=False;self.map_saving=False;self.grid_building=False;self.pending_load_map_id=None
+        self.camera_job_state={'state':'STOPPED'}
         self.routes_by_id={};self.route_points=[];self.current_route_id=None
         self.setWindowTitle('AGT Robot Studio  ·  ROS 2 Humble')
         self.ui_scale,self.sidebar_width=fit_to_screen(self)
@@ -380,8 +381,8 @@ class Studio(QMainWindow):
         self.stack=QStackedWidget();r.addWidget(self.stack,1)
         self.cloud_view=CloudView();self.clean_view=CloudView();self.map_view=GridView();self.nav_view=GridView(navigation_mode=True)
         self.nav_view.goal_clicked.connect(self.send_goal)
-        self._page_mapping();self._page_maps();self._page_navigation();self._page_parameters();self._page_logs()
-        self.pages['建图'].click();self.setStyleSheet(scaled_style(self.ui_scale))
+        self._page_mapping();self._page_devices();self._page_maps();self._page_navigation();self._page_parameters();self._page_logs()
+        self.pages['设备与传感器'].click();self.setStyleSheet(scaled_style(self.ui_scale))
         self.write_log('界面已启动；' + ('演示模式不连接机器人' if demo else '正在连接现有 Workbench 与 ROS'))
         self.timer=QTimer(self);self.timer.timeout.connect(self._poll);self.timer.start(1500)
         if demo:self._setup_demo()
@@ -405,7 +406,7 @@ class Studio(QMainWindow):
         s=QVBoxLayout(side);s.setContentsMargins(15,23,15,18);s.setSpacing(12)
         s.addWidget(text_label('▣  AGT','title'));s.addWidget(text_label('Robot Studio  /  FIELD EDITION'))
         s.addSpacing(24);s.addWidget(text_label('工 作 区'));self.pages={}
-        for i,(name,icon) in enumerate([('建图','◎'),('地图','▦'),('定位与导航','⌁'),('参数','⚙'),('日志','≡')]):
+        for i,(name,icon) in enumerate([('建图','◎'),('设备与传感器','◉'),('地图','▦'),('定位与导航','⌁'),('参数','⚙'),('日志','≡')]):
             b=button('  '+icon+'   '+name);b.setObjectName('nav');b.setCheckable(True)
             b.clicked.connect(lambda _,n=i:self._set_page(n));s.addWidget(b);self.pages[name]=b
         s.addStretch(1);s.addWidget(text_label('ROS 2 HUMBLE   ·   v0.2.0'))
@@ -429,12 +430,13 @@ class Studio(QMainWindow):
         self.lidar_state_label=text_label('雷达：离线 -- Hz','status_item')
         self.imu_state_label=text_label('IMU：离线 -- Hz','status_item')
         self.odom_state_label=text_label('里程计：离线 -- Hz','status_item')
+        self.camera_state_label=text_label('云台：未启动','status_item')
         for index,label in enumerate((self.robot_state_label,self.mode_state_label,self.chassis_state_label,
-                      self.lidar_state_label,self.imu_state_label,self.odom_state_label)):
+                      self.lidar_state_label,self.imu_state_label,self.odom_state_label,self.camera_state_label)):
             label.setMinimumWidth(0)
             label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-            row.addWidget(label,index//3,index%3)
-        for col in range(3):row.setColumnStretch(col,1)
+            row.addWidget(label,index//4,index%4)
+        for col in range(4):row.setColumnStretch(col,1)
         layout.addWidget(self.global_status)
 
     def _page_shell(self, scroll=False):
@@ -453,6 +455,58 @@ class Studio(QMainWindow):
         else:
             self.stack.addWidget(page)
         return l
+
+    def _page_devices(self):
+        """Independent peripherals and explicit operator motion checklist."""
+        l=self._page_shell(scroll=True);l.addWidget(text_label('设备与传感器','title'))
+        card(l,'已连接设备')
+        sensors=card(l,'一、传感器、底盘与组合启动')
+        sensors.addWidget(text_label('车辆类型和 LiDAR 驱动继续由建图页与既有 Field Session 选择，'
+            '这里复用原有接口；切换至手动底盘会话时当前传感器会话可能重启。'))
+        row=QHBoxLayout();sensors.addLayout(row)
+        start=button('启动 MID360S / IMU');start.clicked.connect(self.connect_sensors);row.addWidget(start)
+        chassis=button('连接底盘（受监督）');chassis.clicked.connect(self.connect_chassis);row.addWidget(chassis)
+        self.motion_checks={}
+        checks=card(l,'二、底盘启动前现场确认')
+        checks.addWidget(text_label('默认全部未勾选；不代替实体急停、遥控接管和后端运动许可。'))
+        for key,name in (('wiring','线束/供电/CAN 已核对'),
+                         ('physical_estop','实体急停已验证'),
+                         ('remote_takeover','遥控接管有效'),
+                         ('clear_area','测试区域已清空'),
+                         ('supervised','现场有人监督')):
+            control=QCheckBox(name);checks.addWidget(control);self.motion_checks[key]=control
+        camera=card(l,'三、C1 云台相机（不阻碍导航）')
+        camera.addWidget(text_label('相机设备及云台串口在「参数」页配置。'
+            '相机驱动独立于 Nav2；进程启动后仍需实测图像和云台反馈。'))
+        row=QHBoxLayout();camera.addLayout(row)
+        self.camera_start_btn=button('启动 C1 云台')
+        self.camera_start_btn.clicked.connect(self.start_camera);row.addWidget(self.camera_start_btn)
+        self.camera_stop_btn=button('停止 C1 云台')
+        self.camera_stop_btn.clicked.connect(self.stop_camera);row.addWidget(self.camera_stop_btn)
+        self.camera_status_label=text_label('云台：未启动');camera.addWidget(self.camera_status_label)
+        records=card(l,'四、独立录包')
+        row=QHBoxLayout();records.addLayout(row)
+        record=button('开始/停止独立录包')
+        record.clicked.connect(self.toggle_recording);row.addWidget(record)
+        records.addWidget(text_label('使用参数页的录包模板/自选话题，复用原有唯一 recorder。'
+            'FAST-LIO2 建图过程中不可再开第二份原始录包。'))
+        stop=card(l,'五、现场恢复')
+        stop_all=button('停止全部 Workbench ROS 进程','danger')
+        stop_all.clicked.connect(self.close_ros_nodes);stop.addWidget(stop_all)
+        stop.addWidget(text_label('此按钮不是实体急停；可选相机故障不要调用此按钮处理。'))
+
+    def start_camera(self):
+        if self.demo:
+            self.write_log('演示模式：云台相机不启动');return
+        self.camera_status_label.setText('云台：请求启动中')
+        self._api('camera_start','POST','/api/devices/camera/start',
+            {'device_path':self.camera_device_edit.text().strip(),
+             'port_name':self.gimbal_port_edit.text().strip()})
+
+    def stop_camera(self):
+        if self.demo:
+            self.write_log('演示模式：无云台进程');return
+        self._api('camera_stop','POST','/api/devices/camera/stop',{})
 
     def _page_mapping(self):
         l=self._page_shell(scroll=True);r=QHBoxLayout();l.addLayout(r)
@@ -608,8 +662,7 @@ class Studio(QMainWindow):
         row=QHBoxLayout();c.addLayout(row)
         reloc=button('全局重定位');reloc.clicked.connect(self.relocalize);row.addWidget(reloc)
         stop_goal=button('停止当前目标 / 任务','danger');stop_goal.clicked.connect(self.stop_goal);row.addWidget(stop_goal)
-        self.camera_enabled_box=QCheckBox('启用 C1 云台相机')
-        self.camera_enabled_box.setChecked(bool(self.cfg.get('enable_camera_gimbal',True)));row.addWidget(self.camera_enabled_box)
+        row.addWidget(text_label('云台在设备页独立启动'))
         self.localization_label=text_label('定位状态：等待 Workbench');row.addWidget(self.localization_label,1)
         frame=QFrame();frame.setObjectName('viewer');l.addWidget(frame,1)
         v=QVBoxLayout(frame);v.addWidget(self.nav_view,1)
@@ -801,6 +854,8 @@ class Studio(QMainWindow):
             if name=='session_stop':self.pending_session=None
             if not name.startswith('refresh_'):QMessageBox.warning(self,'操作未完成',str(value))
             if name in ('session_sensors','mapping_start'):self.mapping_state.setText('启动失败')
+            if name in ('camera_start','camera_stop'):
+                self.camera_status_label.setText('云台操作失败：'+str(value)[:140])
             if name=='map_revise':
                 self.map_saving=False
                 self.map_write_status.setText('保存失败：'+str(value)[:160])
@@ -872,6 +927,10 @@ class Studio(QMainWindow):
                     self.run_label.setText('后台建图任务：'+self.mapping_job_id+
                                            ' · 输出：'+str(self.current_run))
                     self._mapping_backend_changed()
+            self.camera_job_state=next((j for j in value if j.get('kind')=='camera_gimbal'),{'state':'STOPPED'})
+            self.camera_status_label.setText('云台：'+self.camera_job_state.get('state','STOPPED')+
+                ('（驱动进程，图像仍待验证）' if self.camera_job_state.get('state')=='RUNNING' else ''))
+            self._update_global_status()
             running=next((j for j in value if j.get('kind')=='recorder' and j.get('state')=='RUNNING'),None)
             self.recorder_id=running['id'] if running else None
             if running:self.recorder_output=running.get('output','')
@@ -942,6 +1001,9 @@ class Studio(QMainWindow):
         if name=='session_stop_all':
             self.write_log('Studio 与 Workbench 管理的 ROS 进程已全部关闭')
             self.refresh_live();self.refresh_jobs();return
+        if name in ('camera_start','camera_stop'):
+            self.write_log(name+'：'+str(value.get('id',value.get('state','未知'))))
+            self.refresh_jobs();return
         if name=='record_start':
             self.recorder_id=value['id'];self.recorder_output=value.get('output','')
             self.write_log('独立录包已启动：'+self.recorder_output);self._update_recording();return
@@ -993,6 +1055,7 @@ class Studio(QMainWindow):
     def _update_global_status(self):
         if not hasattr(self,'robot_state_label'):return
         if self.demo:
+            self._indicator(self.camera_state_label,'云台：演示未连接')
             self._indicator(self.robot_state_label,'设备：'+self.robot_box.currentText())
             self._indicator(self.mode_state_label,'状态：离线演示','warn')
             self._indicator(self.chassis_state_label,'底盘：演示未连接')
@@ -1000,6 +1063,12 @@ class Studio(QMainWindow):
                                      (self.odom_state_label,'里程计',50.)):
                 self._indicator(label,f'{name}：演示 {value:.1f} Hz','good')
             return
+        state=self.camera_job_state.get('state','STOPPED')
+        if state=='RUNNING':
+            self._indicator(self.camera_state_label,'云台：进程运行/图像待验','warn')
+        elif state in ('FAILED','ORPHANED','INCOMPLETE'):
+            self._indicator(self.camera_state_label,'云台：'+state,'bad')
+        else:self._indicator(self.camera_state_label,'云台：未启动')
         session=self.live_status.get('session') or {}
         if session:
             robot='FW-mini' if session.get('robot')=='fwmini' else 'Bunker'
@@ -1058,7 +1127,7 @@ class Studio(QMainWindow):
     def _set_page(self,i):
         self.stack.setCurrentIndex(i)
         for j,b in enumerate(self.pages.values()):b.setChecked(i==j)
-        if i==1:self.refresh_library()
+        if i==2:self.refresh_library()
 
     def write_log(self,message):
         if not hasattr(self,'log'):return
@@ -1108,12 +1177,13 @@ class Studio(QMainWindow):
         p={'robot':self._robot(),'task':task}
         for key in ('calibration_bundle','mount_profile','geometry_file','livox_config','safety_report'):
             if self.cfg.get(key):p[key]=self.cfg[key]
-        if task in ('manual','navigation'):p['checks']=dict(self.cfg.get('session_checks') or {})
+        if task in ('manual','navigation'):
+            p['checks']={k:v.isChecked() for k,v in self.motion_checks.items()}
         if task in ('localization','navigation'):
             p['global_backend']=self.global_backend_box.currentData()
             p['lio_backend']=self.lio_backend_box.currentData()
         if task=='navigation':
-            p['enable_camera_gimbal']=self.camera_enabled_box.isChecked()
+            p['enable_camera_gimbal']=False
             p['camera_device_path']=self.cfg.get('camera_device_path','/dev/video0')
             p['gimbal_port_name']=self.cfg.get('gimbal_port_name','')
         if map_id:p['map_id']=map_id
