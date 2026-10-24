@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from workbench.artifacts import Clouds
-from workbench.maps import hash_file, asset_summary
+from workbench.maps import hash_file, asset_summary, relocalization_assets
 
 
 def cloud_fixture(root):
@@ -41,6 +41,7 @@ def test_bbs_asset_build_uses_same_immutable_cloud_and_is_cached():
                                  'source_pcd_sha256': hash_file(pcd)})
         assert 'BBS 体素资产：已生成' in summary
         assert 'Polar Context：未生成' in summary
+        assert relocalization_assets({'source_pcd':str(pcd),'source_pcd_sha256':hash_file(pcd)}) == str(folder/'relocalization')
 
 
 def test_bbs_build_failure_does_not_claim_assets_ready():
@@ -57,3 +58,4 @@ def test_bbs_build_failure_does_not_claim_assets_ready():
                                  'source_pcd_sha256': hash_file(pcd)})
         assert '构建失败' in summary
         assert not (folder / 'relocalization/voxelmaps_coords').exists()
+        assert relocalization_assets({'source_pcd':str(pcd),'source_pcd_sha256':hash_file(pcd)}) == ''
