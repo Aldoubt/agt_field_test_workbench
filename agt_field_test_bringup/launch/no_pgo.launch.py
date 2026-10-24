@@ -25,7 +25,10 @@ def configure(context):
     if filtered:
         nodes.append(Node(package='agt_field_test_bringup',executable='livox_self_filter',
             name='field_livox_self_filter',parameters=[str(Path(__file__).resolve().parents[1]/'config'/'livox_self_filter.yaml'),
-            {'use_sim_time':sim}]))
+            {'use_sim_time':sim,
+             'lio_filter_num':int(data['lidar_filter_num']),
+             'lio_min_range_m':float(data['lidar_min_range']),
+             'lio_max_range_m':float(data['lidar_max_range'])}]))
     if v('base_adapter')=='true':
         nodes.append(Node(package='agt_fastlio_adapter',executable='fastlio_adapter',name='mapping_base_adapter',parameters=[{
             'input_topic':'/fastlio2/lio_odom','output_topic':'/mapping/base_odometry',
