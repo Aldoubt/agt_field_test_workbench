@@ -5,6 +5,7 @@ map_topic: /map
 odom_topic: /agt/odometry/local
 raw_lidar_topic: /livox/lidar
 imu_topic: /livox/imu
+self_filter_status_topic: /mapping/self_filter/status
 safety_permitted_topic: /agt/safety/motion_permitted
 
 # Existing Field Test Workbench. The GUI starts a localhost service when needed.

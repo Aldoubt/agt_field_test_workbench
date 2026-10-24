@@ -17,4 +17,5 @@ field_livox_self_filter:
     z_max: 0.45
     max_removed_fraction: 0.30
     min_remaining_points: 1000
+    max_end_time_trim_ns: 1000000  # Never shift LIO/IMU scan-end window by >1 ms
     tf_timeout_sec: 0.03

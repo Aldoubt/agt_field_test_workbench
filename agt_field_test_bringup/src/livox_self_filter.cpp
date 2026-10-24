@@ -34,11 +34,13 @@ public:
       declare_parameter<double>("y_min",-0.44),declare_parameter<double>("y_max",0.44),
       declare_parameter<double>("z_min",-0.10),declare_parameter<double>("z_max",0.45));
     max_fraction_=declare_parameter<double>("max_removed_fraction",0.30);
+    max_end_trim_ns_=declare_parameter<int>("max_end_time_trim_ns",1000000);
     min_remaining_=declare_parameter<int>("min_remaining_points",1000);
     tf_timeout_=declare_parameter<double>("tf_timeout_sec",0.03);
     if(!box_->valid() || !std::isfinite(near) || near<0 || !std::isfinite(far) || far<=near
       || !std::isfinite(max_fraction_) || max_fraction_<=0 || max_fraction_>=1
-      || min_remaining_<1 || !std::isfinite(tf_timeout_) || tf_timeout_<0) {
+      || min_remaining_<1 || max_end_trim_ns_<0
+      || !std::isfinite(tf_timeout_) || tf_timeout_<0) {
       throw std::runtime_error("invalid self-filter limits");
     }
     range_=std::make_unique<agt_pointcloud_core::RangeFilter>(near,far);
@@ -102,6 +104,16 @@ private:
       output.points.push_back(p); // preserves offset_time, tag, reflectivity and order
     }
     const std::size_t n=msg->points.size(), kept=output.points.size();
+    // FAST-LIO2 derives cloud_end_time from the largest surviving offset_time.
+    // A large trim changes its IMU integration window. Bypass the entire scan
+    // rather than claiming filtering succeeded with altered timing semantics.
+    std::uint32_t old_end=0,new_end=0;
+    for(const auto &p:msg->points) old_end=std::max(old_end,p.offset_time);
+    for(const auto &p:output.points) new_end=std::max(new_end,p.offset_time);
+    if(old_end>new_end &&
+       old_end-new_end>static_cast<std::uint32_t>(max_end_trim_ns_)) {
+      publisher_->publish(*msg);report("BYPASS_TIME_BOUND",n,n);return;
+    }
     if(n==0 || kept<static_cast<std::size_t>(min_remaining_)
        || double(n-kept)/double(n)>max_fraction_) {
       publisher_->publish(*msg);report("BYPASS_GUARD",n,n);return;
@@ -117,7 +129,7 @@ private:
   std::unique_ptr<agt_pointcloud_core::BoxFilter> box_;
   std::unique_ptr<agt_pointcloud_core::RangeFilter> range_;
   double max_fraction_{0.30},tf_timeout_{0.03};
-  int min_remaining_{1000};
+  int min_remaining_{1000},max_end_trim_ns_{1000000};
   std::size_t scans_{0},active_{0},tf_fail_{0},guard_bypass_{0},removed_{0};
   rclcpp::Publisher<livox_ros_driver2::msg::CustomMsg>::SharedPtr publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;

@@ -5,6 +5,7 @@ Test Workbench bridge. This thread never publishes velocity or owns a control
 clock; sensor/display failures do not terminate the Qt application.
 """
 import math
+import json
 import queue
 import threading
 import time
@@ -51,6 +52,8 @@ class RosWorker(QThread):
         self.odom = None
         self.odom_seen = 0.0
         self.cloud_points = 0
+        self.self_filter_status = None
+        self.self_filter_seen = 0.0
         self.last_report = 0.0
         self.last_cloud = 0.0
         self.last_map_cloud = 0.0
@@ -110,6 +113,15 @@ class RosWorker(QThread):
             except Exception as ex:
                 self.notice.emit('点云显示已跳过异常帧：' + repr(ex))
 
+    def _on_self_filter_status(self, msg):
+        try:
+            value = json.loads(msg.data)
+            if isinstance(value,dict) and isinstance(value.get('state'),str):
+                self.self_filter_status = value
+                self.self_filter_seen = time.monotonic()
+        except (ValueError,AttributeError,TypeError):
+            pass
+
     def _on_grid(self, msg):
         try:
             q = msg.info.origin.orientation
@@ -129,6 +141,8 @@ class RosWorker(QThread):
         self.state.emit({'connected': True, 'odom': self.odom,
                          'odom_age_s': now-self.odom_seen if self.odom else None,
                          'cloud_points': self.cloud_points,
+                         'self_filter': self.self_filter_status
+                             if now-self.self_filter_seen < 3. else None,
                          'rates': {name: rate.hz(now) for name, rate in self.rates.items()}})
 
     def run(self):
@@ -142,6 +156,7 @@ class RosWorker(QThread):
             from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, qos_profile_sensor_data
             from nav_msgs.msg import Odometry, OccupancyGrid
             from sensor_msgs.msg import PointCloud2, Imu
+            from std_msgs.msg import String
             from livox_ros_driver2.msg import CustomMsg
             rclpy.init(args=None)
             node = Node('agt_robot_studio_gui')
@@ -157,6 +172,9 @@ class RosWorker(QThread):
                                           qos_profile_sensor_data, raw=True)
             rate_node.create_subscription(Imu, self.cfg['imu_topic'],
                                           lambda _m: self.rates['imu'].add(), qos_profile_sensor_data)
+            node.create_subscription(
+                String,self.cfg.get('self_filter_status_topic','/mapping/self_filter/status'),
+                self._on_self_filter_status,10)
             node.create_subscription(OccupancyGrid, self.cfg['map_topic'], self._on_grid, map_qos)
             node.create_subscription(PointCloud2, self.cfg['points_topic'], lambda m:self._on_cloud(m, True), map_qos)
             node.create_subscription(PointCloud2, self.cfg['live_points_topic'],

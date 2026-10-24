@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     'robot':'bunker', 'points_topic':'/glim_rosnode/map',
     'live_points_topic':'/glim_rosnode/aligned_points', 'map_topic':'/map',
     'odom_topic':'/agt/odometry/local', 'raw_lidar_topic':'/livox/lidar', 'imu_topic':'/livox/imu',
+    'self_filter_status_topic':'/mapping/self_filter/status',
     'safety_permitted_topic':'/agt/safety/motion_permitted',
     'bag_root':'~/agt_studio_runs', 'glim_config_path':'',
     'workbench_api':'http://127.0.0.1:8765', 'workbench_root':'',
@@ -458,6 +459,8 @@ class Studio(QMainWindow):
         r.addWidget(text_label('建图','title'));r.addStretch()
         self.mapping_state=text_label('未启动');r.addWidget(self.mapping_state)
         self.mapping_save_status=text_label('保存状态：尚未开始');l.addWidget(self.mapping_save_status)
+        self.self_filter_label=text_label('自体回波过滤：等待 MID360S / TF 状态（默认开启）')
+        l.addWidget(self.self_filter_label)
         c=card(l,'1. 选择车辆并连接设备')
         row=QHBoxLayout();c.addLayout(row)
         self.robot_box=QComboBox();self.robot_box.addItems(['Bunker','FW-mini'])
@@ -1067,6 +1070,20 @@ class Studio(QMainWindow):
     def _on_state(self,s):
         online=s.get('connected',False);self.ros_display_connected=online
         self.topic_rates=dict(s.get('rates') or {})
+        filter_state=s.get('self_filter')
+        if filter_state:
+            mode=filter_state.get('state','UNKNOWN')
+            detail=('正常过滤' if mode=='ACTIVE' else '已旁路，请检查 TF / 过滤比例 / 时间窗')
+            self.self_filter_label.setText(
+                f"自体回波过滤：{detail} ({mode}) · 移除累计 {filter_state.get('removed_points_total',0)} 点")
+            self.self_filter_label.setStyleSheet(
+                'color:#65c7a9' if mode=='ACTIVE' else 'color:#ec9c83')
+        elif self.mapping_job_id:
+            self.self_filter_label.setText('自体回波过滤：未收到在线状态；请检查过滤节点是否启动')
+            self.self_filter_label.setStyleSheet('color:#ec9c83')
+        else:
+            self.self_filter_label.setText('自体回波过滤：等待建图任务')
+            self.self_filter_label.setStyleSheet('color:#90a1ae')
         self.status.setText('● ROS 已连接' if online else '● ROS 未连接')
         self.status.setStyleSheet('color:#55c9a9' if online else 'color:#ec9c83')
         od=s.get('odom');self.odom_label.setText('base_link X={:.2f} Y={:.2f} Yaw={:.1f}°'.format(*od[:2],math.degrees(od[2])) if od else 'base_link 局部位姿：未收到')
