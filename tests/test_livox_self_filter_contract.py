@@ -20,6 +20,11 @@ def test_livox_self_filter_default_on_and_core_reused():
     assert "output.points.clear()" not in cpp
     assert "output.point_num=" not in cpp
     assert "i+=filter_num" in cpp
+    assert "i+=static_cast<std::size_t>(lio_filter_num_)" in cpp
+    assert "valid_lio(output.points[i])" in cpp
+    assert "BYPASS_LIO_SAMPLES" in cpp
+    for param in ('lidar_filter_num','lidar_min_range','lidar_max_range'):
+        assert "data['" + param + "']" in launch
     assert params['input_topic'] == '/field/aligned/lidar'
     assert params['output_topic'] == '/field/self_filtered/lidar'
     assert params['target_frame'] == 'base_link'
