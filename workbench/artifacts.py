@@ -80,17 +80,83 @@ class Clouds:
             calibration=original.get('calibration'),source_bag=original.get('source_bag'),source_bag_sha256=original.get('source_bag_sha256'),
             name=original.get('name',''),source=original['pcd'],source_sha256=original['sha256']))
     def grid(self,parent,params,name=None):
+        """Reuse the pinned, terrain-relative AGT exporter for a standalone PCD.
+
+        The keyframe-dependent traversability mode is NOT available for a single
+        fused FAST-LIO2 map. Keep unknown cells unknown and never mutate the
+        localization PCD. Every projection creates a new draft map version.
+        """
         original=self.get(parent)
         requested=dict(params or {})
-        res=float(requested.get('resolution',.05))
-        bounds=original['processing'];lo=bounds['bounds_min'];hi=bounds['bounds_max']
-        automatic=dict(origin=[lo[0]-res,lo[1]-res,0.],range=[hi[0]-lo[0]+2*res,hi[1]-lo[1]+2*res])
-        automatic.update(requested)
-        p=projection(automatic)
-        ident,out,config=self._process(original['pcd'],{'operations':[],'projection':p})
-        meta=yaml.safe_load((out/'map.yaml').read_text());w,h,pixels=read_pgm(out/'map.pgm')
-        return Maps(self.root)._save(w,h,pixels,meta,dict(parent=None,cloud_id=parent,projection=p,
+        supported={'resolution','ground_cell_size','ground_percentile','ground_tolerance',
+                   'obstacle_min_height','obstacle_max_height','occupied_threshold',
+                   'free_space_radius_cells','closing_radius_cells','min_component_cells',
+                   'min_points','z_min','z_max','ground_min'}
+        invalid=set(requested)-supported
+        if invalid:raise ValueError('unknown local_ground parameter(s): '+', '.join(sorted(invalid)))
+        legacy_height=sorted(set(requested)&{'z_min','z_max','ground_min'})
+        # Older clients sent absolute world-Z slices. They are deliberately
+        # ignored, rather than silently reinterpreted as heights above ground.
+        if 'min_points' in requested and 'occupied_threshold' not in requested:
+            requested['occupied_threshold']=requested['min_points']
+        defaults=Path(self.root)/'src/agt-lio-pgo-mapping/exporters/agt_pcd2grid_exporter/config/projection.yaml'
+        if not defaults.is_file():
+            raise ValueError('missing locked agt_pcd2grid_exporter local_ground config: '+str(defaults))
+        config=yaml.safe_load(defaults.read_text())
+        if config.get('projection_mode')!='local_ground':
+            raise ValueError('locked exporter config is not local_ground')
+        config['temporal_filter']['enabled']=False  # no per-keyframe patches in a fused PCD
+        fields={
+            'resolution':('resolution',None),
+            'ground_cell_size':('ground','cell_size'),
+            'ground_percentile':('ground','percentile'),
+            'ground_tolerance':('ground','free_tolerance'),
+            'obstacle_min_height':('obstacle_height','min'),
+            'obstacle_max_height':('obstacle_height','max'),
+            'occupied_threshold':('occupied_threshold',None),
+            'free_space_radius_cells':('free_space_radius_cells',None),
+            'closing_radius_cells':('postprocess','closing_radius_cells'),
+            'min_component_cells':('postprocess','min_component_cells')}
+        for key,(group,item) in fields.items():
+            if key not in requested:continue
+            value=requested[key]
+            if not finite(value):raise ValueError('non-finite local_ground parameter: '+key)
+            if key in ('occupied_threshold','free_space_radius_cells','closing_radius_cells','min_component_cells'):
+                if int(value)!=value or value<0 or (key=='occupied_threshold' and value<1):
+                    raise ValueError('invalid integer local_ground parameter: '+key)
+                value=int(value)
+            if item is None:config[group]=value
+            else:config[group][item]=value
+        if not .01<=float(config['resolution'])<=1.:
+            raise ValueError('resolution outside supported [0.01,1.0] m')
+        if not 0.<float(config['ground']['cell_size'])<=10.:
+            raise ValueError('invalid ground_cell_size')
+        if not 0.<=float(config['ground']['percentile'])<=1.:
+            raise ValueError('ground_percentile outside [0,1]')
+        if float(config['ground']['free_tolerance'])<0.:
+            raise ValueError('ground_tolerance must be nonnegative')
+        if not 0.<=float(config['obstacle_height']['min'])<float(config['obstacle_height']['max']):
+            raise ValueError('relative obstacle height min must be below max')
+        ident=_new_id()
+        directory=self.root/'runs'/ident
+        directory.mkdir(parents=True,exist_ok=False)
+        snapshot=directory/'projection_local_ground.yaml'
+        snapshot.write_text(yaml.safe_dump(config,sort_keys=False))
+        out=self.directory/ident
+        # The backend C++ executable already belongs to the locked mapping repo.
+        self.runner(['ros2','run','agt_pcd2grid_exporter','pcd2grid_exporter',
+                     '--pcd',original['pcd'],'--config',str(snapshot),'--output',str(out)],timeout=3600)
+        meta=yaml.safe_load((out/'map.yaml').read_text())
+        w,h,pixels=read_pgm(out/'map.pgm')
+        stats=yaml.safe_load((out/'metadata.yaml').read_text())
+        return Maps(self.root)._save(w,h,pixels,meta,dict(
+            parent=None,cloud_id=parent,
+            projection_mode='local_ground',projection_backend='agt_pcd2grid_exporter',
+            projection_config=str(snapshot),projection_config_sha256=hash_file(snapshot),
+            projection_stats=stats,ignored_legacy_z_parameters=legacy_height,
             source_pcd=original['pcd'],source_pcd_sha256=original['sha256'],
-            source_bag=original.get('source_bag'),source_bag_sha256=original.get('source_bag_sha256'),calibration=original.get('calibration'),
+            source_bag=original.get('source_bag'),
+            source_bag_sha256=original.get('source_bag_sha256'),
+            calibration=original.get('calibration'),
             name=original.get('name','') if name is None else str(name).strip()[:120],
             source_yaml=str(out/'map.yaml'),source_pgm_sha256=hash_file(out/'map.pgm')))
