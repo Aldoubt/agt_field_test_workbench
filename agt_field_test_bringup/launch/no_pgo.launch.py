@@ -42,7 +42,11 @@ def configure(context):
             Node(package='livox_ros_driver2',executable='livox_ros_driver2_node',parameters=[{
             'xfer_format':1,'multi_topic':0,'data_src':0,'publish_freq':10.,'output_data_type':0,
             'frame_id':'livox_frame','lvx_file_path':'','user_config_path':identity['config_path']}])])
-    handlers=[RegisterEventHandler(OnProcessExit(target_action=n,on_exit=[EmitEvent(event=Shutdown(reason='no-PGO critical node stopped'))])) for n in nodes]
+    # Only ROS Node processes have OnProcessExit; LogInfo is a one-shot action.
+    # Treating it as a process target can invalidate a live MID360S launch.
+    handlers=[RegisterEventHandler(OnProcessExit(target_action=n,on_exit=[
+        EmitEvent(event=Shutdown(reason='no-PGO critical node stopped'))]))
+        for n in nodes if isinstance(n,Node)]
     return handlers+nodes
 
 def generate_launch_description():
