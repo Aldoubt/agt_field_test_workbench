@@ -41,6 +41,9 @@ projection:
 global_backend: bbs
 # Mutually exclusive local odometry frontend; both publish base_link odometry.
 lio_backend: batch_lio  # batch_lio or fastlio2
+# FAST-LIO2 without PGO is the current Bunker baseline. GLIM remains experimental
+# until its dependencies, configuration and real-bag replay are accepted.
+mapping_backend: fastlio  # fastlio or glim_experimental
 save_mapping_data: true
 # Autolabor C1 capability used by V3 stop-and-shoot missions.
 enable_camera_gimbal: true
