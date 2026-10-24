@@ -208,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, JOBS.start_mapping(
                     payload.get('bag'), payload.get('robot', 'bunker'),
                     payload.get('calibration'), bool(payload.get('live')),
-                    payload.get('livox_config'), payload.get('mount_profile'),payload.get('backend','fastlio'),payload.get('calibration_bundle')))
+                    payload.get('livox_config'), payload.get('mount_profile'),payload.get('backend','fastlio'),payload.get('calibration_bundle'),payload.get('map_name','')))
             if self.path == '/api/recording/start':
                 return self.response(200, JOBS.start_recorder(
                     payload.get('template'), payload.get('robot', 'bunker'),

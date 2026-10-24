@@ -85,7 +85,7 @@ class Sessions:
         if robot=='bunker':args+=['calibration_bundle:='+str(copied)]
         else:
             args+=['fwmini_mount_file:='+str(copied),'fwmini_mode:='+('autonomous_navigation' if task=='navigation' else 'supervised_localization' if task=='localization' else 'sensor_test'),'supervised:=true']
-            if p.get('geometry_file'):args+=['geometry_file:='+str(Path(p['geometry_file']).resolve())]
+            if p.get('geometry_file'):args+=['fwmini_geometry_file:='+str(Path(p['geometry_file']).resolve())]
         if p.get('gps_alignment_file'):args+=['gps_alignment_file:='+str(Path(p['gps_alignment_file']).resolve())]
         if map_record:args+=['global_map:='+map_record['source_pcd'],'map_yaml:='+map_record['yaml']]
         if acceptance:
