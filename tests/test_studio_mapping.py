@@ -9,8 +9,8 @@ class StudioMappingContractTests(unittest.TestCase):
     def test_fastlio_is_default_and_glim_is_explicitly_experimental(self):
         source = (ROOT / 'agt_robot_studio/agt_robot_studio/ui.py').read_text()
         self.assertIn("'mapping_backend':'fastlio'", source)
-        self.assertIn('FAST-LIO2 无 PGO（Bunker 当前验收基线）', source)
-        self.assertIn('GLIM（实验：依赖／配置／真实回放未验收）', source)
+        self.assertIn('FAST-LIO2 · 无 PGO', source)
+        self.assertIn('GLIM · 实验', source)
         self.assertIn("'/api/mapping/start'", source)
         self.assertIn("f'/api/jobs/{self.mapping_job_id}/finish'", source)
 

@@ -12,6 +12,9 @@ import re
 import signal
 import zipfile
 import subprocess
+import tempfile
+import shutil
+from yaml import YAMLError
 
 from .maps import Maps
 from .cloud import sample_pcd
@@ -74,6 +77,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, status())
             if self.path == '/api/jobs':
                 return self.response(200, JOBS.list())
+            if self.path == '/api/components':return self.response(200,SESSIONS.components())
             if self.path.split('?',1)[0] == '/api/devices/camera':
                 from .devices import camera_status
                 return self.response(200, camera_status(JOBS, probe='probe=1' in self.path))
@@ -85,21 +89,22 @@ class Handler(BaseHTTPRequestHandler):
                 listing=list_captures(JOBS)
                 if listing.get('state')!='READY':raise ValueError('no capture session to export')
                 root=Path(listing['capture_root']).resolve()
-                buffer=BytesIO()
-                with zipfile.ZipFile(buffer,'w',compression=zipfile.ZIP_DEFLATED) as archive:
-                    for item in listing['captures']:
-                        path=Path(item['path']).resolve()
-                        if path.is_relative_to(root) and path.is_file():
-                            archive.write(path,path.relative_to(root).as_posix())
-                    for path in root.rglob('*.jsonl'):
-                        if path.is_file() and path.resolve().is_relative_to(root):
-                            archive.write(path,path.resolve().relative_to(root).as_posix())
-                data=buffer.getvalue()
-                self.send_response(200);self.send_header('Content-Type','application/zip')
-                self.send_header('Content-Disposition','attachment; filename="agt_captures_'+str(listing.get('capture_session_id','session'))+'.zip"')
-                self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
+                with tempfile.TemporaryFile() as buffer:
+                    with zipfile.ZipFile(buffer,'w',compression=zipfile.ZIP_DEFLATED) as archive:
+                        for path in root.rglob('*'):
+                            if (path.is_file() and path.resolve().is_relative_to(root)
+                                    and path.suffix.lower() in ('.png','.jpg','.jpeg','.json','.jsonl','.csv','.yaml')):
+                                archive.write(path,path.relative_to(root).as_posix())
+                    length=buffer.tell();buffer.seek(0)
+                    self.send_response(200);self.send_header('Content-Type','application/zip')
+                    self.send_header('Content-Disposition','attachment; filename="agt_captures.zip"')
+                    self.send_header('Content-Length',str(length));self.end_headers()
+                    shutil.copyfileobj(buffer,self.wfile,length=1024*1024)
+                return
             if self.path == '/api/maps':
                 return self.response(200, MAPS.list())
+            match=re.fullmatch(r'/api/maps/([^/]+)/diff',self.path)
+            if match:return self.response(200,MAPS.diff_preview(match.group(1)))
             if self.path == '/api/templates':
                 return self.response(200, TEMPLATES)
             if self.path == '/api/fwmini/mounts':
@@ -153,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
-        except (ValueError, OSError, KeyError, TypeError) as exc:
+        except (ValueError, OSError, KeyError, TypeError, YAMLError) as exc:
             self.response(400, {'error': str(exc)})
 
     def do_POST(self):
@@ -209,6 +214,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path=='/api/session/start':return self.response(200,SESSIONS.start(payload))
             if self.path=='/api/session/stop':return self.response(200,SESSIONS.stop())
             if self.path=='/api/session/stop_all':return self.response(200,SESSIONS.stop_all())
+            match=re.fullmatch(r'/api/components/(sensors|chassis|guard|localization|navigation)/stop',self.path)
+            if match:return self.response(200,SESSIONS.stop_component(match.group(1)))
+            if self.path=='/api/components/guard/start':return self.response(200,SESSIONS.start_guard())
             match=re.fullmatch(r'/api/control/(distance|route|goal|jog|stop|mode|relocalize)',self.path)
             if match:return self.response(200,rpc(ROOT,match.group(1),payload))
             match=re.fullmatch(r'/api/bundles/(bunker|fwmini)',self.path)
@@ -262,9 +270,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, {'path': str(target), 'status': 'VERIFIED'})
             match = re.fullmatch(r'/api/jobs/([^/]+)/stop', self.path)
             if match:
+                job=next((j for j in JOBS.list() if j['id']==match.group(1)),None)
+                components={'sensor_stack':'sensors','chassis_component':'chassis','control_guard':'guard',
+                            'field_session':'localization','navigation_component':'navigation'}
+                if job and job['kind'] in components:
+                    return self.response(200,SESSIONS.stop_component(components[job['kind']]))
+                if job and job['kind']=='camera_gimbal':
+                    from .devices import stop_camera
+                    return self.response(200,stop_camera(JOBS))
                 return self.response(200, JOBS.stop(match.group(1)))
             if self.path == '/api/maps/diff':
-                return self.response(200, MAPS.compare_and_propose(payload['base_id'],payload['candidate_id']))
+                return self.response(200, MAPS.compare_and_propose(payload['base_id'],payload['candidate_id'],payload.get('alignment')))
             if self.path == '/api/maps/import':
                 return self.response(200, MAPS.import_yaml(payload['yaml_path'],
                                      payload.get('calibration'), payload.get('source_bag'), payload.get('name','')))
@@ -313,7 +329,7 @@ class Handler(BaseHTTPRequestHandler):
                 write_json(target, record)
                 return self.response(200, record)
             return self.response(404, {'error': 'not found'})
-        except (ValueError, KeyError, OSError, TypeError, subprocess.CalledProcessError,
+        except (ValueError, KeyError, OSError, TypeError, YAMLError, subprocess.CalledProcessError,
                 subprocess.TimeoutExpired) as exc:
             self.response(400, {'error': str(exc)})
 

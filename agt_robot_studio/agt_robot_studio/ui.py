@@ -6,17 +6,19 @@ import math
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 import numpy as np
 from PyQt5.QtCore import Qt, QProcess, QTimer, QRectF, QPointF, pyqtSignal, QUrl
-from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPolygonF, QDesktopServices
+from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPolygonF, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QLayout, QSizePolicy,
     QFrame, QLabel, QPushButton, QStackedWidget, QDoubleSpinBox, QComboBox,
     QMessageBox, QFileDialog, QTextEdit, QCheckBox, QLineEdit, QSpinBox,
     QFormLayout, QScrollArea)
 from .map_io import occupancy_to_gray, save_nav2_map
 from .workbench_client import ApiWorker, WorkbenchClient
+from .tri_views import TriViewWorkbench
 
 DEFAULT_CONFIG = {
     'robot':'bunker', 'points_topic':'/glim_rosnode/map',
@@ -221,6 +223,7 @@ def pixel_to_world(column, row, width, height, resolution, origin):
 
 class GridView(QWidget):
     goal_clicked = pyqtSignal(object)
+    follow_changed = pyqtSignal(bool)
 
     def __init__(self, navigation_mode=False):
         super().__init__()
@@ -230,19 +233,39 @@ class GridView(QWidget):
         self.keepout_mode=False;self.keepout=[];self.polygon=[]
         self.waypoints=[]
         self.pending_goal=None;self.hover_goal=None
+        self.robot=None;self.robot_stale=True;self.follow=False;self.frame_id='map';self.received=None;self.plan=[]
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMinimumSize(350,240)
         self.setToolTip('左键第一次选目标位置，第二次选航向；Esc 取消' if navigation_mode else '左键绘制；右键或中键拖动；滚轮缩放')
 
     def set_grid(self,info):
         try:
-            gray=occupancy_to_gray(info['data'],int(info['width']),int(info['height']))
+            gray=info['gray'] if 'gray' in info else occupancy_to_gray(info['data'],int(info['width']),int(info['height']))
             h,w=gray.shape
             img=QImage(gray.data,w,h,w,QImage.Format_Grayscale8).copy()
         except Exception as e:
             return
         self.image=img;self.res=float(info['resolution']);self.origin=tuple(info['origin'])
-        self.undo=[];self.keepout=[];self.polygon=[];self.scale=1.0;self.pan_x=0.;self.pan_y=0.;self.reset_heading();self.update()
+        self.frame_id=info.get('frame_id','map');self.received=info.get('received',time.monotonic())
+        if self.follow:self.center_robot()
+        self.update()
+
+    def set_robot(self,pose):
+        self.robot_stale=pose is None
+        if pose is not None:self.robot=pose
+        if self.follow and pose is not None:self.center_robot()
+        self.update()
+
+    def world_screen(self,x,y):
+        rect=self._rect();dx=x-self.origin[0];dy=y-self.origin[1]
+        c=math.cos(self.origin[2]);s=math.sin(self.origin[2])
+        return QPointF(rect.x()+(c*dx+s*dy)/self.res/self.image.width()*rect.width(),
+                       rect.y()+(self.image.height()-(-s*dx+c*dy)/self.res)/self.image.height()*rect.height())
+
+    def center_robot(self):
+        if self.robot and self.robot['frame_id']==self.frame_id and not self.image.isNull():
+            point=self.world_screen(self.robot['x'],self.robot['y'])
+            self.pan_x+=self.width()/2-point.x();self.pan_y+=self.height()/2-point.y();self.update()
 
     def load_pgm(self,path):
         img=QImage(path).convertToFormat(QImage.Format_Grayscale8)
@@ -277,6 +300,11 @@ class GridView(QWidget):
                 for point in points:p.drawEllipse(point,4,4)
         if self.navigation_mode and not self.image.isNull():
             rect=self._rect()
+            p.setPen(QPen(QColor('#59a8ed'),2))
+            if len(self.plan)>1:p.drawPolyline(QPolygonF([self.world_screen(v['x'],v['y']) for v in self.plan]))
+            if len(self.waypoints)>1:
+                p.setPen(QPen(QColor('#55c9b0'),2,Qt.DashLine))
+                p.drawPolyline(QPolygonF([self.world_screen(v['x'],v['y']) for v in self.waypoints]))
             for index,point in enumerate(self.waypoints):
                 local_x=(point['x']-self.origin[0])*math.cos(self.origin[2])+(point['y']-self.origin[1])*math.sin(self.origin[2])
                 local_y=-(point['x']-self.origin[0])*math.sin(self.origin[2])+(point['y']-self.origin[1])*math.cos(self.origin[2])
@@ -285,6 +313,11 @@ class GridView(QWidget):
                 p.setPen(QPen(QColor('#f2b66d') if point.get('photo') else QColor('#55c9b0'),2))
                 p.drawEllipse(int(sx-6),int(sy-6),12,12)
                 p.drawText(int(sx+9),int(sy-8),str(index+1))
+            if self.robot and self.robot['frame_id']==self.frame_id:
+                point=self.world_screen(self.robot['x'],self.robot['y'])
+                yaw=self.robot['yaw']-self.origin[2]
+                p.setPen(QPen(QColor('#e5b144' if self.robot_stale else '#ff697e'),3));p.drawEllipse(point,6,6)
+                p.drawLine(point,QPointF(point.x()+24*math.cos(yaw),point.y()-24*math.sin(yaw)))
         if self.navigation_mode and self.pending_goal is not None and not self.image.isNull():
             rect=self._rect()
             def point_screen(world):
@@ -304,13 +337,16 @@ class GridView(QWidget):
             p.drawText(12,42,'等待第二次左键选择朝向 · Esc 取消')
         p.setPen(QColor('#8096a3'))
         p.drawText(12,22,'2D 栅格 / 左键选位置→左键选方向 / Esc 取消' if self.navigation_mode else '2D 栅格  /  左键画笔 · 右键拖动 · 滚轮缩放')
+        if self.navigation_mode:
+            p.drawText(12,self.height()-12, '栅格缺失' if self.image.isNull() else
+                '栅格过期，保留最后有效画面' if self.received and time.monotonic()-self.received>5 else '最新有效栅格')
 
     def reset_heading(self):
         self.pending_goal=None;self.hover_goal=None;self.update()
 
     def select_heading_point(self,x,y):
         """Two map-frame left clicks: position then orientation, no motion on first."""
-        if not self.navigation_mode:return
+        if not self.navigation_mode or self.frame_id!='map':return
         if not all(math.isfinite(v) for v in (x,y)):return
         if self.pending_goal is None:
             self.pending_goal=(float(x),float(y))
@@ -387,6 +423,8 @@ class GridView(QWidget):
                 self.update()
         if e.buttons()&Qt.LeftButton and not self.navigation_mode:self._paint(e.pos())
         if self.drag and e.buttons()&(Qt.RightButton|Qt.MiddleButton):
+            self.follow=False
+            self.follow_changed.emit(False)
             delta=e.pos()-self.drag;self.pan_x+=delta.x();self.pan_y+=delta.y()
             self.drag=e.pos();self.update()
 
@@ -410,7 +448,7 @@ class GridView(QWidget):
 
 class Studio(QMainWindow):
     def __init__(self,cfg,demo=False):
-        super().__init__();self.cfg=dict(cfg);self.demo=demo;self.worker=None;self.api=None
+        super().__init__();self.cfg=dict(cfg);self.demo=demo;self.worker=None;self.api=None;self.control_api=None
         self.glim=None;self.bag=None;self.rviz=None;self.editor=None;self.backend=None
         self.current_run=None;self.current_map_id=None;self.maps_by_id={};self.clouds_by_id={}
         self.current_map_name=str(cfg.get('map_name') or '').strip()[:120]
@@ -420,6 +458,9 @@ class Studio(QMainWindow):
         self.recorder_id=None;self.recorder_output='';self.jobs_in_flight=False;self.mapping_job_id=None
         self.mapping_saving=False;self.map_saving=False;self.grid_building=False;self.pending_load_map_id=None
         self.camera_job_state={'state':'STOPPED'};self.camera_health_state={};self.jobs_cache=[];self.last_capture_job_id=None
+        self.camera_health_seen=0.;self.camera_health_pending=False
+        self.components_in_flight=False
+        self.pending_mapping_start=False
         self.routes_by_id={};self.route_points=[];self.current_route_id=None
         self.setWindowTitle('AGT Robot Studio  ·  ROS 2 Humble')
         self.ui_scale,self.sidebar_width=fit_to_screen(self)
@@ -432,11 +473,13 @@ class Studio(QMainWindow):
         self._global_status(r)
         self.stack=QStackedWidget();r.addWidget(self.stack,1)
         self.cloud_view=CloudView();self.clean_view=CloudView();self.map_view=GridView();self.nav_view=GridView(navigation_mode=True)
+        self.tri_view=TriViewWorkbench(self.nav_view)
         self.nav_view.goal_clicked.connect(self.send_goal)
         self._page_mapping();self._page_devices();self._page_maps();self._page_navigation();self._page_parameters();self._page_logs()
         self.pages['设备与传感器'].click();self.setStyleSheet(scaled_style(self.ui_scale))
         self.write_log('界面已启动；' + ('演示模式不连接机器人' if demo else '正在连接现有 Workbench 与 ROS'))
         self.timer=QTimer(self);self.timer.timeout.connect(self._poll);self.timer.start(1500)
+        self.display_timer=QTimer(self);self.display_timer.timeout.connect(self._drain_display);self.display_timer.start(100)
         if demo:self._setup_demo()
         else:
             self._setup_backend()
@@ -449,9 +492,16 @@ class Studio(QMainWindow):
             self.worker.wait(2000);self.worker=None
         from .ros_worker import RosWorker
         self.worker=RosWorker(self.cfg)
-        self.worker.state.connect(self._on_state);self.worker.cloud.connect(self._on_cloud)
-        self.worker.grid.connect(self._on_grid);self.worker.notice.connect(self.write_log)
+        self.worker.state.connect(self._on_state);self.worker.notice.connect(self.write_log)
         self.worker.start()
+
+    def _drain_display(self):
+        if not self.worker:return
+        for kind,value in self.worker.frames.take().items():
+            try:
+                if kind=='cloud':self._on_cloud(value)
+                elif kind=='grid':self._on_grid(value)
+            except Exception as exc:self.write_log('显示帧已隔离：'+str(exc))
 
     def _sidebar(self,layout):
         side=QFrame();side.setObjectName('sidebar');side.setFixedWidth(self.sidebar_width);layout.addWidget(side)
@@ -513,11 +563,17 @@ class Studio(QMainWindow):
         l=self._page_shell(scroll=True);l.addWidget(text_label('设备与传感器','title'))
         card(l,'已连接设备')
         sensors=card(l,'一、传感器、底盘与组合启动')
-        sensors.addWidget(text_label('车辆类型和 LiDAR 驱动继续由建图页与既有 Field Session 选择，'
-            '这里复用原有接口；切换至手动底盘会话时当前传感器会话可能重启。'))
+        sensors.addWidget(text_label('传感器、底盘、控制守护、定位和导航由后端独立管理；停止有依赖的组件前需先结束使用者。'))
         row=QHBoxLayout();sensors.addLayout(row)
         start=button('启动 MID360S / IMU');start.clicked.connect(self.connect_sensors);row.addWidget(start)
         chassis=button('连接底盘（受监督）');chassis.clicked.connect(self.connect_chassis);row.addWidget(chassis)
+        stop_chassis=button('停止底盘');stop_chassis.clicked.connect(lambda:self._api('component_stop','POST','/api/components/chassis/stop',{}));row.addWidget(stop_chassis)
+        stop_sensors=button('停止传感器');stop_sensors.clicked.connect(lambda:self._api('component_stop','POST','/api/components/sensors/stop',{}));row.addWidget(stop_sensors)
+        row=QHBoxLayout();sensors.addLayout(row)
+        for title,path in (('停止导航','navigation/stop'),('停止定位','localization/stop'),
+                           ('停止手动守护','guard/stop'),('恢复手动守护','guard/start')):
+            control=button(title);control.clicked.connect(lambda _,p=path:self._api('component_stop','POST','/api/components/'+p,{}));row.addWidget(control)
+        self.component_status_label=text_label('组件状态：等待后端健康观测');sensors.addWidget(self.component_status_label)
         self.motion_checks={}
         checks=card(l,'二、底盘启动前现场确认')
         checks.addWidget(text_label('默认全部未勾选；不代替实体急停、遥控接管和后端运动许可。'))
@@ -546,7 +602,7 @@ class Studio(QMainWindow):
         health_row=QHBoxLayout();camera.addLayout(health_row)
         health=button('检查相机健康');health.clicked.connect(self.check_camera_health);health_row.addWidget(health)
         open_dir=button('打开采集目录');open_dir.clicked.connect(self.open_capture_directory);health_row.addWidget(open_dir)
-        export=button('导出本次采集');export.clicked.connect(self.export_capture_session);health_row.addWidget(export)
+        export=button('导出采集与任务记录');export.clicked.connect(self.export_capture_session);health_row.addWidget(export)
         self.capture_status_label=text_label('采集：尚未执行');camera.addWidget(self.capture_status_label)
         records=card(l,'四、独立录包')
         row=QHBoxLayout();records.addLayout(row)
@@ -597,11 +653,11 @@ class Studio(QMainWindow):
                   '/api/devices/camera/capture' if save_image else '/api/devices/camera/move',payload)
 
     def open_capture_directory(self):
-        root=self.camera_job_state.get('capture_root')
+        active_root=self.camera_job_state.get('capture_root')
+        root=str(Path(active_root).parent) if active_root else None
         if not root:
             QMessageBox.information(self,'采集目录','请先启动一次 C1 相机，创建独立采集会话。');return
         path=Path(root)
-        path.mkdir(parents=True,exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def export_capture_session(self):
@@ -721,12 +777,19 @@ class Studio(QMainWindow):
         diff_row=QHBoxLayout();diff.addLayout(diff_row)
         self.diff_base_box=QComboBox();self.diff_base_box.setMinimumWidth(180);diff_row.addWidget(self.diff_base_box,1)
         self.diff_candidate_box=QComboBox();self.diff_candidate_box.setMinimumWidth(180);diff_row.addWidget(self.diff_candidate_box,1)
+        self.diff_alignment_evidence=QLineEdit();self.diff_alignment_evidence.setPlaceholderText('不同 PCD 必填：外部配准/测量共同坐标系的核验依据（本工具不估计配准）');diff.addWidget(self.diff_alignment_evidence)
         compare=button('比较并生成更新候选','primary');compare.clicked.connect(self.compare_map_versions);diff_row.addWidget(compare)
         self.diff_status_label=text_label('差异报告：尚未运行');diff.addWidget(self.diff_status_label)
         self.diff_preview_label=QLabel('差异图将在此显示');self.diff_preview_label.setAlignment(Qt.AlignCenter)
         self.diff_preview_label.setMinimumSize(500,220);self.diff_preview_label.setMaximumHeight(300)
         self.diff_preview_label.setStyleSheet('background:#101820;border:1px solid #2b3b46;border-radius:8px;color:#90a1ae')
         diff.addWidget(self.diff_preview_label)
+        review_row=QHBoxLayout();diff.addLayout(review_row)
+        self.diff_review_box=QComboBox();review_row.addWidget(self.diff_review_box,1)
+        self.diff_review_box.activated.connect(lambda _:self._api('map_diff_preview','GET',f'/api/maps/{self.diff_review_box.currentData()}/diff'))
+        self.diff_review_reason=QLineEdit();self.diff_review_reason.setPlaceholderText('填写人工审核依据');review_row.addWidget(self.diff_review_reason,1)
+        for title,status in (('审核通过','ACCEPTED'),('拒绝候选','REJECTED')):
+            review=button(title);review.clicked.connect(lambda _,s=status:self.review_map_update(s));review_row.addWidget(review)
         row.addStretch();self.map_info=text_label('地图：未加载；Unknown 始终保持未知，不会自动变空闲');l.addWidget(self.map_info)
         self.map_write_status=text_label('地图写入：空闲');l.addWidget(self.map_write_status)
 
@@ -777,13 +840,14 @@ class Studio(QMainWindow):
         row.addWidget(text_label('云台在设备页独立启动'))
         self.localization_label=text_label('定位状态：等待 Workbench');row.addWidget(self.localization_label,1)
         frame=QFrame();frame.setObjectName('viewer');l.addWidget(frame,1)
-        v=QVBoxLayout(frame);v.addWidget(self.nav_view,1)
+        v=QVBoxLayout(frame);v.addWidget(self.tri_view,1)
+        self.view_status_label=text_label('实时视图：等待地图、点云和 map → base_link TF');v.addWidget(self.view_status_label)
         row=QHBoxLayout();v.addLayout(row)
         self.target_mode_box=QComboBox();self.target_mode_box.addItem('两次点击导航','goal');self.target_mode_box.addItem('两次点击添加航点','route')
         self.target_mode_box.currentIndexChanged.connect(lambda _:self.nav_view.reset_heading())
         row.addWidget(self.target_mode_box)
         self.photo_box=QCheckBox('到点拍照');self.photo_box.setChecked(True);row.addWidget(self.photo_box)
-        self.gimbal_heading=QDoubleSpinBox();self.gimbal_heading.setRange(-180,180);self.gimbal_heading.setSuffix('° 航向');row.addWidget(self.gimbal_heading)
+        self.gimbal_heading=QDoubleSpinBox();self.gimbal_heading.setRange(-160,160);self.gimbal_heading.setSuffix('° 航向');row.addWidget(self.gimbal_heading)
         self.gimbal_pitch=QDoubleSpinBox();self.gimbal_pitch.setRange(-90,90);self.gimbal_pitch.setSuffix('° 俯仰');row.addWidget(self.gimbal_pitch)
         clear=button('清空航点');clear.clicked.connect(self.clear_route);row.addWidget(clear)
         row=QHBoxLayout();v.addLayout(row)
@@ -893,13 +957,23 @@ class Studio(QMainWindow):
         row=QHBoxLayout();l.addLayout(row);s=button('保存日志');s.clicked.connect(self.save_logs);row.addWidget(s);row.addStretch()
 
     def _setup_backend(self):
-        root=Path(str(self.cfg.get('workbench_root') or Path(__file__).resolve().parents[2])).expanduser().resolve()
+        workspace=os.environ.get('AGT_FIELD_TEST_WS')
+        default_root=Path(workspace)/'src/agt_field_test_workbench' if workspace else Path(__file__).resolve().parents[2]
+        root=Path(str(self.cfg.get('workbench_root') or default_root)).expanduser().resolve()
         self.cfg['workbench_root']=str(root)
         client=WorkbenchClient(self.cfg['workbench_api'])
         self.api=ApiWorker(client);self.api.completed.connect(self._on_api);self.api.start()
-        try:WorkbenchClient(self.cfg['workbench_api'],.45).get('/api/maps')
-        except Exception:
-            if self.cfg.get('auto_start_workbench',True) and (root/'workbench/server.py').is_file():
+        # Serialize control/lifecycle operations separately from long asset I/O.
+        # A goal followed by stop retains order, without waiting for a PCD diff.
+        self.control_api=ApiWorker(client);self.control_api.completed.connect(self._on_api);self.control_api.start()
+        self.api.call('backend_probe','GET','/api/maps',timeout=.45)
+        QTimer.singleShot(1300,lambda:self._api('profile_get','GET','/api/profiles'))
+        QTimer.singleShot(1400,self.refresh_library);QTimer.singleShot(1600,self.refresh_live)
+        QTimer.singleShot(1800,self.refresh_jobs)
+
+    def _launch_backend(self):
+        root=Path(self.cfg['workbench_root'])
+        if self.cfg.get('auto_start_workbench',True) and (root/'workbench/server.py').is_file():
                 env=os.environ.copy();env['PYTHONPATH']=str(root)+os.pathsep+env.get('PYTHONPATH','')
                 # Workbench owns live mapping/recording jobs. It must outlive
                 # the GUI; otherwise saving/crashing Qt orphans active jobs.
@@ -919,9 +993,6 @@ class Studio(QMainWindow):
                     self.write_log(f'Workbench 独立后台服务已启动（PID {pid}）；关闭 Qt 不会中断建图或录包')
                 else:
                     self.write_log('Workbench 后台启动失败：'+server.errorString())
-        QTimer.singleShot(1300,lambda:self._api('profile_get','GET','/api/profiles'))
-        QTimer.singleShot(1400,self.refresh_library);QTimer.singleShot(1600,self.refresh_live)
-        QTimer.singleShot(1800,self.refresh_jobs)
 
     def _api(self,name,method,path,payload=None):
         if self.demo:self.write_log('演示模式：未调用 Workbench');return
@@ -930,10 +1001,14 @@ class Studio(QMainWindow):
         if name in ('record_start','session_stop_all'):timeout=120
         elif name=='cloud_project':timeout=1500
         elif name in ('cloud_import','cloud_clean'):timeout=600
-        elif name=='map_revise':timeout=120
+        elif name in ('map_revise','map_diff','map_review'):timeout=120
+        elif name=='component_stop':timeout=60
         elif name=='cloud_preview':timeout=30
         elif name in ('record_stop','session_stop') or name.startswith(('session_','device_')):timeout=30
-        self.api.call(name,method,path,payload,timeout)
+        if name=='session_sensors':self.pending_mapping_start=True
+        control=method=='POST' and path.startswith(('/api/control/','/api/session/','/api/components/','/api/mapping/'))
+        worker=self.control_api if self.control_api and control else self.api
+        worker.call(name,method,path,payload,timeout)
 
     def refresh_library(self):
         self._api('refresh_maps','GET','/api/maps');self._api('refresh_clouds','GET','/api/clouds')
@@ -947,7 +1022,18 @@ class Studio(QMainWindow):
         if base_id==candidate_id:
             QMessageBox.warning(self,'版本选择错误','基准和候选不能是同一个地图版本。');return
         self.diff_status_label.setText('正在对齐栅格并计算地图差异……')
-        self._api('map_diff','POST','/api/maps/diff',{'base_id':base_id,'candidate_id':candidate_id})
+        payload={'base_id':base_id,'candidate_id':candidate_id}
+        if self.diff_alignment_evidence.text().strip():
+            payload['alignment']={'method':'EXTERNAL_ALIGNMENT_REVIEWED','evidence':self.diff_alignment_evidence.text().strip(),
+                'base_pcd_sha256':self.maps_by_id[base_id].get('source_pcd_sha256'),
+                'candidate_pcd_sha256':self.maps_by_id[candidate_id].get('source_pcd_sha256')}
+        self._api('map_diff','POST','/api/maps/diff',payload)
+
+    def review_map_update(self,status):
+        ident=self.diff_review_box.currentData();reason=self.diff_review_reason.text().strip()
+        if not ident or not reason or ident!=getattr(self,'diff_displayed_id',None):
+            QMessageBox.warning(self,'审核依据','请选择更新候选并填写审核依据。');return
+        self._api('map_review','POST',f'/api/maps/{ident}/status',{'status':status,'reason':reason})
 
     def refresh_live(self):
         if not self.live_in_flight:
@@ -970,6 +1056,22 @@ class Studio(QMainWindow):
         combo.blockSignals(False)
 
     def _on_api(self,name,ok,value):
+        if name=='refresh_components':
+            self.components_in_flight=False
+            self.component_status_label.setText(' · '.join(f"{name}: {state['process_state']}/{state['readiness']}" for name,state in value.items()) if ok else '组件状态读取失败：'+str(value))
+            if ok:self.component_status_label.setToolTip('\n'.join(name+': '+str(state.get('reason') or '') for name,state in value.items()))
+            return
+        if name=='backend_probe':
+            if not ok:self._launch_backend()
+            return
+        if name=='camera_health':self.camera_health_pending=False
+        if name=='map_loaded':
+            self.nav_view.navigation_mode=True
+            if ok:
+                manifest,pixels=value
+                if manifest['id']==getattr(self,'pending_display_map_id',None):self._load_map(manifest,pixels)
+            else:self.write_log('地图读取失败：'+str(value))
+            return
         if name=='refresh_live':self.live_in_flight=False
         if name=='refresh_jobs':self.jobs_in_flight=False
         if not ok:
@@ -1027,6 +1129,8 @@ class Studio(QMainWindow):
                             and m.get('update_type')!='AUTOMATIC_DIFF_DRAFT']
                 self._fill_combo(self.diff_base_box,accepted,self.diff_base_box.currentData())
                 self._fill_combo(self.diff_candidate_box,candidates,self.diff_candidate_box.currentData())
+                self._fill_combo(self.diff_review_box,[m for m in value if m.get('diff_report_id')],getattr(self,'pending_review_id',None) or self.diff_review_box.currentData())
+                self.pending_review_id=None
             if self.pending_load_map_id:
                 selected=self.maps_by_id.get(self.pending_load_map_id)
                 self.pending_load_map_id=None
@@ -1042,7 +1146,9 @@ class Studio(QMainWindow):
             self.routes_by_id={r['id']:r for r in value}
             self._fill_combo(self.route_box,value,self.current_route_id);return
         if name=='refresh_live':
-            self.live_status=value;self.current_session=value.get('session');self._update_live();return
+            self.live_status=value;self.current_session=value.get('session')
+            self.nav_view.plan=value.get('plan',[]);self.nav_view.update()
+            self._update_live();return
         if name=='refresh_jobs':
             # Re-attach after a Qt restart; the Workbench, not this window,
             # owns the live mapping job and its raw rosbag.
@@ -1078,8 +1184,11 @@ class Studio(QMainWindow):
                     else:
                         self.capture_status_label.setText('拍照失败：'+str(result.get('message',newest.get('state'))))
             self._update_global_status()
-            self.camera_status_label.setText('云台：'+self.camera_job_state.get('state','STOPPED')+
-                ('（驱动进程，图像仍待验证）' if self.camera_job_state.get('state')=='RUNNING' else ''))
+            self.camera_status_label.setText('云台：'+self.camera_job_state.get('readiness',self.camera_job_state.get('state','STOPPED')))
+            active_capture=next((j for j in value if j.get('kind')=='camera_capture' and j.get('state')=='RUNNING'),None)
+            if active_capture and active_capture.get('feedback'):
+                feedback=active_capture['feedback'];angles=feedback['actual_angles']
+                self.capture_status_label.setText(f"{feedback['stage']} · 实际航向 {angles['heading']:.1f}° 俯仰 {angles['pitch']:.1f}° · 稳定样本 {feedback['stable_count']}")
             self._update_global_status()
             running=next((j for j in value if j.get('kind')=='recorder' and j.get('state')=='RUNNING'),None)
             self.recorder_id=running['id'] if running else None
@@ -1124,7 +1233,10 @@ class Studio(QMainWindow):
                         self.write_log('FAST-LIO2 建图未成功保存：'+str(mapping.get('log','')))
                     self._mapping_backend_changed();self.refresh_library()
             return
-        if name=='session_sensors':self._start_mapping_processes();return
+        if name=='session_sensors':
+            if self.pending_mapping_start:
+                self.pending_mapping_start=False;self._start_mapping_processes()
+            return
         if name=='mapping_start':
             self.mapping_job_id=value['id'];self.mapping_saving=False
             self.current_run=Path(value['output'])
@@ -1158,6 +1270,7 @@ class Studio(QMainWindow):
         if name=='camera_health':
             health=value.get('health') or {}
             self.camera_health_state=dict(value)
+            self.camera_health_seen=time.monotonic()
             self.camera_job_state.update(value)
             if value.get('ready'):
                 self.camera_status_label.setText('云台：READY · 相机、串口、反馈与 Action 均在线')
@@ -1193,20 +1306,28 @@ class Studio(QMainWindow):
             self.map_write_status.setText('二维地图已经保存：'+value['id']+' · '+value.get('asset_summary','BBS 状态未知'))
             self.current_map_id=value['id'];self.write_log('二维地图已生成：'+value['id'])
             self.refresh_library();self._load_map(value);self.pages['地图'].click();return
-        if name=='map_diff':
+        if name in ('map_diff','map_diff_preview'):
             report=value.get('report') or {};update=value.get('update_map') or {}
+            if name=='map_diff_preview' and update.get('id')!=self.diff_review_box.currentData():return
+            self.diff_displayed_id=update.get('id')
             counts=report.get('counts') or {}
             self.diff_status_label.setText(
                 f"差异完成 · 新障碍 {counts.get('new_obstacle_cells',0)} 格 · "
                 f"清除 {counts.get('cleared_obstacle_cells',0)} 格 · "
                 f"新增可观测 {counts.get('newly_observed_cells',0)} 格 · "
                 f"覆盖损失 {counts.get('coverage_lost_cells',0)} 格 · "
-                f"更新候选 {update.get('id','')}（DRAFT，未激活）")
-            image=QImage(report.get('overlay_png',''))
+                f"稳定 {counts.get('stable_free_cells',0)+counts.get('stable_occupied_cells',0)} 格 · "
+                f"基准 {report.get('base_map_id')} → 候选 {report.get('candidate_map_id')} · "
+                f"更新 {update.get('id','')}（{update.get('status','DRAFT')} / {'REVIEW_REQUIRED' if update.get('review_required') else '已审核'}，未自动激活）\n红：新障碍 蓝：清除 绿：新观测 黄：覆盖丢失")
+            image=value.get('_overlay_image') or QImage.fromData(base64.b64decode(value.get('overlay_png_b64','')))
             if not image.isNull():
                 self.diff_preview_label.setPixmap(QPixmap.fromImage(image).scaled(
                     self.diff_preview_label.size(),Qt.KeepAspectRatio,Qt.SmoothTransformation))
             self.write_log('自动地图差异已生成待审核版本 '+str(update.get('id',''))+'；正式地图未改变')
+            if name=='map_diff':self.pending_review_id=update.get('id');self.refresh_library()
+            return
+        if name=='map_review':
+            self.diff_status_label.setText('审核状态：'+value['status']+' · '+value['id']+' · '+value.get('review_reason','')+'；未自动激活')
             self.refresh_library();return
         if name=='map_revise':
             self.map_saving=False
@@ -1245,11 +1366,11 @@ class Studio(QMainWindow):
             return
         state=self.camera_job_state.get('state','STOPPED')
         health_name=(self.camera_job_state.get('readiness') or '')
-        if state=='RUNNING' and health_name=='READY':
+        if state=='RUNNING' and health_name=='READY' and time.monotonic()-self.camera_health_seen<5:
             self._indicator(self.camera_state_label,'云台：硬件 READY','good')
         elif state=='RUNNING':
             self._indicator(self.camera_state_label,'云台：进程运行/'+(health_name or '待验'),'warn')
-        elif state in ('FAILED','ORPHANED','INCOMPLETE'):
+        elif state in ('FAILED','ORPHANED','INCOMPLETE','STOP_FAILED'):
             self._indicator(self.camera_state_label,'云台：'+state,'bad')
         else:self._indicator(self.camera_state_label,'云台：未启动')
         session=self.live_status.get('session') or {}
@@ -1322,6 +1443,8 @@ class Studio(QMainWindow):
     def _on_state(self,s):
         online=s.get('connected',False);self.ros_display_connected=online
         self.topic_rates=dict(s.get('rates') or {})
+        angles=s.get('gimbal_angles')
+        if angles:self.camera_status_label.setText(f"实际云台：航向 {angles['heading']:.1f}° 俯仰 {angles['pitch']:.1f}° 横滚 {angles['roll']:.1f}°")
         filter_state=s.get('self_filter')
         if filter_state:
             mode=filter_state.get('state','UNKNOWN')
@@ -1339,19 +1462,22 @@ class Studio(QMainWindow):
         self.status.setText('● ROS 已连接' if online else '● ROS 未连接')
         self.status.setStyleSheet('color:#55c9a9' if online else 'color:#ec9c83')
         od=s.get('odom');self.odom_label.setText('base_link X={:.2f} Y={:.2f} Yaw={:.1f}°'.format(*od[:2],math.degrees(od[2])) if od else 'base_link 局部位姿：未收到')
+        self.tri_view.set_robot(s.get('map_robot'))
+        self.view_status_label.setText(s.get('display_error') or ('实时视图：map 坐标已对齐' if s.get('map_robot') else '实时视图：机器人 TF 不可用，保留地图'))
         rates=s.get('rates') or {}
         hz=lambda name:('--' if rates.get(name) is None else f'{rates[name]:.1f}')
         self.sensor_rate_label.setText(f"MID360S：{hz('lidar')} Hz    IMU：{hz('imu')} Hz    base_link 里程计：{hz('odom')} Hz")
         self._update_global_status()
 
     def _on_cloud(self,d):
+        if 'projections' in d:self.tri_view.set_cloud(d)
         self.cloud_view.set_cloud(d);self.cloud_count.setText(f'{d.get("source")}  ·  {len(d["xyz"]):,} 点（抽样渲染）')
         if not self.mapping_saving and not self.mapping_save_status.text().startswith('保存状态：地图已经保存'):
             self.mapping_state.setText('正在接收建图点云')
 
     def _on_grid(self,info):
-        if self.current_map_id:return
-        self.map_view.set_grid(info);self.nav_view.set_grid(info)
+        if not self.current_map_id:self.map_view.set_grid(info)
+        if not self.current_map_id:self.nav_view.set_grid(info)
         self.map_info.setText(f'{info["width"]} × {info["height"]}  |  {info["resolution"]} m/cell')
 
     def _robot(self):return 'fwmini' if self.robot_box.currentText()=='FW-mini' else 'bunker'
@@ -1404,8 +1530,6 @@ class Studio(QMainWindow):
             if (session.get('task')==task and session.get('map_id')==map_id
                     and session.get('robot')==self._robot() and same_backend):
                 self.write_log('所需现场会话已经在运行');return
-            self.pending_session=(task,map_id,name)
-            self._api('session_stop','POST','/api/session/stop');return
         self._api(name,'POST','/api/session/start',self._session_payload(task,map_id))
 
     def stop_field_session(self):self._api('session_stop','POST','/api/session/stop')
@@ -1433,10 +1557,11 @@ class Studio(QMainWindow):
     def close_ros_nodes(self):
         if self.demo:self.write_log('演示模式：没有 ROS 进程需要关闭');return
         self.pending_session=None
+        self.pending_mapping_start=False
         for process in (self.bag,self.glim,self.rviz,self.editor):self._interrupt(process)
         self.mapping_job_id=None;self.glim_btn.setEnabled(True);self.glim_btn.setText('开始建图')
         self.map_name_edit.setEnabled(True);self.mapping_backend_box.setEnabled(True);self._mapping_backend_changed()
-        self.mapping_state.setText('ROS 进程已停止')
+        self.mapping_state.setText('正在请求停止 ROS 进程')
         if self.worker:
             self.worker.shutdown();self.worker.wait(2000);self.worker=None
         self.status.setText('● ROS 未连接');self.status.setStyleSheet('color:#ec9c83')
@@ -1683,11 +1808,16 @@ class Studio(QMainWindow):
 
     def refresh_maps_and_select(self,map_id):self.current_map_id=map_id;self.refresh_library()
 
-    def _load_map(self,manifest):
+    def _load_map(self,manifest,pixels=None):
+        if pixels is None and self.api and callable(getattr(self.api,'local',None)):
+            self.pending_display_map_id=manifest['id'];self.nav_view.navigation_mode=False
+            self.api.local('map_loaded',lambda:(manifest,QImage(manifest['pgm']).convertToFormat(QImage.Format_Grayscale8)))
+            return
         try:
-            pixels=QImage(manifest['pgm']).convertToFormat(QImage.Format_Grayscale8)
+            if pixels is None:pixels=QImage(manifest['pgm']).convertToFormat(QImage.Format_Grayscale8)
             if pixels.isNull():raise ValueError('地图 PGM 读取失败')
             for view in (self.map_view,self.nav_view):
+                view.frame_id='map';view.received=None
                 view.image=pixels.copy();view.res=float(manifest['resolution']);view.origin=tuple(manifest['origin'])
                 view.set_keepout(manifest.get('keepout_polygons_px',[]));view.scale=1.;view.pan_x=view.pan_y=0.;view.reset_heading();view.update()
             self.current_map_id=manifest['id']
@@ -1774,6 +1904,10 @@ class Studio(QMainWindow):
             self.mapping_state.setText('建图已结束，文件已保留' if self.mapping_save_data else '建图已结束（未启用数据保存）')
         if not self.demo:
             self.refresh_live();self.refresh_jobs()
+            if not self.components_in_flight:
+                self.components_in_flight=True;self._api('refresh_components','GET','/api/components')
+            if self.camera_job_state.get('state')=='RUNNING' and not self.camera_health_pending:
+                self.camera_health_pending=True;self.check_camera_health()
 
     def save_logs(self):
         path,_=QFileDialog.getSaveFileName(self,'保存日志',str(Path.home()/'agt_studio.log'),'日志 (*.log *.txt)',options=QFileDialog.DontUseNativeDialog)
@@ -1815,6 +1949,7 @@ class Studio(QMainWindow):
                 if not p.waitForFinished(1800):p.kill();p.waitForFinished(700)
         if self.api and callable(getattr(self.api,'shutdown',None)):
             self.api.shutdown()
+        if self.control_api:self.control_api.shutdown()
         if self.backend and self.backend.state()!=QProcess.NotRunning:
             self.backend.terminate();self.backend.waitForFinished(1800)
         event.accept()

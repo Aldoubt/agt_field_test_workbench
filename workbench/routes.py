@@ -16,7 +16,8 @@ def pose(value):
     result=dict(x=value['x'],y=value['y'],yaw=value['yaw'],photo=bool(value.get('photo',False)))
     for k in ('heading','roll','pitch'):
         angle=value.get(k,0.)
-        if isinstance(angle,bool) or not isinstance(angle,(int,float)) or not math.isfinite(angle) or abs(angle)>180:
+        limit={'heading':160,'roll':40,'pitch':90}[k]
+        if isinstance(angle,bool) or not isinstance(angle,(int,float)) or not math.isfinite(angle) or abs(angle)>limit:
             raise ValueError(k+' must be a finite angle in degrees')
         result[k]=float(angle)
     result['photo_required']=bool(value.get('photo_required',True))

@@ -58,8 +58,8 @@ def start_camera(jobs, request):
     capture_root.mkdir(parents=True, exist_ok=False)
     return jobs._new('camera_gimbal',
         ['bash', str(ROS_EXEC), 'ros2', 'launch', 'autolabor_c1_bringup',
-         'autolabor_c1.launch.py', 'device_path:='+camera, 'port_name:='+gimbal,
-         'capture_output_root:='+str(capture_root), 'gui:=false'],
+         'autolabor_c1.launch.py', 'capture_output_root:='+str(capture_root),
+         'device_path:='+camera, 'port_name:='+gimbal, 'gui:=false'],
         {'device_path':camera, 'port_name':gimbal, 'capture_root':str(capture_root),
          'capture_session_id':session_id,
          'readiness':'WAITING_FOR_CAMERA_GIMBAL_HEALTH'})
@@ -68,10 +68,10 @@ def start_camera(jobs, request):
 def stop_camera(jobs):
     # Stop one-shot clients first so a camera shutdown cannot strand an action request.
     for job in jobs.list():
-        if job['kind'] == 'camera_capture' and job['state'] == 'RUNNING':
+        if job['kind'] == 'camera_capture' and job['state'] in ('RUNNING','ORPHANED','STOP_FAILED'):
             jobs.stop(job['id'])
     active = [job for job in jobs.list()
-              if job['kind'] == 'camera_gimbal' and job['state'] == 'RUNNING']
+              if job['kind'] == 'camera_gimbal' and job['state'] in ('RUNNING','ORPHANED','STOP_FAILED')]
     if not active:
         return {'state':'STOPPED', 'detail':'no managed camera process running'}
     return jobs.stop(active[0]['id'])
@@ -133,6 +133,12 @@ def start_capture(jobs, request, save_image=True):
     metadata = request.get('metadata') or {}
     if not isinstance(metadata, dict) or len(metadata) > 24:
         raise ValueError('capture metadata must be a small JSON object')
+    metadata=dict(metadata)
+    current_path=Path(ROOT)/'work/current_session.json'
+    if current_path.is_file():
+        active=json.loads(current_path.read_text())
+        metadata.update(session_id=active.get('id'),map_version=active.get('map_id'),robot=active.get('robot'),
+            map_sha256=active.get('map_sha256'),pose_source='requested_pose_unverified; see pose_at_capture')
     pose = metadata.get('pose')
     if pose is not None:
         if not isinstance(pose, dict) or set(pose)-{'x','y','yaw'}:
@@ -171,13 +177,14 @@ def list_captures(jobs):
     camera = next((j for j in jobs.list() if j['kind']=='camera_gimbal'),None)
     if not camera or not camera.get('capture_root'):
         return {'state':'NO_CAPTURE_SESSION','capture_root':None,'captures':[]}
-    root=Path(camera['capture_root']).resolve()
+    root=(Path(ROOT)/'data'/'captures').resolve()
     allowed=(Path(ROOT)/'data'/'captures').resolve()
     if not root.is_relative_to(allowed) or not root.is_dir():
         return {'state':'CAPTURE_DIRECTORY_UNAVAILABLE','capture_root':str(root),'captures':[]}
     captures=[]
     for path in sorted(root.rglob('*')):
-        if path.is_file() and path.suffix.lower() in ('.png','.jpg','.jpeg'):
+        if path.is_file() and path.resolve().is_relative_to(root) and path.suffix.lower() in ('.png','.jpg','.jpeg'):
             captures.append({'name':path.name,'path':str(path),'size_bytes':path.stat().st_size})
-    return {'state':'READY','capture_root':str(root),'capture_session_id':camera.get('capture_session_id'),
+    return {'state':'READY','capture_root':str(root),'active_capture_root':camera['capture_root'],
+            'capture_session_id':camera.get('capture_session_id'),
             'count':len(captures),'captures':captures}

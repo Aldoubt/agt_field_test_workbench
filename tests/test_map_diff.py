@@ -10,8 +10,9 @@ def make_map(maps, root, name, pixels, status, origin=(0.,0.,0.), resolution=1.0
     pcd=root/'maps'/'clouds'/(name+'.pcd')
     pcd.parent.mkdir(parents=True,exist_ok=True);pcd.write_bytes((name+' test source PCD').encode())
     return maps._save(3,2,bytes(pixels),
-        {'resolution':resolution,'origin':list(origin),'negate':0,'occupied_thresh':.65,'free_thresh':.25},
+        {'resolution':resolution,'origin':list(origin),'negate':0,'occupied_thresh':.65,'free_thresh':.196},
         {'name':name,'source_pcd':str(pcd),'source_pcd_sha256':hash_file(pcd),
+         'coordinate_reference_id':'synthetic-test-survey-frame',
          'source_yaml':None,'source_pgm_sha256':None,'source_bag':None,'calibration':None,
          'cloud_id':name,'projection':{'resolution':resolution}},status=status)
 

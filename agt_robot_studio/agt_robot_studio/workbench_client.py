@@ -72,6 +72,9 @@ class ApiWorker(QThread):
         if not accepted:
             self.completed.emit(name, False, '操作队列已满，请稍后重试')
 
+    def local(self,name,callback):
+        self.call(name,'LOCAL',callback)
+
     def run(self):
         while self.alive:
             try:
@@ -80,7 +83,11 @@ class ApiWorker(QThread):
                 continue
             self.active_request = name
             try:
-                result = self.client.request(method, path, payload, timeout=timeout)
+                result = path() if method=='LOCAL' else self.client.request(method, path, payload, timeout=timeout)
+                if name in ('map_diff','map_diff_preview') and isinstance(result,dict):
+                    import base64
+                    from PyQt5.QtGui import QImage
+                    result['_overlay_image']=QImage.fromData(base64.b64decode(result.get('overlay_png_b64','')))
                 self.completed.emit(name, True, result)
             except Exception as exc:
                 self.completed.emit(name, False, str(exc))

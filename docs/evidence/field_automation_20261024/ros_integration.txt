@@ -1,0 +1,3 @@
+AGT_RUN_ROS_INTEGRATION=1 ROS_DOMAIN_ID=188 QT_QPA_PLATFORM=offscreen python3 -m pytest -q tests/ros --tb=short
+....                                                                     [100%]
+4 passed in 30.33s

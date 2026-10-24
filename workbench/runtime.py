@@ -16,8 +16,8 @@ import uuid
 import yaml
 from .fwmini import resolve_profile, load_profile, require_mode, digest
 
-ROOT = Path(__file__).resolve().parents[3]
-REPO = ROOT / 'src/agt_field_test_workbench'
+REPO = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get('AGT_FIELD_TEST_WS', str(REPO.parent.parent))).expanduser().resolve()
 ROS_EXEC = REPO / 'scripts/ros_exec.sh'
 MAPPING = ROOT / 'src/agt-lio-pgo-mapping/scripts/run_mid360_mapping.sh'
 ROS_SETUP = Path('/opt/ros/humble/setup.bash')
@@ -65,6 +65,29 @@ def write_json(path, value):
     temporary = path.with_name(path.name + '.tmp')
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
     temporary.replace(path)
+
+
+def _pid_start_ticks(pid):
+    try:return int(Path('/proc',str(pid),'stat').read_text().rsplit(')',1)[1].split()[19])
+    except (OSError,ValueError,IndexError):return None
+
+
+def _owned_group_alive(record):
+    """Detect surviving children of a local Popen, ignoring unreaped zombies.
+
+    Never adopt persisted PIDs. A reused leader PID is not this job's group.
+    """
+    pid=record.get('pid');identity=record.get('process_start_ticks')
+    if not pid or identity is None:return False
+    leader=_pid_start_ticks(pid)
+    if leader is not None and leader!=identity:return False
+    for path in Path('/proc').glob('[0-9]*/stat'):
+        try:
+            fields=path.read_text().rsplit(')',1)[1].split()
+            if fields[0]!='Z' and int(fields[2])==pid and int(fields[3])==pid:
+                return True
+        except (OSError,ValueError,IndexError):continue
+    return False
 
 
 def source_versions(root=ROOT):
@@ -160,10 +183,10 @@ class Jobs:
         self.jobs = {}
 
     def _new(self, kind, command, meta, env=None):
-        if set(meta)&{'id','kind','state','pid','log','command','started_at'}:raise ValueError('reserved job metadata field')
+        if set(meta)&{'id','kind','state','pid','log','command','started_at','process_start_ticks'}:raise ValueError('reserved job metadata field')
         with self.lock:
             history = self.list()
-            if any(item['state'] == 'ORPHANED' and
+            if any(item['state'] in ('ORPHANED','STOP_FAILED') and
                    (item['kind'] == kind or
                     (kind.startswith('mapping') and item['kind'].startswith('mapping')))
                    for item in history):
@@ -192,6 +215,7 @@ class Jobs:
                 log.close()
             record = {'id': run_id, 'kind': kind, 'state': 'RUNNING', 'started_at': utc_now(),
                       'pid': process.pid, 'log': str(directory / 'process.log'),
+                      'process_start_ticks':_pid_start_ticks(process.pid),
                       'command': command, **meta}
             if kind == 'recorder' and 'configuration_snapshot' in record:
                 configuration_path = directory / 'recording_config.json'
@@ -208,8 +232,10 @@ class Jobs:
             for item in self.jobs.values():
                 process, record = item['process'], item['record']
                 code = process.poll()
-                if code is not None and record['state'] == 'RUNNING':
-                    record['state'] = 'PASS' if code == 0 else 'FAILED'
+                if code is not None and record['state'] in ('RUNNING','STOP_FAILED'):
+                    persistent=item['kind'] in ('sensor_stack','chassis_component','control_guard','field_session','navigation_component','camera_gimbal','ros_bridge')
+                    record['state'] = 'PASS' if code == 0 and not persistent else 'FAILED'
+                    if persistent:record['reason']='supervised component exited unexpectedly; hardware readiness lost'
                     record['exit_code'] = code
                     record['ended_at'] = utc_now()
                     if item['kind'] == 'recorder':
@@ -229,10 +255,17 @@ class Jobs:
                             record['state']='FAILED'
                         else:
                             record['state']='PASS'
+                    if _owned_group_alive(record):
+                        record.update(state='ORPHANED',reason='supervisor exited but owned child process group is still alive; stop before restarting')
                     write_json(self.root / 'runs' / record['id'] / 'run.json', record)
                 item['state'] = record['state']
                 current = dict(record, duration_sec=round(time.time() - process_start(record), 1)
                                    if record['state'] == 'RUNNING' else None)
+                if item['kind']=='camera_capture':
+                    feedback=Path(record['result_path']).with_name('feedback.json')
+                    if feedback.is_file():
+                        try:current['feedback']=json.loads(feedback.read_text())
+                        except (OSError,ValueError):pass
                 if item['kind'].startswith('mapping') and record.get('output'):
                     stage_path = Path(record['output']) / 'save_status.json'
                     if stage_path.is_file():
@@ -270,9 +303,15 @@ class Jobs:
             return dict(item['record'],finishing=True)
 
     def stop_all(self):
+        with self.lock:return self._stop_all()
+
+    def _stop_all(self):
+        errors=[]
         for item in self.list():
-            if item['id'] in self.jobs and item['state'] == 'RUNNING':
-                self.stop(item['id'])
+            if item['id'] in self.jobs and item['state'] in ('RUNNING','STOP_FAILED','ORPHANED'):
+                try:self.stop(item['id'])
+                except (ValueError,OSError,subprocess.TimeoutExpired) as exc:errors.append(str(exc))
+        if errors:raise ValueError('some owned components did not stop: '+'; '.join(errors))
 
     def stop(self, run_id):
         with self.lock:
@@ -281,12 +320,32 @@ class Jobs:
                 raise ValueError('unknown job')
             process, record = item['process'], item['record']
             if process.poll() is None:
-                os.killpg(process.pid, signal.SIGINT)
                 try:
+                    os.killpg(process.pid, signal.SIGINT)
                     process.wait(timeout=12)
                 except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGTERM)
-                    process.wait(timeout=5)
+                    try:os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:pass
+                    try:process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        record.update(state='STOP_FAILED',reason='process group did not exit after SIGINT/SIGTERM')
+                        write_json(self.root/'runs'/run_id/'run.json',record)
+                        raise ValueError('component stop failed; ownership retained: '+run_id)
+                except ProcessLookupError:
+                    process.wait(timeout=1)
+            # ros2/launch may die before its children. Reap the entire owned
+            # session before releasing a driver/guard resource to a replacement.
+            if _owned_group_alive(record):
+                for sig,budget in ((signal.SIGINT,2.),(signal.SIGTERM,3.)):
+                    try:os.killpg(process.pid,sig)
+                    except ProcessLookupError:break
+                    deadline=time.monotonic()+budget
+                    while _owned_group_alive(record) and time.monotonic()<deadline:time.sleep(.05)
+                    if not _owned_group_alive(record):break
+                if _owned_group_alive(record):
+                    record.update(state='STOP_FAILED',reason='owned child process group did not exit')
+                    write_json(self.root/'runs'/run_id/'run.json',record)
+                    raise ValueError('component stop failed; child process ownership retained: '+run_id)
             record['state'] = 'INCOMPLETE' if item['kind'] == 'recorder' else 'CANCELLED'
             if item['kind'] == 'recorder':
                 record['integrity'] = check_bag(Path(record['output']), record.get('topics'))
@@ -317,7 +376,7 @@ class Jobs:
             calibration_sha = None
         session_path=self.root/'work/current_session.json'
         current=json.loads(session_path.read_text()) if session_path.is_file() else None
-        live_session=next((j for j in self.list() if j['kind']=='field_session' and j['state']=='RUNNING'),None)
+        live_session=next((j for j in self.list() if j['kind']=='sensor_stack' and j['state']=='RUNNING'),None)
         if live and not live_session:raise ValueError('start a sensors/manual session in Robot Setup before live mapping')
         if live and live_session and (current['robot']!=robot or current['task'] in ('localization','navigation')):
             raise ValueError('live mapping needs the same robot in sensors/manual mode; stop localization first')

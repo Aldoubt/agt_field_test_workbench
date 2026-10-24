@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 
-REPO=Path(__file__).resolve().parents[1];ROOT=REPO.parent.parent
+REPO=Path(__file__).resolve().parents[1];ROOT=Path(os.environ.get('AGT_FIELD_TEST_WS',str(REPO.parent.parent))).expanduser().resolve()
 sys.path.insert(0,str(REPO))
 import rclpy
 from rclpy.node import Node
@@ -24,18 +24,24 @@ from std_srvs.srv import Trigger,SetBool
 from nav_msgs.msg import Odometry,Path as NavPath,OccupancyGrid
 from nav2_msgs.action import NavigateToPose,FollowWaypoints
 from lifecycle_msgs.srv import GetState
-from rclpy.action import ActionClient
+from rclpy.action import ActionClient, get_action_names_and_types
 from tf2_ros import Buffer,TransformListener
 from agt_robot_interfaces.msg import LocalizationStatus,MissionStatus
 from agt_robot_interfaces.action import ExecuteInspectionMission
 # Some deployments ship the camera-gimbal stack as an additional ROS overlay.
 # A missing action definition must not break ordinary mapping/navigation.
 try:
-    from camera_gimbal_interfaces.action import AcquireView
+    from camera_gimbal_interfaces.msg import CapabilityHealth
 except ImportError:
-    AcquireView = None
-from bunker_msgs.msg import BunkerStatus
-from agt_asensing_driver.msg import INSStatus
+    CapabilityHealth = None
+try:
+    from bunker_msgs.msg import BunkerStatus
+except ImportError:
+    BunkerStatus=None
+try:
+    from agt_asensing_driver.msg import INSStatus
+except ImportError:
+    INSStatus=None
 from sensor_msgs.msg import NavSatFix,Imu
 from workbench.routes import Routes,relative,pose
 from workbench.maps import Maps,hash_file
@@ -56,18 +62,24 @@ class Bridge(Node):
         self.navigate=ActionClient(self,NavigateToPose,'/navigate_to_pose')
         self.waypoints=ActionClient(self,FollowWaypoints,'/follow_waypoints')
         self.mission=ActionClient(self,ExecuteInspectionMission,'/agt/mission/execute')
-        self.acquire_view=(ActionClient(self,AcquireView,'/camera_gimbal/acquire_view')
-                           if AcquireView is not None else None)
         self.mission_status={}
         self.states={};self.state_clients={n:self.create_client(GetState,'/'+n+'/get_state') for n in ('controller_server','bt_navigator')}
         def sub(typ,topic,name,qos=10):
             self.create_subscription(typ,topic,lambda m:self.observe(name,m),qos)
+        if CapabilityHealth is not None:sub(CapabilityHealth,'/camera_gimbal/health','camera')
         sub(LocalizationStatus,'/agt/localization/status','localization')
         sub(MissionStatus,'/agt/mission/status','mission')
         sub(Odometry,'/agt/odometry/local','lio');sub(Odometry,'/wheel/odom','wheel')
-        sub(BunkerStatus,'/bunker_status','bunker');sub(String,'/fwmini/control_status','fwmini')
+        if BunkerStatus is not None:sub(BunkerStatus,'/bunker_status','bunker')
+        sub(String,'/fwmini/control_status','fwmini')
         sub(NavPath,'/plan','plan');sub(OccupancyGrid,'/local_costmap/costmap','costmap')
-        sub(INSStatus,'/ins/status','ins');sub(NavSatFix,'/ins/navsatfix','fix');sub(Imu,'/ins/imu','ins_imu',qos_profile_sensor_data)
+        if INSStatus is not None:sub(INSStatus,'/ins/status','ins')
+        sub(NavSatFix,'/ins/navsatfix','fix');sub(Imu,'/ins/imu','ins_imu',qos_profile_sensor_data)
+        sub(Imu,'/livox/imu','sensor_imu',qos_profile_sensor_data)
+        try:
+            from livox_ros_driver2.msg import CustomMsg
+            self.create_subscription(CustomMsg,'/livox/lidar',lambda m:self.observe('sensor_lidar',True),qos_profile_sensor_data,raw=True)
+        except ImportError:pass
         self.create_timer(.02,self.tick);self.create_timer(1.,self.poll_lifecycle)
     def observe(self,name,msg):self.samples[name]=msg;self.times[name]=time.monotonic()
     def current(self):
@@ -76,11 +88,12 @@ class Bridge(Node):
             self.session=json.loads(path.read_text());self.last_session_mtime=path.stat().st_mtime_ns
         if not path.is_file():self.session=None;self.last_session_mtime=None
         if self.session and self.session.get('job_id'):
-            job=ROOT/'runs'/self.session['job_id']/'run.json'
             try:
-                record=json.loads(job.read_text())
-                if record.get('state')!='RUNNING':return None
-                os.kill(record['pid'],0)
+                ids={self.session.get(k) for k in ('job_id','sensor_stack_job_id','chassis_job_id','localization_job_id')} - {None}
+                for ident in ids:
+                    record=json.loads((ROOT/'runs'/ident/'run.json').read_text())
+                    if record.get('state')!='RUNNING':return None
+                    os.kill(record['pid'],0)
             except (OSError,KeyError):return None
         return self.session
     def fresh(self,name,limit=.3):return name in self.times and time.monotonic()-self.times[name]<limit
@@ -189,10 +202,16 @@ class Bridge(Node):
         if any(p.get('photo') for p in route['points']):
             # Camera/gimbal is a separately supervised component; it is not a
             # child of the navigation session. Check the actual Action server.
-            if self.acquire_view is None:
+            if CapabilityHealth is None:
                 raise ValueError('camera_gimbal_interfaces/AcquireView is missing from the ROS environment')
-            if not self.acquire_view.server_is_ready():
+            actions=dict(get_action_names_and_types(self))
+            if 'camera_gimbal_interfaces/action/AcquireView' not in actions.get('/camera_gimbal/acquire_view',[]):
                 raise ValueError('/camera_gimbal/acquire_view action unavailable; test camera and gimbal before driving')
+            health=self.samples.get('camera')
+            if not (self.fresh('camera',1.) and health.state==health.STATE_READY and health.camera_alive
+                    and health.gimbal_serial_connected and health.gimbal_feedback_alive
+                    and health.move_action_ready and not health.busy):
+                raise ValueError('camera/gimbal health is not READY')
         if self.goals or self.pending_goal:raise ValueError('cancel the active goal before starting another')
         if not self.mission.server_is_ready():raise ValueError('inspection mission action unavailable')
         mission_file=Path(route.get('mission_file',''))
@@ -309,6 +328,7 @@ class Bridge(Node):
             except Exception:self.stop();self.record('cancelled','runtime gate closed')
     def snapshot(self):
         result=dict(session=self.current(),localized=self.localized(),nav2_states=self.states,feedback_fresh=self.physical(),
+                    sensors_ready=self.fresh('sensor_imu',1.) and self.fresh('sensor_lidar',1.),
                     chassis=self.chassis_status(),goal_result=self.goal_result)
         mission=self.samples.get('mission') if self.fresh('mission',5) else None
         result['mission']=dict(state=int(mission.state),mission_id=mission.mission_id,point_id=mission.point_id,
@@ -316,7 +336,7 @@ class Bridge(Node):
             error_code=int(mission.error_code)) if mission else None
         try:result['pose']=self.map_pose()
         except Exception:result['pose']=None
-        path=self.samples.get('plan');result['plan']=[dict(x=p.pose.position.x,y=p.pose.position.y) for p in path.poses] if path and self.fresh('plan',5) else []
+        path=self.samples.get('plan');result['plan']=[dict(x=p.pose.position.x,y=p.pose.position.y) for p in path.poses] if path and path.header.frame_id=='map' and self.fresh('plan',5) else []
         grid=self.samples.get('costmap')
         if grid and grid.info.width*grid.info.height<=1000000:
             result['costmap']=dict(width=grid.info.width,height=grid.info.height,resolution=grid.info.resolution,origin=[grid.info.origin.position.x,grid.info.origin.position.y],frame_id=grid.header.frame_id,data=list(grid.data))

@@ -40,3 +40,8 @@ bash scripts/run_workbench.sh
 - 网页只调用固定的 ROS 服务/Action 或固定处理任务，没有任意 shell 接口。路线拍照保留 task executor 接口；未配置相机执行器时拒绝执行拍照路线。
 
 云端已部署真实 Humble 容器。软件构建/测试通过不表示物理制动、RTK、急停、遥控接管或导航精度通过。
+
+## 20261024 automation delivery
+
+三视图实时工作台、C1 采集、组件独立生命周期与地图差异人工审核的实现、测试结果和上车验收顺序见
+[交付记录](docs/field_automation_20261024_delivery.md)。真实硬件验收状态为 `HARDWARE_VERIFIED: NOT_RUN`。

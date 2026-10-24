@@ -157,7 +157,7 @@ class StudioSmoke(unittest.TestCase):
         self.assertNotIn('global_backend', window._session_payload('sensors'))
         window.api = None
 
-    def test_backend_change_restarts_instead_of_reusing_old_session(self):
+    def test_backend_change_is_checked_by_backend_without_gui_stopping_components(self):
         window = self.window()
         calls = []
         class FakeApi:
@@ -170,7 +170,9 @@ class StudioSmoke(unittest.TestCase):
             'global_backend':'bbs'}
         window.global_backend_box.setCurrentIndex(window.global_backend_box.findData('kiss'))
         window._start_session('localization', 'map-1')
-        self.assertEqual(calls[0][2], '/api/session/stop')
+        self.assertEqual(calls[0][2], '/api/session/start')
+        self.assertEqual(calls[0][3]['global_backend'], 'kiss')
+        self.assertIsNone(window.pending_session)
         window.api = None
 
     def test_photo_waypoints_are_saved_then_run_through_mission_route_api(self):

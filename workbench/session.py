@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import socket
 import time
+import threading
 from .runtime import ROOT,REPO,ROS_EXEC,write_json,ros_ready,ros_call
 from .maps import Maps,_new_id,hash_file,relocalization_assets
 from .fwmini import candidate_path,resolve_profile,load_profile,digest
@@ -27,7 +28,8 @@ def rpc(root,operation,payload=None):
     return response
 
 class Sessions:
-    def __init__(self,jobs,root=ROOT):self.jobs=jobs;self.root=Path(root)
+    def __init__(self,jobs,root=ROOT):
+        self.jobs=jobs;self.root=Path(root);self.lock=threading.RLock()
 
     def bridge(self):
         if not ros_ready():raise ValueError('ROS Humble runtime unavailable; start the workbench in the deployed Humble workspace')
@@ -82,7 +84,7 @@ class Sessions:
     def _stop_kind(self,kind):
         stopped=[]
         for job in self._jobs():
-            if job.get('kind')==kind and job.get('state') in ('RUNNING','ORPHANED'):
+            if job.get('kind')==kind and job.get('state') in ('RUNNING','ORPHANED','STOP_FAILED'):
                 stopped.append(self.jobs.stop(job['id']))
         return stopped
 
@@ -107,14 +109,14 @@ class Sessions:
         if robot not in ('bunker','fwmini'):raise ValueError('unknown robot')
         if any(j['kind']=='mapping_live' and j['state']=='RUNNING' for j in self._jobs()):
             raise ValueError('finish live mapping before changing chassis runtime')
-        active=[j for j in self._jobs() if j['kind']=='field_session' and j['state'] in ('RUNNING','ORPHANED')]
-        if active:raise ValueError('stop localization/navigation session before starting or stopping the independent chassis')
+        active=self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED'))
+        if active:raise ValueError('stop navigation before changing its chassis')
         self.bridge()
         sensor_job,sensor=self._sensor_stack(robot)
         if not sensor_job:raise ValueError('start the matching MID360S/IMU sensor session before connecting the chassis')
         current=self.current()
-        if current and current.get('task') not in ('sensors','manual'):
-            raise ValueError('stop the active localization/navigation session first')
+        if current and current.get('task') not in ('sensors','manual','localization'):
+            raise ValueError('stop the active navigation session first')
         existing=self._find_job('chassis_component')
         if existing:
             if existing.get('robot')!=robot:raise ValueError('another robot chassis component is already running')
@@ -167,24 +169,94 @@ class Sessions:
             self.jobs.stop(driver['id']);raise
         snapshot=dict(sensor,task='manual',job_id=sensor_job['id'],chassis_enabled=True,
             sensor_stack_job_id=sensor_job['id'],chassis_job_id=driver['id'],guard_job_id=guard['id'],checks=checks)
+        if current and current.get('task')=='localization':
+            snapshot=dict(current,chassis_enabled=True,chassis_job_id=driver['id'],guard_job_id=guard['id'])
         write_json(self.root/'work/current_session.json',snapshot)
         return dict(driver,session_task='manual',guard_job_id=guard['id'])
 
     def stop_chassis(self):
         current=self.current()
-        if current and current.get('task') in ('localization','navigation'):
-            raise ValueError('stop the active localization/navigation session before stopping its chassis')
+        if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')) or (current and current.get('task')=='navigation'):
+            raise ValueError('stop navigation before stopping its chassis')
         try:rpc(self.root,'stop')
         except (OSError,ValueError):pass
         stopped=self._stop_kind('control_guard')+self._stop_kind('chassis_component')
-        restored=self._restore_sensor_or_manual()
+        if current and current.get('task')=='localization':
+            restored=dict(current,chassis_enabled=False)
+            restored.pop('chassis_job_id',None);restored.pop('guard_job_id',None)
+            write_json(self.root/'work/current_session.json',restored)
+        else:restored=self._restore_sensor_or_manual()
         return {'state':'STOPPED','stopped':stopped,'restored_session':restored}
 
     def start(self,p):
+        with self.lock:return self._start(p)
+
+    def _start_navigation(self,p):
+        """Reuse the sole localization and chassis owners; only Nav2 owns its guard."""
+        robot=p['robot']
+        if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')):
+            raise ValueError('navigation component already owned; stop/recover it first')
+        if not self._find_job('chassis_component'):
+            raise ValueError('start and verify the independent chassis component before navigation')
+        sensor_job,sensor=self._sensor_stack(robot)
+        if not sensor:raise ValueError('matching sensor stack required')
+        localization=self._find_job('field_session')
+        if not localization:
+            self._start(dict(p,task='localization'))
+            localization=self._find_job('field_session')
+        current=self.current()
+        if (not current or current.get('task')!='localization' or current.get('robot')!=robot
+                or current.get('map_id')!=p.get('map_id')
+                or current.get('global_backend')!=p.get('global_backend','bbs')
+                or current.get('lio_backend')!=p.get('lio_backend','batch_lio')):
+            raise ValueError('running localization configuration differs; stop localization explicitly before changing it')
+        m=Maps(self.root).get(p['map_id']);Maps(self.root).validate_identity(m)
+        if (m['sha256']!=current.get('map_sha256') or m.get('source_pcd_sha256')!=current.get('localization_pcd_sha256')
+                or hash_file(Path(current['profile_snapshot']))!=current['profile']['profile_sha256']
+                or hash_file(Path(current['calibration']))!=current['calibration_snapshot_sha256']):
+            raise ValueError('running localization map/profile/calibration identity changed')
+        if m['status']!='ACCEPTED' or m.get('localization_geometry_valid') is False:
+            raise ValueError('formal navigation requires ACCEPTED map with matching PCD')
+        import yaml
+        calibration_record=(calibration.load(current['calibration'],robot) if robot=='bunker' else load_profile(current['calibration']))
+        if calibration_record.get('status')!='VERIFIED':
+            raise ValueError('formal navigation requires VERIFIED calibration')
+        checks=setup(p.get('checks'))
+        acceptance=report(p.get('safety_report',''),robot,current['profile']['profile_sha256'],m['sha256'],current['calibration_sha256'])
+        ident=_new_id();directory=self.root/'runs'/ident;directory.mkdir(parents=True)
+        args=['robot:='+robot,'robot_profile_file:='+current['profile_snapshot'],
+              'enable_chassis:=false','external_chassis:=true','enable_mid360:=false',
+              'enable_description:=false','enable_guard:=false','enable_localization:=false',
+              'external_localization:=true','enable_navigation:=true','enable_inspection:=true',
+              'enable_camera_gimbal:=false','global_map:='+m['source_pcd'],'map_yaml:='+m['yaml'],
+              'safety_report:='+acceptance['path'],'lio_backend:='+current['lio_backend']]
+        if robot=='bunker':args+=['calibration_bundle:='+current['calibration']]
+        else:
+            mount=directory/'navigation_mount.yaml';runtime_mount=dict(calibration_record)
+            runtime_mount['validation']=dict(runtime_mount.get('validation',{}),localization='PASS',motion_safety='PASS')
+            mount.write_text(yaml.safe_dump(runtime_mount,sort_keys=False))
+            args+=['fwmini_mount_file:='+str(mount),'fwmini_mode:=autonomous_navigation','supervised:=true']
+        # Stop before transferring the command owner. A stop failure aborts transfer.
+        rpc(self.root,'stop')
+        self._stop_kind('control_guard')
+        snapshot=dict(current,id=ident,task='navigation',localization_session=current,
+            localization_job_id=localization['id'],checks=checks,safety_report=acceptance)
+        write_json(directory/'session.json',snapshot)
+        meta=dict(snapshot);meta['session_id']=meta.pop('id');meta.pop('job_id',None)
+        try:
+            job=self.jobs._new('navigation_component',['bash',str(REPO/'scripts/run_field_test.sh'),*args],meta)
+        except Exception:
+            self._start_manual_guard(sensor)
+            raise
+        write_json(self.root/'work/current_session.json',dict(snapshot,job_id=job['id']))
+        return job
+
+    def _start(self,p):
         robot=p.get('robot');task=p.get('task','sensors')
         if robot not in ('bunker','fwmini') or task not in ('sensors','manual','localization','navigation'):
             raise ValueError('unknown robot/task')
         if task=='manual':return self.start_chassis(p)
+        if task=='navigation':return self._start_navigation(p)
         if any(j['kind']=='mapping_live' and j['state']=='RUNNING' for j in self._jobs()):
             raise ValueError('finish live mapping before changing runtime; start a manual session before the next live run')
         active=[j for j in self._jobs() if j['kind']=='field_session' and j['state'] in ('RUNNING','ORPHANED')]
@@ -236,6 +308,7 @@ class Sessions:
         map_record=Maps(self.root).get(p['map_id']) if p.get('map_id') else None
         if task in ('localization','navigation') and (not map_record or not map_record.get('source_pcd')):
             raise ValueError('map with source PCD required')
+        if map_record:Maps(self.root).validate_identity(map_record)
         acceptance=None
         if task=='navigation':
             if map_record['status']!='ACCEPTED':raise ValueError('formal navigation requires ACCEPTED map')
@@ -307,7 +380,18 @@ class Sessions:
         return job
 
     def stop(self):
+        with self.lock:return self._stop()
+
+    def _stop(self):
         current=self.current()
+        if current and current.get('task')=='navigation' and current.get('localization_session'):
+            try:rpc(self.root,'stop')
+            except (OSError,ValueError):pass
+            stopped=self._stop_kind('navigation_component')
+            write_json(self.root/'work/current_session.json',current['localization_session'])
+            _,sensor=self._sensor_stack()
+            if sensor and self._find_job('chassis_component'):self._start_manual_guard(sensor)
+            return stopped
         if current and current.get('task')=='manual':return self.stop_chassis()
         if current and current.get('task')=='sensors' and self._find_job('chassis_component'):
             raise ValueError('stop the independent chassis first; sensor/TF ownership is still required')
@@ -325,7 +409,76 @@ class Sessions:
         stopped.extend(self._stop_kind('field_session'))
         return stopped
 
+    def stop_component(self,name):
+        with self.lock:
+            current=self.current() or {}
+            if name=='chassis':return self.stop_chassis()
+            if name=='navigation':
+                if current.get('task')=='navigation':return self._stop()
+                return self._stop_kind('navigation_component')
+            if name=='localization':
+                if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')):
+                    raise ValueError('navigation still uses localization; stop navigation first')
+                stopped=self._stop_kind('field_session');self._restore_sensor_or_manual();return stopped
+            if name=='sensors':
+                if any(self._find_job(k,('RUNNING','ORPHANED','STOP_FAILED')) for k in
+                       ('chassis_component','field_session','navigation_component','mapping_live')):
+                    raise ValueError('sensors still used by chassis/TF, mapping or localization')
+                stopped=self._stop_kind('sensor_stack')
+                (self.root/'work/current_session.json').unlink(missing_ok=True);return stopped
+            if name=='guard':
+                if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')):
+                    raise ValueError('navigation owns its safety guard; stop navigation first')
+                try:rpc(self.root,'stop')
+                except (OSError,ValueError):pass
+                return self._stop_kind('control_guard')
+            raise ValueError('unknown component')
+
+    def start_guard(self):
+        with self.lock:
+            if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')):
+                raise ValueError('navigation already owns the command guard')
+            _,sensor=self._sensor_stack()
+            if not sensor or not self._find_job('chassis_component'):
+                raise ValueError('running sensors and chassis required for the manual guard')
+            self.bridge()
+            rpc(self.root,'stop')
+            guard=self._start_manual_guard(sensor)
+            current=self.current() or sensor
+            write_json(self.root/'work/current_session.json',dict(current,guard_job_id=guard['id']))
+            return guard
+
+    def components(self):
+        result={}
+        try:live=rpc(self.root,'status')
+        except (OSError,ValueError):live={}
+        physical=bool((live.get('feedback_fresh') or [False])[0])
+        observed={'sensors':bool(live.get('sensors_ready')),
+            'chassis':physical,
+            'localization':bool(live.get('localized')),
+            'navigation':physical and bool(live.get('localized')) and all(live.get('nav2_states',{}).get(k)==3 for k in ('controller_server','bt_navigator'))}
+        from .runtime import process_start
+        for name,kind in (('sensors','sensor_stack'),('chassis','chassis_component'),
+                          ('guard','control_guard'),('localization','field_session'),
+                          ('navigation','navigation_component'),('camera','camera_gimbal')):
+            job=next((j for j in self._jobs() if j['kind']==kind),None)
+            result[name]=dict(process_state=job['state'] if job else 'STOPPED',
+                job_id=job['id'] if job else None,readiness='UNVERIFIED',
+                reason=(job or {}).get('reason'),log=(job or {}).get('log'))
+            if job and job['state']=='RUNNING' and name in observed:
+                ready=observed[name]
+                age=time.time()-process_start(job)
+                result[name].update(readiness='READY' if ready else 'STARTUP_TIMEOUT' if age>30 else 'WAITING_FOR_HARDWARE',ready=ready)
+                if not ready:result[name]['reason']='required feedback/localization/Nav2 lifecycle not observed'
+        if result['navigation']['process_state']=='RUNNING':
+            result['guard'].update(process_state='OWNED_BY_NAVIGATION',job_id=result['navigation']['job_id'],
+                readiness='UNVERIFIED',reason='guard shares navigation launch; safety gates remain mandatory')
+        return result
+
     def stop_all(self):
+        with self.lock:return self._stop_all()
+
+    def _stop_all(self):
         """Stop every process owned by this Workbench, including recorder and bridge."""
         try:rpc(self.root,'stop')
         except (OSError,ValueError):pass

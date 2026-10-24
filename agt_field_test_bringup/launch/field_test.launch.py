@@ -62,6 +62,7 @@ def _configure(context):
     description_enabled = value('enable_description').lower() == 'true'
     guard_enabled = value('enable_guard').lower() == 'true'
     external_chassis = value('external_chassis').lower() == 'true'
+    external_localization = value('external_localization').lower() == 'true'
     bundle=calibration.load(value('calibration_bundle'),robot) if value('calibration_bundle') else None
     profile = None
     if robot == 'fwmini':
@@ -71,8 +72,10 @@ def _configure(context):
             raise RuntimeError('FW-mini localization requires fwmini_mode:=supervised_localization')
         require_mode(profile, 'autonomous_navigation' if navigation else mode,
                      supervised=value('supervised').lower() == 'true')
-    if navigation and not localization:
+    if navigation and not localization and not external_localization:
         raise RuntimeError('navigation requires the localization stack')
+    if localization and external_localization:
+        raise RuntimeError('do not start a second localization/TF owner')
     if navigation and not chassis and not external_chassis:
         raise RuntimeError('navigation requires a chassis in this launch or an independently supervised chassis component')
     if navigation and chassis and external_chassis:
@@ -216,13 +219,14 @@ def _configure(context):
             if event.returncode != 0:
                 return [EmitEvent(event=Shutdown(reason='FW-mini TF preflight failed'))]
             return [LogInfo(msg=f"{robot} {(profile or bundle)['status']}: selected TF checked"),
-                    watcher, *localization_nodes]
+                    *([watcher] if description_enabled else []), *localization_nodes]
 
         def guard_exit(event, _context):
             return [EmitEvent(event=Shutdown(reason='FW-mini TF ownership violation'))] if event.returncode else []
 
-        handlers=[RegisterEventHandler(OnProcessExit(target_action=preflight, on_exit=after_tf)),
-                  RegisterEventHandler(OnProcessExit(target_action=watcher, on_exit=guard_exit))]
+        handlers=[RegisterEventHandler(OnProcessExit(target_action=preflight, on_exit=after_tf))]
+        if description_enabled:
+            handlers.append(RegisterEventHandler(OnProcessExit(target_action=watcher, on_exit=guard_exit)))
         if description_nodes:
             handlers.append(RegisterEventHandler(OnProcessExit(target_action=description_nodes[0], on_exit=[
                 EmitEvent(event=Shutdown(reason='robot description stopped'))])))
@@ -258,7 +262,10 @@ def _configure(context):
             'map': str(map_yaml), 'map_id': manifest['id'], 'enable_inspection': 'false'}))
         if value('enable_inspection').lower() == 'true':
             # Reuse only the headless V3 mission executor, not its RViz patrol UI.
-            nodes.append(_include('agt_navigation_runtime', 'runtime.launch.py'))
+            runtime_share=Path(get_package_share_directory('agt_navigation_runtime'))
+            nodes.append(Node(package='agt_navigation_runtime',executable='mission_runtime',
+                name='mission_runtime',output='screen',parameters=[str(runtime_share/'config/runtime.yaml'),
+                    {'record_root':str(workspace/'data/captures/missions')}]))
     return nodes
 
 
@@ -285,6 +292,7 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_description', default_value='true'),
         DeclareLaunchArgument('enable_guard', default_value='true'),
         DeclareLaunchArgument('external_chassis', default_value='false'),
+        DeclareLaunchArgument('external_localization', default_value='false'),
         DeclareLaunchArgument('enable_mid360', default_value='true'),
         DeclareLaunchArgument('enable_localization', default_value='false'),
         DeclareLaunchArgument('enable_navigation', default_value='false'),

@@ -8,6 +8,7 @@ setup(
                 ('share/'+package_name, ['package.xml']),
                 ('share/'+package_name+'/config', glob('config/*.yaml'))],
     install_requires=['setuptools', 'numpy'],
+    tests_require=['pytest'],
     zip_safe=True,
     maintainer='AGT Robotics', maintainer_email='noreply@example.com',
     description='Safe ROS 2 desktop studio with live GLIM point cloud and mapping/test tools',

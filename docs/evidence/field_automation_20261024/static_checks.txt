@@ -1,0 +1,12 @@
+/workspace/work/venv/bin/python -m compileall -q workbench scripts agt_robot_studio agt_field_test_bringup agt_dynamic_map_cleaner
+exit_code=0
+
+bash -n scripts/ros_exec.sh scripts/run_field_test.sh
+exit_code=0
+
+/workspace/work/venv/bin/python -c import workbench.devices,workbench.session,workbench.runtime,workbench.maps,workbench.server; import agt_robot_studio.ui,agt_robot_studio.ros_worker; import xml.etree.ElementTree as E; E.parse("agt_field_test_bringup/package.xml"); E.parse("agt_robot_studio/package.xml"); print("Python imports and package XML OK")
+exit_code=0
+Python imports and package XML OK
+
+git diff --check
+exit_code=0

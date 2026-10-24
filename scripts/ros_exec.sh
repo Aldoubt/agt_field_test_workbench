@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+ROOT="${AGT_FIELD_TEST_WS:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 export AGT_FIELD_TEST_WS="$ROOT"
 set +u
 source /opt/ros/humble/setup.bash

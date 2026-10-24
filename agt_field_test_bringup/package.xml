@@ -13,6 +13,13 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>agt_robot_interfaces</exec_depend>
+  <exec_depend>camera_gimbal_interfaces</exec_depend>
+  <exec_depend>autolabor_c1_bringup</exec_depend>
   <depend>rclcpp</depend>
   <depend>tf2_msgs</depend>
   <exec_depend>agt_system_bringup</exec_depend>

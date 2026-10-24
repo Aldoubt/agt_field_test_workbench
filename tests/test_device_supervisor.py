@@ -20,7 +20,8 @@ class FakeJobs:
         return job
 
 
-def test_camera_launch_is_detached_from_navigation_and_uses_fixed_argv():
+def test_camera_launch_is_detached_from_navigation_and_uses_fixed_argv(tmp_path,monkeypatch):
+    monkeypatch.setattr(devices,'ROOT',tmp_path)
     sessions=[{'id':'nav-1','kind':'field_session','state':'RUNNING','enable_camera_gimbal':False}]
     jobs=FakeJobs(sessions)
     with patch.object(devices,'ros_ready',return_value=True),\
