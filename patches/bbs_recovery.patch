@@ -1,0 +1,654 @@
+diff --git a/navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py b/navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py
+--- a/navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py
++++ b/navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py
+@@ -7,7 +7,8 @@
+ import signal
+ import statistics
+ import subprocess
+-import tempfile
++from contextlib import nullcontext
++from .attempt_evidence import AttemptEvidence
+ import threading
+ import time
+ from collections import deque
+@@ -76,6 +77,7 @@
+         p('backend_local_map_half_height', 8.0)
+         p('backend_min_local_map_points', 800)
+         p('work_dir', '~/.ros/agt_global_relocalization')
++        p('attempt_evidence_keep', 20)
+         p('sdk_timeout_sec', 10.0)
+         p('accumulate_clouds', 5)
+         p('min_points', 2000)
+@@ -273,6 +275,8 @@
+         if self._stopping:return
+         m = String()
+         payload = {'state': state, 'detail': detail, 'global_backend':self.get_parameter('global_backend').value}
++        if getattr(self, 'last_attempt_directory', ''):
++            payload['evidence_dir'] = self.last_attempt_directory
+         payload.update(extra)
+         m.data = json.dumps(payload, ensure_ascii=False)
+         self.status_pub.publish(m)
+@@ -341,6 +345,7 @@
+         started=time.monotonic()
+         succeeded = False
+         try:
++            self.last_attempt_directory = ''
+             self.status('QUERY_READY', 'stationary query is ready')
+             self.run_once()
+             succeeded = True
+@@ -711,7 +716,10 @@
+         except subprocess.TimeoutExpired:
+             try:os.killpg(proc.pid,signal.SIGKILL)
+             except ProcessLookupError:pass
+-            proc.wait(timeout=1.)
++            try:
++                proc.wait(timeout=1.)
++            except subprocess.TimeoutExpired:
++                self.get_logger().warning('backend did not exit after SIGKILL')
+ 
+     def _run_backend(self,command,timeout):
+         if self._stopping:raise RuntimeError('localization stopped')
+@@ -729,6 +737,18 @@
+                     stdout,stderr=proc.communicate(timeout=min(.1,remaining))
+                     return subprocess.CompletedProcess(proc.args,proc.returncode,stdout,stderr)
+                 except subprocess.TimeoutExpired:pass
++        except BaseException as exc:
++            self._stop_backend(proc)
++            # communicate() retains buffered output across TimeoutExpired calls.
++            # Drain after killing the whole group, so timeout evidence includes
++            # the last native candidate stage instead of losing both streams.
++            try:
++                stdout, stderr = proc.communicate(timeout=1.)
++                exc.backend_stdout, exc.backend_stderr = stdout, stderr
++                exc.backend_returncode = proc.returncode
++            except (OSError, subprocess.TimeoutExpired):
++                pass
++            raise
+         finally:
+             self._stop_backend(proc)
+             self._backend_process=None
+@@ -740,6 +760,13 @@
+         return super().destroy_node()
+ 
+     def run_once(self):
++        work = Path(os.path.expanduser(str(self.get_parameter('work_dir').value)))
++        with AttemptEvidence(work / 'attempts',
++                             keep=int(self.get_parameter('attempt_evidence_keep').value)) as evidence:
++            self.last_attempt_directory = str(evidence.path)
++            self._run_once(evidence)
++
++    def _run_once(self, evidence):
+         experiment=self.get_parameter('global_backend').value=='sc_kiss'
+         if experiment:
+             from agt_sc_kiss.runtime import configure_query
+@@ -782,7 +809,7 @@
+ 
+         work = Path(os.path.expanduser(str(self.get_parameter('work_dir').value)))
+         work.mkdir(parents=True, exist_ok=True)
+-        with tempfile.TemporaryDirectory(prefix='query_', dir=work) as td:
++        with nullcontext(str(evidence.path)) as td:
+             scan_pcd = Path(td) / 'query_scan.pcd'
+             self.write_ascii_pcd(scan_pcd, rows)
+             timeout = float(self.get_parameter('sdk_timeout_sec').value)
+@@ -802,6 +829,9 @@
+                 scan_pcd=shlex.quote(str(scan_pcd)),
+                 global_map=shlex.quote(global_map),
+                 timeout_sec=timeout,
++                min_score=float(self.get_parameter('min_score').value),
++                max_fitness=float(self.get_parameter('max_fitness').value),
++                min_overlap=float(self.get_parameter('min_overlap').value),
+                 assets_arg=assets_arg,
+                 local_map_radius_xy=float(self.get_parameter('backend_local_map_radius_xy').value),
+                 local_map_half_height=float(self.get_parameter('backend_local_map_half_height').value),
+@@ -831,12 +861,34 @@
+                 map_version=map_version,
+                 map_generation=generation,
+             )
+-            proc = self._run_backend(cmd,timeout)
++            evidence.update(
++                backend=backend_name, command=shlex.split(cmd),
++                global_map=global_map, assets_dir=assets_dir,
++                map_id=map_id, map_version=map_version, map_generation=generation,
++                query_frame=query_frame, bbs_query_frame_mode=bbs_mode,
++                query_stamp={'sec': int(stamp.sec), 'nanosec': int(stamp.nanosec)},
++                points=len(rows), raw_points=self.last_query_raw_points,
++                base_from_body=base_from_body,
++                parameters={name: self.get_parameter(name).value for name in (
++                    'query_min_range_m', 'query_max_range_m', 'query_voxel_leaf_m',
++                    'min_score', 'max_fitness', 'min_overlap', 'sdk_timeout_sec')})
++            try:
++                proc = self._run_backend(cmd, timeout)
++            except BaseException as exc:
++                evidence.record_backend(
++                    stdout=getattr(exc, 'backend_stdout', ''),
++                    stderr=getattr(exc, 'backend_stderr', ''),
++                    returncode=getattr(exc, 'backend_returncode', None))
++                raise
++            evidence.record_backend(proc)
+             if proc.returncode != 0:
+-                detail = proc.stderr.strip() or proc.stdout.strip() or 'no backend diagnostics'
++                # Native structured reason and all candidate traces are on
++                # stdout; stderr can contain ros2-run boilerplate or progress.
++                detail = proc.stdout.strip() or proc.stderr.strip() or 'no backend diagnostics'
+                 raise RuntimeError(f'backend returned {proc.returncode}: {detail}')
+             try:
+                 result = json.loads(proc.stdout.strip().splitlines()[-1])
++                evidence.update(backend_result=result)
+             except Exception as exc:
+                 raise RuntimeError(f'backend stdout must end with JSON result: {exc}') from exc
+ 
+@@ -948,6 +1000,7 @@
+             kiss_final_inliers=result.get('kiss_final_inliers'),
+             sc_candidates=result.get('sc_candidates'),
+             candidate_patch=result.get('candidate_patch'),
++            candidate_attempts=result.get('candidate_attempts'),
+             descriptor_similarity=result.get('descriptor_similarity'),
+             descriptor_yaw_seed_deg=result.get('descriptor_yaw_seed_deg'),
+             bbs_assets_loaded=result.get('bbs_assets_loaded'),
+diff --git a/navigation/localization/agt_global_relocalization/agt_global_relocalization/attempt_evidence.py b/navigation/localization/agt_global_relocalization/agt_global_relocalization/attempt_evidence.py
+new file mode 100644
+--- /dev/null
++++ b/navigation/localization/agt_global_relocalization/agt_global_relocalization/attempt_evidence.py
+@@ -0,0 +1,167 @@
++"""Bounded, replayable evidence for one localization attempt (no ROS dependency)."""
++from datetime import datetime, timezone
++import hashlib
++import json
++import logging
++import os
++from pathlib import Path
++import shutil
++import time
++import uuid
++
++
++SCHEMA = 'agt_relocalization_attempt/v1'
++
++
++def _utc_now():
++    return datetime.now(timezone.utc).isoformat(timespec='milliseconds')
++
++
++def _atomic_text(path, text):
++    temporary = path.with_name('.' + path.name + '.' + uuid.uuid4().hex + '.tmp')
++    try:
++        with temporary.open('x', encoding='utf-8') as stream:
++            stream.write(text)
++            stream.flush()
++            os.fsync(stream.fileno())
++        os.replace(temporary, path)
++    finally:
++        temporary.unlink(missing_ok=True)
++
++
++def _text(value):
++    if value is None:
++        return ''
++    if isinstance(value, bytes):
++        return value.decode('utf-8', errors='replace')
++    return str(value)
++
++
++class AttemptEvidence:
++    """Capture an exact query plus process result, retaining completed attempts.
++
++    The caller writes ``query_scan.pcd`` inside ``path``. Arbitrary JSON metadata
++    may be added with ``update``; schema and lifecycle fields are owned here.
++    ``record_backend`` accepts CompletedProcess, or explicit timeout output.
++    Exiting never suppresses the matching exception.
++    """
++
++    def __init__(self, root, keep=20):
++        if isinstance(keep, bool) or not isinstance(keep, int) or keep < 1:
++            raise ValueError('attempt retention must be a positive integer')
++        self.root = Path(root).expanduser()
++        self.keep = keep
++        self.path = None
++        self._fields = {}
++        self._started = None
++
++    def __enter__(self):
++        if self.path is not None:
++            raise RuntimeError('an evidence context cannot be reused')
++        self.root.mkdir(parents=True, exist_ok=True)
++        name = 'attempt_' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ_')
++        self.path = self.root / (name + uuid.uuid4().hex[:12])
++        self.path.mkdir()
++        self._started = time.monotonic()
++        self._fields = {
++            'schema': SCHEMA,
++            'attempt_id': self.path.name,
++            'started_at': _utc_now(),
++            'completed': False,
++            'outcome': 'running',
++        }
++        self._save()
++        return self
++
++    def _save(self):
++        self._fields['updated_at'] = _utc_now()
++        _atomic_text(self.path / 'attempt.json', json.dumps(
++            self._fields, ensure_ascii=False, indent=2, allow_nan=False) + '\n')
++
++    def update(self, **fields):
++        if self.path is None or self._fields.get('completed'):
++            raise RuntimeError('evidence updates require an active context')
++        reserved = {'schema', 'attempt_id', 'started_at', 'updated_at',
++                    'completed_at', 'completed', 'outcome', 'elapsed_sec'}
++        if reserved.intersection(fields):
++            raise ValueError('evidence lifecycle fields cannot be overwritten')
++        # Validate before changing the in-memory record, so one bad field cannot
++        # prevent a later exception and the query hash from being persisted.
++        json.dumps(fields, allow_nan=False)
++        self._fields.update(fields)
++        self._save()
++
++    def record_backend(self, proc=None, *, stdout=None, stderr=None, returncode=None):
++        if self.path is None or self._fields.get('completed'):
++            raise RuntimeError('backend evidence requires an active context')
++        if proc is not None:
++            stdout = getattr(proc, 'stdout', stdout)
++            stderr = getattr(proc, 'stderr', stderr)
++            returncode = getattr(proc, 'returncode', returncode)
++        if returncode is not None and (isinstance(returncode, bool) or
++                                       not isinstance(returncode, int)):
++            raise ValueError('backend returncode must be an integer or None')
++        _atomic_text(self.path / 'backend.stdout', _text(stdout))
++        _atomic_text(self.path / 'backend.stderr', _text(stderr))
++        self.update(backend_returncode=returncode)
++
++    def _prune(self):
++        completed = []
++        for directory in self.root.iterdir():
++            if (not directory.name.startswith('attempt_') or
++                    directory.is_symlink() or not directory.is_dir()):
++                continue
++            metadata = directory / 'attempt.json'
++            if metadata.is_symlink() or not metadata.is_file():
++                continue
++            try:
++                record = json.loads(metadata.read_text(encoding='utf-8'))
++                if (not isinstance(record, dict) or record.get('schema') != SCHEMA or
++                        record.get('completed') is not True):
++                    continue
++                completed.append((directory.stat().st_mtime_ns, directory))
++            except (OSError, ValueError, UnicodeError):
++                continue
++        completed.sort(key=lambda item: (item[0], item[1].name), reverse=True)
++        for _, directory in completed[self.keep:]:
++            # Never delete this attempt, including under an externally adjusted
++            # clock/mtime, or follow a directory replaced with a symlink.
++            if directory != self.path and not directory.is_symlink():
++                shutil.rmtree(directory)
++
++    def __exit__(self, exc_type, exc, traceback):
++        try:
++            # subprocess.TimeoutExpired retains partial output even though no
++            # CompletedProcess was returned. Preserve it when available.
++            if exc is not None and (getattr(exc, 'stdout', None) is not None or
++                                    getattr(exc, 'stderr', None) is not None):
++                self.record_backend(stdout=getattr(exc, 'stdout', None),
++                                    stderr=getattr(exc, 'stderr', None))
++            if exc is not None:
++                self._fields['exception_type'] = exc_type.__name__
++                self._fields['exception_message'] = str(exc)
++            query = self.path / 'query_scan.pcd'
++            if query.is_file() and not query.is_symlink():
++                digest = hashlib.sha256()
++                with query.open('rb') as stream:
++                    for block in iter(lambda: stream.read(1024 * 1024), b''):
++                        digest.update(block)
++                self._fields['query_sha256'] = digest.hexdigest()
++            rejected = self._fields.get('backend_returncode') not in (None, 0)
++            self._fields.update(
++                completed=True, completed_at=_utc_now(),
++                elapsed_sec=time.monotonic() - self._started,
++                outcome='rejected' if rejected else ('error' if exc is not None else 'success'))
++            self._save()
++        except Exception as evidence_error:
++            # The caller may already have published the accepted pose. Archival
++            # failure must not turn that accepted attempt into a REJECTED state.
++            # An incomplete record is retained, rather than claiming it is done.
++            logging.getLogger(__name__).warning(
++                'Could not finalize localization evidence: %s', evidence_error)
++        try:
++            self._prune()
++        except Exception as cleanup_error:
++            logging.getLogger(__name__).warning(
++                'Could not prune localization evidence: %s', cleanup_error)
++        return False
+diff --git a/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml b/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml
+--- a/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml
++++ b/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml
+@@ -77,6 +77,7 @@
+       --base-from-body-qz {base_from_body_qz}
+       --base-from-body-qw {base_from_body_qw}
+       --per-candidate-timeout 8.0 --bbs-score-threshold 0.05
++      --min-score {min_score} --max-fitness {max_fitness} --min-overlap {min_overlap}
+       --local-map-radius-xy {local_map_radius_xy}
+       --local-map-half-height {local_map_half_height}
+       --min-local-map-points {min_local_map_points}
+@@ -96,6 +97,9 @@
+     backend_min_local_map_points: 800
+     work_dir: ~/.ros/agt_global_relocalization
+     sdk_timeout_sec: 18.0
++    # Exact query, command and backend traces survive rejection/timeout.
++    # Keep at most this many completed attempts under work_dir/attempts.
++    attempt_evidence_keep: 20
+ 
+     # Accumulate several navigation-only PointCloud2 frames. Batch-LIO continues
+     # to consume the untouched timing-preserving Livox CustomMsg stream.
+diff --git a/navigation/localization/agt_global_relocalization_native/src/candidate_bbs_gicp_localizer.cpp b/navigation/localization/agt_global_relocalization_native/src/candidate_bbs_gicp_localizer.cpp
+--- a/navigation/localization/agt_global_relocalization_native/src/candidate_bbs_gicp_localizer.cpp
++++ b/navigation/localization/agt_global_relocalization_native/src/candidate_bbs_gicp_localizer.cpp
+@@ -6,6 +6,7 @@
+ #include <iostream>
+ #include <limits>
+ #include <stdexcept>
++#include <sstream>
+ #include <string>
+ #include <vector>
+ 
+@@ -20,6 +21,7 @@
+ #include <small_gicp/registration/registration_helper.hpp>
+ 
+ #include <agt_global_relocalization_native/polar_context.hpp>
++#include <agt_global_relocalization_native/candidate_quality.hpp>
+ 
+ namespace fs = std::filesystem;
+ 
+@@ -45,6 +47,7 @@
+   double local_map_half_height{8.0};
+   std::size_t min_local_map_points{800};
+   int threads{8};
++  agt_relocalization::CandidateGates gates;
+   // Formal PGO pose and cloud contract.  base_link is accepted only as an
+   // explicit compatibility selection by the wrapper/CLI.
+   std::string bbs_query_frame_mode{"mapping_body"};
+@@ -116,6 +119,9 @@
+     else if (a == "--base-from-body-qz") o.base_from_body_q.z() = std::stod(next());
+     else if (a == "--base-from-body-qw") o.base_from_body_q.w() = std::stod(next());
+     else if (a == "--threads") o.threads = std::stoi(next());
++    else if (a == "--min-score") o.gates.min_score = std::stod(next());
++    else if (a == "--max-fitness") o.gates.max_fitness = std::stod(next());
++    else if (a == "--min-overlap") o.gates.min_overlap = std::stod(next());
+     else throw std::runtime_error("unknown argument: " + a);
+   }
+   return !o.map.empty() && !o.scan.empty() && !o.assets_dir.empty();
+@@ -183,8 +189,30 @@
+   return out;
+ }
+ 
++std::string json_string(const std::string& value) {
++  std::ostringstream out;
++  out << '"';
++  for (const unsigned char c : value) {
++    if (c == '"' || c == '\\') out << '\\' << c;
++    else if (c == '\n') out << "\\n";
++    else if (c == '\r') out << "\\r";
++    else if (c == '\t') out << "\\t";
++    else if (c < 0x20) out << '?';
++    else out << c;
++  }
++  out << '"';
++  return out.str();
++}
++
++std::string json_number(double value) {
++  if (!std::isfinite(value)) return "null";
++  std::ostringstream out;
++  out << value;
++  return out.str();
++}
++
+ void emit_failure(const std::string& message) {
+-  std::cout << "{\"success\":false,\"message\":\"" << message << "\"}" << std::endl;
++  std::cout << "{\"success\":false,\"message\":" << json_string(message) << "}" << std::endl;
+ }
+ 
+ std::vector<RankedCandidate> rank_candidates(
+@@ -232,6 +260,7 @@
+ }  // namespace
+ 
+ int main(int argc, char** argv) {
++  const auto started = std::chrono::steady_clock::now();
+   try {
+     Options o;
+     if (!parse(argc, argv, o)) {
+@@ -239,7 +268,13 @@
+       return 2;
+     }
+     if (o.candidate_top_k <= 0 || o.descriptor_prefilter <= 0 ||
+-        o.candidate_xy_radius <= 0.0 || o.candidate_z_radius <= 0.0) {
++        !std::isfinite(o.timeout_sec) || o.timeout_sec <= 0.0 ||
++        !std::isfinite(o.per_candidate_timeout_sec) || o.per_candidate_timeout_sec <= 0.0 ||
++        !std::isfinite(o.candidate_xy_radius) || !std::isfinite(o.candidate_z_radius) ||
++        o.candidate_xy_radius <= 0.0 || o.candidate_z_radius <= 0.0 ||
++        !std::isfinite(o.gates.min_score) || o.gates.min_score < 0.0 || o.gates.min_score > 1.0 ||
++        !std::isfinite(o.gates.max_fitness) || o.gates.max_fitness < 0.0 ||
++        !std::isfinite(o.gates.min_overlap) || o.gates.min_overlap < 0.0 || o.gates.min_overlap > 1.0) {
+       throw std::runtime_error("invalid candidate-search settings");
+     }
+     if (o.bbs_query_frame_mode != "base_link" &&
+@@ -308,8 +343,37 @@
+       query_descriptor, db_entries, descriptor_params, o.descriptor_prefilter);
+     if (candidates.empty()) throw std::runtime_error("descriptor retrieval returned no candidates");
+ 
+-    const auto started = std::chrono::steady_clock::now();
+     CoarseResult best;
++    small_gicp::RegistrationResult result;
++    bool accepted = false;
++    bool saw_coarse = false;
++    bool budget_exhausted = false;
++    bool full_map_fallback = false;
++    std::size_t target_points = 0;
++    std::vector<std::string> traces;
++    auto elapsed = [&]() {
++      return std::chrono::duration<double>(
++        std::chrono::steady_clock::now() - started).count();
++    };
++    auto trace = [&](int rank, const RankedCandidate& c, const std::string& state,
++                     double bbs_score, double fitness, double overlap) {
++      // Patch names originate from the database; escape before emitting JSON.
++      std::ostringstream out;
++      out << "{\"rank\":" << rank << ",\"patch\":" << json_string(c.entry.patch_name)
++          << ",\"state\":" << json_string(state)
++          << ",\"bbs_score\":" << json_number(bbs_score)
++          << ",\"descriptor_similarity\":" << json_number(c.sector_similarity)
++          << ",\"fitness\":" << json_number(fitness)
++          << ",\"overlap\":" << json_number(overlap) << ",\"elapsed_sec\":" << elapsed() << "}";
++      traces.push_back(out.str());
++      // Flush each stage so the wrapper retains the last known stage on timeout.
++      std::cerr << out.str() << std::endl;
++    };
++    auto trace_json = [&]() {
++      std::string joined = "[";
++      for (const auto& item : traces) { if (joined.size() > 1) joined += ","; joined += item; }
++      return joined + "]";
++    };
+     const int try_count =
+       std::min<int>(o.candidate_top_k, static_cast<int>(candidates.size()));
+ 
+@@ -318,7 +382,10 @@
+       const double used_sec =
+         std::chrono::duration<double>(now - started).count();
+       const double remaining = o.timeout_sec - used_sec;
+-      if (remaining <= 0.15) break;
++      // Leave time for fine registration and distribute the remaining coarse
++      // budget across untried candidates. The wrapper still enforces wall time.
++      const double refinement_reserve = std::min(2.0, o.timeout_sec * 0.2);
++      if (remaining <= refinement_reserve + 0.1) { budget_exhausted = true; break; }
+ 
+       const auto& c = candidates[static_cast<std::size_t>(i)];
+       cpu::BBS3D bbs;
+@@ -364,59 +431,76 @@
+         Eigen::Vector3d( rp,  rp,  yr));
+       bbs.set_score_threshold_percentage(o.bbs_score_threshold);
+       bbs.enable_timeout();
++      const double search_remaining = o.timeout_sec - elapsed() - refinement_reserve;
++      if (search_remaining <= 0.1) { budget_exhausted = true; break; }
+       const double candidate_timeout =
+-        std::max(0.10, std::min(o.per_candidate_timeout_sec, remaining));
++        std::max(0.10, std::min(o.per_candidate_timeout_sec,
++          search_remaining / (try_count - i)));
+       bbs.set_timeout_duration_in_msec(
+         static_cast<int>(candidate_timeout * 1000.0));
+       bbs.localize();
+ 
+-      if (!bbs.has_localized() || bbs.has_timed_out()) continue;
+-      const double score =
+-        std::clamp(bbs.get_best_score_percentage(), 0.0, 1.0);
+-      if (!best.valid || score > best.bbs_score) {
+-        best.valid = true;
+-        best.candidate = c;
+-        const Eigen::Isometry3d residual_pose(bbs.get_global_pose());
+-        Eigen::Isometry3d orientation_seed = Eigen::Isometry3d::Identity();
+-        orientation_seed.linear() = seed_rotation;
+-        best.pose = residual_pose * orientation_seed;
+-        best.bbs_score = score;
+-        best.elapsed_ms = bbs.get_elapsed_time();
++      if (!bbs.has_localized() || bbs.has_timed_out()) {
++        trace(i + 1, c, bbs.has_timed_out() ? "BBS_TIMEOUT" : "BBS_NO_POSE", 0.0, NAN, 0.0);
++        continue;
+       }
+-
+-      // A strong geometric score plus a strong descriptor match is enough to
+-      // stop trying weaker descriptor candidates.
+-      // Polar Context is the place/yaw selector; BBS only needs to provide a
+-      // geometrically useful coarse seed. Final acceptance is intentionally
+-      // deferred to GICP fitness/overlap and the ROS-side quality gates.
+-      if (score >= 0.65 && c.sector_similarity >= 0.85) break;
+-    }
+-
+-    if (!best.valid) {
+-      const auto& first = candidates.front();
+-      emit_failure(
+-        "candidate-guided 3D-BBS found no valid pose; top_patch=" +
+-        first.entry.patch_name);
+-      return 3;
+-    }
+-
+-    auto local_map_points = crop_local_map(
+-      map_points, best.pose.translation(),
+-      o.local_map_radius_xy, o.local_map_half_height);
+-    const bool full_map_fallback =
+-      local_map_points.size() < o.min_local_map_points;
+-    const auto& gicp_target =
+-      full_map_fallback ? map_points : local_map_points;
+-
+-    small_gicp::RegistrationSetting setting;
+-    setting.num_threads = std::max(1, o.threads);
+-    setting.downsampling_resolution = std::min(o.map_leaf, o.scan_leaf);
+-    setting.max_correspondence_distance = o.gicp_max_corr;
+-    auto result =
+-      small_gicp::align(gicp_target, scan_points, best.pose, setting);
+-    if (!result.converged || result.num_inliers == 0) {
+-      emit_failure("small_gicp did not converge after candidate-guided BBS");
+-      return 4;
++      saw_coarse = true;
++      CoarseResult current;
++      current.valid = true;
++      current.candidate = c;
++      current.bbs_score = std::clamp(bbs.get_best_score_percentage(), 0.0, 1.0);
++      const Eigen::Isometry3d residual_pose(bbs.get_global_pose());
++      Eigen::Isometry3d orientation_seed = Eigen::Isometry3d::Identity();
++      orientation_seed.linear() = seed_rotation;
++      current.pose = residual_pose * orientation_seed;
++      current.elapsed_ms = bbs.get_elapsed_time();
++      trace(i + 1, c, "GICP_REFINING", current.bbs_score, NAN, 0.0);
++
++      auto local_map_points = crop_local_map(
++        map_points, current.pose.translation(),
++        o.local_map_radius_xy, o.local_map_half_height);
++      const bool fallback = local_map_points.size() < o.min_local_map_points;
++      const auto& gicp_target = fallback ? map_points : local_map_points;
++      small_gicp::RegistrationSetting setting;
++      setting.num_threads = std::max(1, o.threads);
++      setting.downsampling_resolution = std::min(o.map_leaf, o.scan_leaf);
++      setting.max_correspondence_distance = o.gicp_max_corr;
++      auto refined = small_gicp::align(gicp_target, scan_points, current.pose, setting);
++      const double overlap = std::clamp(
++        static_cast<double>(refined.num_inliers) / scan_points.size(), 0.0, 1.0);
++      const double fitness = refined.error / std::max<std::size_t>(1, refined.num_inliers);
++      const double score = std::clamp(0.50 * current.bbs_score + 0.25 * overlap +
++        0.25 * std::max(0.0, c.sector_similarity), 0.0, 1.0);
++      const auto rejection = agt_relocalization::candidate_rejection(
++        refined.converged, refined.num_inliers,
++        refined.T_target_source.matrix().allFinite(), score, fitness, overlap, o.gates);
++      if (!rejection.empty()) {
++        trace(i + 1, c, rejection, current.bbs_score, fitness, overlap);
++        continue;
++      }
++      if (elapsed() > o.timeout_sec) {
++        trace(i + 1, c, "BUDGET_EXHAUSTED", current.bbs_score, fitness, overlap);
++        budget_exhausted = true;
++        break;
++      }
++      // A coarse score is never sufficient to stop searching. Only a complete
++      // candidate passing the same gates as the ROS wrapper can finish early.
++      trace(i + 1, c, "ACCEPTED", current.bbs_score, fitness, overlap);
++      best = current;
++      result = refined;
++      accepted = true;
++      full_map_fallback = fallback;
++      target_points = gicp_target.size();
++      break;
++    }
++
++    if (!accepted) {
++      const std::string reason = (budget_exhausted || elapsed() > o.timeout_sec) ? "BUDGET_EXHAUSTED" :
++        (saw_coarse ? "NO_ACCEPTABLE_REFINED_CANDIDATE" : "NO_COARSE_CANDIDATE");
++      std::cout << "{\"success\":false,\"reason_code\":" << json_string(reason)
++                << ",\"message\":\"candidate-guided localization exhausted its candidates or budget\""
++                << ",\"candidate_attempts\":" << trace_json() << "}" << std::endl;
++      return saw_coarse ? 4 : 3;
+     }
+ 
+     const auto& T = result.T_target_source;
+@@ -455,13 +539,14 @@
+               << ",\"overlap\":" << overlap
+               << ",\"bbs_score\":" << best.bbs_score
+               << ",\"bbs_elapsed_ms\":" << best.elapsed_ms
+-              << ",\"candidate_patch\":\"" << best.candidate.entry.patch_name << "\""
++              << ",\"candidate_patch\":" << json_string(best.candidate.entry.patch_name)
+               << ",\"descriptor_ring_distance\":" << best.candidate.ring_distance
+               << ",\"descriptor_similarity\":" << best.candidate.sector_similarity
+               << ",\"descriptor_shift\":" << best.candidate.sector_shift
+               << ",\"descriptor_yaw_seed_deg\":"
+               << best.candidate.yaw_estimate * 180.0 / M_PI
+-              << ",\"gicp_target_points\":" << gicp_target.size()
++              << ",\"candidate_attempts\":" << trace_json()
++              << ",\"gicp_target_points\":" << target_points
+               << ",\"gicp_full_map_fallback\":"
+               << (full_map_fallback ? "true" : "false")
+               << "}" << std::endl;
+diff --git a/navigation/localization/agt_global_relocalization_native/include/agt_global_relocalization_native/candidate_quality.hpp b/navigation/localization/agt_global_relocalization_native/include/agt_global_relocalization_native/candidate_quality.hpp
+new file mode 100644
+--- /dev/null
++++ b/navigation/localization/agt_global_relocalization_native/include/agt_global_relocalization_native/candidate_quality.hpp
+@@ -0,0 +1,25 @@
++#pragma once
++#include <cmath>
++#include <cstddef>
++#include <string>
++
++namespace agt_relocalization {
++// These defaults match global_relocalization.yaml. The wrapper supplies its
++// actual configured gates; its publication checks remain an independent guard.
++struct CandidateGates {
++  double min_score{0.50};
++  double max_fitness{1.00};
++  double min_overlap{0.20};
++};
++inline std::string candidate_rejection(bool converged, std::size_t inliers,
++    bool finite_pose, double score, double fitness, double overlap,
++    const CandidateGates& gates) {
++  if (!converged || !inliers) return "GICP_NON_CONVERGENCE";
++  if (!finite_pose || !std::isfinite(score) || !std::isfinite(fitness) ||
++      !std::isfinite(overlap)) return "GICP_NON_FINITE";
++  if (score < gates.min_score) return "SCORE_LOW";
++  if (fitness > gates.max_fitness) return "FITNESS_HIGH";
++  if (overlap < gates.min_overlap) return "OVERLAP_LOW";
++  return {};
++}
++}  // namespace agt_relocalization

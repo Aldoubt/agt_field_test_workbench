@@ -8,6 +8,29 @@ import subprocess
 
 REPO = Path(__file__).resolve().parents[1]
 
+# Explicitly reviewed sequential patches. Re-running an earlier installer must
+# recognize a later patch, while still refusing arbitrary local modifications.
+FOLLOWUPS = {
+    'control_manifest.json': ('sc_kiss_manifest.json', 'bbs_recovery_manifest.json'),
+    'sc_kiss_manifest.json': ('bbs_recovery_manifest.json',),
+}
+
+
+def reviewed_followup(manifest_path, relative, name, digest, actual, commit):
+    if manifest_path.resolve().parent != REPO / 'patches':
+        return False
+    for filename in FOLLOWUPS.get(manifest_path.name, ()):
+        path = REPO / 'patches' / filename
+        if not path.is_file():
+            continue
+        spec = json.loads(path.read_text()).get(relative, {})
+        hashes = spec.get('files', {}).get(name, {})
+        if spec.get('commit') == commit and hashes.get('before') == digest:
+            digest = hashes.get('after')
+            if digest == actual:
+                return True
+    return False
+
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
@@ -20,8 +43,6 @@ def main():
     parser.add_argument('--manifest', type=Path, default=REPO/'patches/control_manifest.json')
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text())
-    experiment_path=REPO/'patches/sc_kiss_manifest.json'
-    experiment=json.loads(experiment_path.read_text()) if experiment_path.is_file() else {}
     pending = []
     # Validate every dependency and file before making any changes.
     for relative, spec in manifest.items():
@@ -35,9 +56,8 @@ def main():
             if actual == hashes['before']:
                 names.append(name)
             elif actual != hashes['after']:
-                followup=experiment.get(relative,{}).get('files',{}).get(name,{})
-                if not (args.manifest==REPO/'patches/control_manifest.json' and
-                        followup.get('before')==hashes['after'] and followup.get('after')==actual):
+                if not reviewed_followup(args.manifest, relative, name,
+                                         hashes['after'], actual, spec['commit']):
                     raise SystemExit(f'{relative}/{name}: differs from reviewed source and patch; preserved')
         if names:
             command = ['git', '-C', str(root), 'apply', '--whitespace=error']

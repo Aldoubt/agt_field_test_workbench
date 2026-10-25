@@ -12,6 +12,7 @@ python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py
   --manifest "$ROOT/src/agt_field_test_workbench/patches/map_cleanup_manifest.json"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_sc_kiss_integration.py"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_bbs_recovery.py"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \
   --manifest "$ROOT/src/agt_field_test_workbench/patches/navigation_perception_manifest.json"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \

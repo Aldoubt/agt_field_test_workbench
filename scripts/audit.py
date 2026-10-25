@@ -26,7 +26,7 @@ def main():
     import yaml
     manifest = yaml.safe_load((ROOT / '.repos').read_text())['repositories']
     control_patches={}
-    for name in ('control','frontend','map_cleanup','sc_kiss','navigation_perception','photo_mission','map_tracking_support','ugv_protocol_lifetime'):
+    for name in ('control','frontend','map_cleanup','sc_kiss','bbs_recovery','navigation_perception','photo_mission','map_tracking_support','ugv_protocol_lifetime'):
         entries=json.loads((Path(__file__).resolve().parents[1]/f'patches/{name}_manifest.json').read_text())
         for relative,spec in entries.items():
             control_patches.setdefault(relative,dict(files={}))['files'].update(spec['files'])

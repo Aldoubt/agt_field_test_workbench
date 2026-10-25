@@ -1,0 +1,57 @@
+{
+  "test": "asymmetric_synthetic_real_libraries",
+  "translation_error_m": 0.0013012440201590845,
+  "yaw_error_rad": 6.482117205386384e-05,
+  "result": {
+    "success": true,
+    "bbs_query_frame_mode": "mapping_body",
+    "x": 2.00032,
+    "y": -1.00121,
+    "z": 0.300356,
+    "qx": 9.36969e-05,
+    "qy": 6.33673e-05,
+    "qz": 0.0998012,
+    "qw": 0.995007,
+    "coarse_x": 2,
+    "coarse_y": -1,
+    "coarse_z": 0,
+    "coarse_qx": 0,
+    "coarse_qy": 0,
+    "coarse_qz": 0.0998334,
+    "coarse_qw": 0.995004,
+    "score": 0.999085,
+    "fitness": 0.0175118,
+    "overlap": 1,
+    "bbs_score": 1,
+    "bbs_elapsed_ms": 5.39265,
+    "candidate_patch": "000000.pcd",
+    "descriptor_ring_distance": 0.0381555,
+    "descriptor_similarity": 0.996342,
+    "descriptor_shift": 0,
+    "descriptor_yaw_seed_deg": 11.4592,
+    "candidate_attempts": [
+      {
+        "rank": 1,
+        "patch": "000000.pcd",
+        "state": "GICP_REFINING",
+        "bbs_score": 1,
+        "descriptor_similarity": 0.996342,
+        "fitness": null,
+        "overlap": 0,
+        "elapsed_sec": 0.00995387
+      },
+      {
+        "rank": 1,
+        "patch": "000000.pcd",
+        "state": "ACCEPTED",
+        "bbs_score": 1,
+        "descriptor_similarity": 0.996342,
+        "fitness": 0.0175118,
+        "overlap": 1,
+        "elapsed_sec": 0.0146557
+      }
+    ],
+    "gicp_target_points": 1965,
+    "gicp_full_map_fallback": false
+  }
+}
