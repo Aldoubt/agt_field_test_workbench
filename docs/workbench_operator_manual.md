@@ -67,13 +67,13 @@
 3. PCD→PGM 填分辨率、高度范围、ground_min、原点[x,y,yaw]、范围[宽,高]、min_points、占据/自由阈值。高度相对当前 LIO 地图轴，先检查地面高度，不能假设 z=0 总是地面。留空参数自动取完整 XY 包围盒；大于 1600 万栅格时调整分辨率/范围。
 4. 有地面点且无占据命中的格子才置自由；未观测格子保持 unknown。不要为了路线可达把未知区域全部刷成自由。
 5. 2D 支持缩放、平移、Center Robot、矩形擦除、障碍线、禁行区、撤销/重做。保存产生新版本和 keepout 数据；DRAFT 也可继续编辑、清洗、导出。
-6. 原 PCD/PGM 和 raw bag 不覆盖。地图版本绑定来源 PCD SHA、转换参数、标定和 bag 线索。正式导航还要检查地图身份、内容审核、footprint 与安全报告。
+6. 原 PCD/PGM 和 raw bag 不覆盖。二维 PGM/YAML 是 Nav2 全局规划与可视化资产；仅编辑像素且 origin/resolution 不变时，保留同源 PCD 和 SC/BBS 定位资产。更换/清洗 PCD 或改变地图坐标几何时才重建定位资产。正式导航仍检查地图状态、footprint 与安全报告。
 
 ## 5. 路线、距离目标与定位
 
-1. **Navigation** 选择地图，在画布点击添加航点，拖动移动，删除/排序，设置 yaw，保存新路线版本。每条路线绑定地图 ID、PGM/YAML SHA、map frame。地图变化须另存路线，不能静默复用。
-2. 路线绘制可用 DRAFT；正式执行须 ACCEPTED 地图、VERIFIED 外参和 PHYSICAL_NAVIGATION 报告。报告按 `workbench/safety.py` 契约绑定 robot/profile/map/calibration SHA，并有 operator、observed_at、observations；physical_estop、remote_takeover、command_timeout、feedback_freshness、geometry、localization、tf_ownership、motion_safety 均需实测 PASS。
-3. 选择**定位观察**先检查重定位与持续校正：点“请求全局重定位”，观察 BBS + small_gicp 候选、manager 状态和 TF。默认 Tracker 开；只有 manager 发布 map→odom，候选必须经过现有质量/步长门控。
+1. **Navigation** 选择地图，在画布点击添加航点，设置 yaw 并保存路线。路线绑定地图 ID、PGM/YAML SHA 和 map frame。换了二维栅格版本后，旧路线可载入当前地图作为草稿；重新保存时会重新检查航点是否落在已知自由栅格中，未保存的新路线不能执行。
+2. 路线绘制可用 DRAFT；正式执行须 ACCEPTED 地图、VERIFIED 外参和 PHYSICAL_NAVIGATION 报告。报告绑定 robot/profile/map/calibration SHA，并有 operator、observed_at、observations；physical_estop、remote_takeover、command_timeout、feedback_freshness、geometry、localization、tf_ownership、motion_safety 均需实测 PASS。若仅在 Qt 修改二维像素、同源 PCD/地图坐标几何/标定未变，可复用绑定原始投影 PGM SHA 的报告；重建/清洗 PCD、改变 origin/resolution 或更换标定时必须重新出具报告。
+3. 选择**定位观察**先检查重定位与持续校正：点“请求全局重定位”，默认观察 Scan Context Top-K → KISS-Matcher → small_gicp，核对 manager 状态和 TF。3D-BBS + small_gicp 是备用路径，工作台要求同源 Polar Context 候选索引；缺失时拒绝启动，避免慢速整图 BBS 超时。默认 Tracker 开；只有 manager 发布 map→odom，候选必须经过现有质量/步长门控。
 4. 满足所有门禁后启动**已验收导航**。页面须显示可靠新鲜定位、底盘控制权与反馈、Nav2 controller/bt_navigator ACTIVE。输入“向前 1 m/5 m”或后退距离，按当前 map 中车头方向生成目标位姿，经 NavigateToPose 规划跟踪。后退表示目标在后方，现有 Planner/RPP 可能先转向；它不是强制倒车 jog。
 5. 多点使用 FollowWaypoints；显示机器人、目标、规划路径、局部 costmap、定位和 action 结果。取消会请求 action 取消并零速，运行门禁失效同样取消。
 6. FW-mini RPP 导航只接受 4T4D 6 档，横移自主控制器尚未验收，因此 8 档只开放受监督 jog。任何模式/来源切换先零速并重新选档、等待反馈，旧指令不恢复。
@@ -92,7 +92,7 @@ KISS 可选构建：在 Humble 中运行 `python3 scripts/build_kiss_optional.py
  "queries":[{"pcd":"/absolute/query.pcd"}]}
 ```
 
-KISS 接口：重叠子地图生成 → 中心径向直方图确定性排序（不是已验证地点数据库）→ KISS 全局配准 → 同一锁定 small_gicp native 精配准 → fitness/overlap/重复行歧义门控。保存所有候选和原因。检索召回率尚未真实验证，top_k 可能漏掉正确子图，正式对照仍为 BBS。
+当前在线 SC 路径：Scan Context 描述子数据库检索 Top-K → KISS-Matcher 对候选局部子图配准 → 原 small_gicp 精配准 → 现有质量/重复结构歧义门控。描述子数据库与同源 PCD、预处理/LIO 标定及地图坐标几何绑定，不与当前 PGM 像素 SHA 绑定。真实 bag 召回率、误接受率和实车精度仍为 NOT_RUN；SC 数据库缺失时明确拒绝，不自动切换到 BBS。
 
 有独立真值时每个 query 增加 `ground_truth: {xyz:[...],yaw:...}`、`truth_evidence`、`truth_evidence_sha256`。没有这些不计算真实误差。合成结果不计真实成功率；真实误接受率、头尾歧义、恢复和 map→odom 连续性须另录证据。
 

@@ -1,5 +1,7 @@
 # 农科院 Scan Context + KISS-Matcher 定位实验交付
 
+> 2026-10-25 集成更新：Qt 工作台默认 Scan Context + KISS-Matcher + small_gicp；地图生成会尝试从同一建图产物生成 SC 数据库和 BBS 候选资产。二维像素编辑不再使同源三维定位资产失效。真实 bag/硬件验收仍为 NOT_RUN。
+
 本分支以远端 `feature/field-automation-20261024` 的
 `7039bf7fdfba627b84e76be255b1a2c5e9a6ef48` 为基线，开发分支
 `feature/agri-sc-kiss-20261025`。交付代码为 `IMPLEMENTED`，下列软件验证为
@@ -32,8 +34,7 @@
 
 真实链路为：Qt 请求 → Sessions → field launch → system localization launch →
 原 GlobalRelocalization 节点的 `global_backend` 参数。
-默认 `bbs` 保持原 Polar Context 候选 BBS / 无资产整图 BBS → 原 small_gicp。
-手选 `sc_kiss` 才加载可选包：SC Top-K → KISS → **原有** `map_gicp_tracker` →
+Qt 工作台默认 `sc_kiss`：SC Top-K → KISS → **原有** `map_gicp_tracker` →
 同一 `/agt/relocalization/pose` → **未修改的** Localization Manager。
 没有第二套 Manager、控制者、TF 发布者或 Action 客户端。
 
@@ -67,9 +68,9 @@ nanoflann/KD-tree 文件保留上游 BSD 署名；tictoc 保留原作者署名�
 - 发布 `T_map_base=T_map_body T_body_base`，安装偏移只转换一次。ROS 集成测试使用非零平移、非零安装倾角验证。
 - SC distance ≤0.13、KISS 至少 20 最终内点，精配准必须收敛且非退化；继续满足原 score≥0.50、fitness≤1.00、overlap≥0.20。
   相近质量却相距超过 2 m 的候选拒绝；不放宽现有门控。
-- DB 记录 PCD、导航 YAML/图像、关键帧/位姿和描述子身份，另校验完整元数据哈希。
-  Sessions 先校验选定地图身份；运行适配层再次校验标定/预处理、PCD、导航资产，结果输出前再查地图身份。
-  DB 目录不覆盖已有版本或 Polar Context。移动/修改导航资产后应对选定版本重新建库。
+- DB 记录同源 PCD SHA、LIO 预处理/标定、关键帧/位姿/描述子 SHA，并保留建库时 YAML/PGM 的不可变哈希作为来源证据。
+  启动时校验当前地图与建库地图的 origin/resolution；当前 PGM 像素 SHA 可以不同，因此二维栅格编辑不会强制重建 SC 描述子库。
+  更换 PCD、改变地图坐标几何或 LIO 标定时必须新建数据库；数据库版本不覆盖，Polar Context 与 SC 资产分开存储。
 
 ## 使用两种模式
 
@@ -87,8 +88,7 @@ source "$AGT_FIELD_TEST_WS/install/setup.bash"
 不存在才运行原锁定配方。需要系统 PCL、Eigen、TBB、Python 开发头和 pybind11；离线资源记录还需 GNU `time`。
 该增量命令依赖原车辆导航部署已能构建，不替代完整车辆环境安装。
 
-Qt 参数页填写独立 SC DB 目录；定位页选择“3D-BBS + GICP”（默认）或
-“Scan Context + KISS-Matcher + GICP（实验）”。保留原启动/停止/重定位按钮。
+Qt 参数页的 SC DB 路径可留空，工作台自动使用所选地图生成的同源数据库；定位页默认选择“Scan Context + KISS-Matcher + GICP”，也可显式选择“3D-BBS + GICP”备用。BBS 必须有同源 Polar Context 候选索引，否则拒绝慢速整图回退。保留原启动/停止/重定位按钮。
 切换前先停止定位/导航，再选择模式启动，保持传感器和底盘独立生命周期。
 已有定位配置不一致时，后端会拒绝复用，不能只改显示文字。
 
