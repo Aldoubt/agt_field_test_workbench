@@ -109,6 +109,22 @@ def test_component_failure_does_not_restart_or_claim_ready(tmp_path):
     assert len(session.owned)==1
 
 
+def test_launch_zero_exit_surfaces_child_abort_before_peer_cleanup(tmp_path):
+    session=field_start.ModeSession(dict(mode='nav',components=[dict(name='navigation_stack',
+        command=[sys.executable,'-c',
+            "print('[base] free(): invalid pointer'); "
+            "print('[ERROR] [agt_bunker_base_node]: process has died, exit code -6'); "
+            "print('peer process has finished cleanly\\n'*25)"])]),Jobs(tmp_path))
+    session.start('navigation_stack')
+    session.jobs.jobs[session.owned[0][1]]['process'].wait(timeout=3.)
+    with pytest.raises(ValueError) as error:
+        session.check()
+    assert 'exited (0)' in str(error.value)
+    assert 'free(): invalid pointer' in str(error.value)
+    assert 'exit code -6' in str(error.value)
+    session.close()
+
+
 def test_existing_split_stack_is_left_running(base,monkeypatch,tmp_path):
     monkeypatch.setattr(field_start,'ROOT',tmp_path)
     def blocked(mode):raise ValueError('已有分开启动的组件')

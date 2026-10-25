@@ -1,0 +1,2 @@
+[agt_bunker_base_node-3] free(): invalid pointer
+[ERROR] [agt_bunker_base_node-3]: process has died [pid 43960, exit code -6, cmd '/home/yangxuan/agt_field_test_ws/install/agt_bunker_base/lib/agt_bunker_base/agt_bunker_base_node --ros-args --params-file /home/yangxuan/agt_field_test_ws/install/agt_bunker_base/share/agt_bunker_base/config/bunker.yaml --params-file /tmp/launch_params_c1e2m52e'].

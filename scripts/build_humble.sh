@@ -18,6 +18,8 @@ python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py
   --manifest "$ROOT/src/agt_field_test_workbench/patches/photo_mission_manifest.json"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \
   --manifest "$ROOT/src/agt_field_test_workbench/patches/map_tracking_support_manifest.json"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \
+  --manifest "$ROOT/src/agt_field_test_workbench/patches/ugv_protocol_lifetime_manifest.json"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/audit.py" > "$ROOT/reports/dependency_audit.json"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_mapping_calibration.py"
 LIVOX="$ROOT/src/external/livox_ros_driver2"

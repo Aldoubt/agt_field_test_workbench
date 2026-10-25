@@ -1,0 +1,49 @@
+diff --git a/include/ugv_sdk/utilities/protocol_detector.hpp b/include/ugv_sdk/utilities/protocol_detector.hpp
+index 7c9aeb0..d2f0a5d 100644
+--- a/include/ugv_sdk/utilities/protocol_detector.hpp
++++ b/include/ugv_sdk/utilities/protocol_detector.hpp
+@@ -18,6 +18,8 @@
+ namespace westonrobot {
+ class ProtocolDetector {
+  public:
++  ~ProtocolDetector();
++
+   bool Connect(std::string can_name);
+ 
+   ProtocolVersion DetectProtocolVersion(uint32_t timeout_sec);
+@@ -26,8 +28,8 @@ class ProtocolDetector {
+   std::shared_ptr<AsyncCAN> can_;
+   void ParseCANFrame(can_frame *rx_frame);
+ 
+-  std::atomic<bool> msg_v1_detected_;
+-  std::atomic<bool> msg_v2_detected_;
++  std::atomic<bool> msg_v1_detected_{false};
++  std::atomic<bool> msg_v2_detected_{false};
+ };
+ }  // namespace westonrobot
+ 
+diff --git a/src/utilities/protocol_detector.cpp b/src/utilities/protocol_detector.cpp
+index 2c47509..f86dff8 100644
+--- a/src/utilities/protocol_detector.cpp
++++ b/src/utilities/protocol_detector.cpp
+@@ -11,6 +11,13 @@
+ #include "utilities/stopwatch.hpp"
+ 
+ namespace westonrobot {
++ProtocolDetector::~ProtocolDetector() {
++  // Receive callbacks capture this. AsyncCAN also retains itself while a read
++  // is pending, so dropping can_ alone does not stop its worker. Join that
++  // worker before the detector's flags (often on the caller's stack) expire.
++  if (can_) can_->Close();
++}
++
+ bool ProtocolDetector::Connect(std::string can_name) {
+   can_ = std::make_shared<AsyncCAN>(can_name);
+   can_->SetReceiveCallback(
+@@ -56,4 +63,4 @@ void ProtocolDetector::ParseCANFrame(can_frame *rx_frame) {
+     }
+   }
+ }
+-}  // namespace westonrobot
+\ No newline at end of file
++}  // namespace westonrobot

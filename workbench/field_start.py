@@ -256,8 +256,14 @@ class ModeSession:
                 try:
                     with Path(log).open('rb') as stream:
                         stream.seek(0,2)
-                        stream.seek(max(0,stream.tell()-2048))
-                        tail = '\n'.join(stream.read().decode(errors='replace').splitlines()[-8:])
+                        stream.seek(max(0,stream.tell()-65536))
+                        lines = stream.read().decode(errors='replace').splitlines()
+                        # Launch can exit 0 after a required child aborts; the
+                        # final lines then contain only orderly peer shutdown.
+                        failures = [line for line in lines if any(marker in line for marker in (
+                            'process has died', 'free():', 'double free',
+                            'terminate called', 'Traceback (most recent call last)'))]
+                        tail = '\n'.join((failures[-5:] + lines[-8:]))
                 except OSError:
                     pass
                 raise ValueError(f'{name} exited ({code}); {log}'+('\n'+tail if tail else ''))
