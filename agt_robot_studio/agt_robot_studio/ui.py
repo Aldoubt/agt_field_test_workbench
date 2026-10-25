@@ -15,11 +15,14 @@ from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPolygonF, QDesktopServi
 from PyQt5.QtWidgets import (QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout, QLayout, QSizePolicy,
     QFrame, QLabel, QPushButton, QStackedWidget, QDoubleSpinBox, QComboBox,
     QMessageBox, QFileDialog, QTextEdit, QCheckBox, QLineEdit, QSpinBox,
-    QFormLayout, QScrollArea)
+    QFormLayout, QScrollArea, QSplitter, QTabWidget, QDialog)
 from .map_io import occupancy_to_gray, save_nav2_map
 from .workbench_client import ApiWorker, WorkbenchClient
 from .workflow import localization_progress, session_error_detail
 from .tri_views import TriViewWorkbench
+from .camera_preview import CameraPreview
+from .operator_waypoints import WaypointEditor
+from .operator_style import STYLE
 
 DEFAULT_CONFIG = {
     'robot':'bunker', 'points_topic':'/glim_rosnode/map',
@@ -35,6 +38,7 @@ DEFAULT_CONFIG = {
     'global_backend':'sc_kiss', 'global_backend_default_version':1, 'sc_database':'', 'lio_backend':'fastlio2', 'mapping_backend':'fastlio',
     'save_mapping_data':True, 'enable_camera_gimbal':True,
     'camera_device_path':'/dev/video0',
+    'camera_image_topic':'/cv_camera0/image_raw', 'camera_preview_hz':5., 'camera_frame_timeout_sec':2.,
     'gimbal_port_name':'/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0',
     'projection':{'resolution':.05,'ground_cell_size':.5,'ground_percentile':.10,
                   'ground_tolerance':.10,'obstacle_min_height':.12,
@@ -46,40 +50,6 @@ USER_CONFIG = Path('~/.config/agt_robot_studio/studio.yaml').expanduser()
 RECORD_TEMPLATES = ('full_field_test','mapping','localization','calibration',
                     'chassis_motion','motion_diagnostic')
 TOPIC_PATTERN = re.compile(r'/[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*')
-
-STYLE = '''
-* {font-family: "Noto Sans CJK SC", "Microsoft YaHei", "DejaVu Sans"; font-size: 13px;}
-QMainWindow,QWidget#root{background:#0c1117;color:#e8edf4}
-QWidget{color:#e8edf4;background:transparent}
-QFrame#sidebar{background:#101820;border-right:1px solid #27323f}
-QFrame#card{background:#151f2a;border:1px solid #273440;border-radius:15px}
-QFrame#viewer{background:#0d151c;border:1px solid #283643;border-radius:15px}
-QFrame#global_status{background:#111c25;border:1px solid #283643;border-radius:10px}
-QLabel#status_item{font-size:12px;font-weight:600;padding:2px 5px}
-QLabel#title{font-size:20px;font-weight:700;color:#f5f9fc}
-QLabel#h2{font-size:16px;font-weight:650;color:#f5f9fc}
-QLabel#muted{color:#90a1ae;font-size:12px}
-QLabel#number{font-size:24px;font-weight:700;color:#e8fff8}
-QPushButton{background:#24333d;border:1px solid #344552;color:#edf3f6;border-radius:9px;padding:10px 15px;font-weight:500}
-QPushButton:hover{background:#2e4e59;border:1px solid #4e827a}
-QPushButton:pressed{background:#166a65}
-QPushButton:disabled{color:#687780;background:#19232d}
-QPushButton#primary{background:#1d776b;color:#fff;border:1px solid #299887}
-QPushButton#primary:hover{background:#238b7d}
-QPushButton#danger{background:#30232b;border:1px solid #8f4754;color:#ff959c}
-QPushButton#nav{border:0;background:transparent;text-align:left;padding:13px 14px;color:#9eb0be}
-QPushButton#nav:checked{background:#23323a;color:#fff;border-left:3px solid #53c0ae}
-QPushButton#nav:hover{background:#20313b}
-QDoubleSpinBox,QSpinBox,QComboBox,QTextEdit,QLineEdit{background:#111b24;color:#eaf2f5;border:1px solid #364957;border-radius:8px;padding:8px}
-QComboBox::drop-down{border:0}
-QComboBox QAbstractItemView{background:#15232e;color:#edf3f6;border:1px solid #47606f;
-selection-background-color:#206e69;selection-color:#ffffff;outline:0}
-QComboBox QAbstractItemView::item{background:#15232e;color:#edf3f6;min-height:26px}
-QComboBox QAbstractItemView::item:selected{background:#206e69;color:#ffffff}
-QCheckBox{spacing:10px;color:#ced8dc}
-QSplitter::handle{background:#24333e}
-'''
-
 
 def fit_to_screen(window):
     """Choose only the initial geometry; subsequent manual resizing is untouched."""
@@ -233,6 +203,8 @@ class GridView(QWidget):
         self.pan_x=0.;self.pan_y=0.;self.navigation_mode=navigation_mode
         self.keepout_mode=False;self.keepout=[];self.polygon=[]
         self.waypoints=[]
+        self.draft_goal=None
+        self.cursor_world=None;self.setMouseTracking(True)
         self.pending_goal=None;self.hover_goal=None
         self.robot=None;self.robot_stale=True;self.follow=False;self.frame_id='map';self.received=None;self.plan=[]
         self.setFocusPolicy(Qt.StrongFocus)
@@ -319,6 +291,11 @@ class GridView(QWidget):
                 yaw=self.robot['yaw']-self.origin[2]
                 p.setPen(QPen(QColor('#e5b144' if self.robot_stale else '#ff697e'),3));p.drawEllipse(point,6,6)
                 p.drawLine(point,QPointF(point.x()+24*math.cos(yaw),point.y()-24*math.sin(yaw)))
+            if self.draft_goal:
+                goal=self.draft_goal;point=self.world_screen(goal['x'],goal['y']);yaw=goal['yaw']-self.origin[2]
+                p.setPen(QPen(QColor('#eea62b'),3));p.setBrush(Qt.NoBrush);p.drawEllipse(point,10,10)
+                p.drawLine(point,QPointF(point.x()+30*math.cos(yaw),point.y()-30*math.sin(yaw)))
+                p.drawText(point+QPointF(14,-12),'待发送目标')
         if self.navigation_mode and self.pending_goal is not None and not self.image.isNull():
             rect=self._rect()
             def point_screen(world):
@@ -341,6 +318,9 @@ class GridView(QWidget):
         if self.navigation_mode:
             p.drawText(12,self.height()-12, '栅格缺失' if self.image.isNull() else
                 '栅格过期，保留最后有效画面' if self.received and time.monotonic()-self.received>5 else '最新有效栅格')
+        if not self.image.isNull():
+            xy=f' · X {self.cursor_world[0]:.2f} m · Y {self.cursor_world[1]:.2f} m' if self.cursor_world else ''
+            p.drawText(12,self.height()-(32 if self.navigation_mode else 12),f'缩放 {self.scale:.2f}×'+xy)
 
     def reset_heading(self):
         self.pending_goal=None;self.hover_goal=None;self.update()
@@ -417,6 +397,9 @@ class GridView(QWidget):
         elif e.button()==Qt.LeftButton and self.keepout_mode:self.finish_keepout()
 
     def mouseMoveEvent(self,e):
+        cursor=self._image_point(e.pos())
+        self.cursor_world=pixel_to_world(*cursor,self.image.width(),self.image.height(),self.res,self.origin) if cursor else None
+        self.update()
         if self.navigation_mode and self.pending_goal is not None:
             point=self._image_point(e.pos())
             if point is not None:
@@ -463,6 +446,9 @@ class Studio(QMainWindow):
         self.components_in_flight=False
         self.pending_mapping_start=False
         self.routes_by_id={};self.route_points=[];self.current_route_id=None;self.current_route_parent_id=None
+        self.draft_goal=None;self.draft_map_id=None;self.actual_gimbal=None;self.actual_gimbal_seen=0.
+        self.route_map_id=None;self.route_save_snapshot=None;self.displayed_map_id=None
+        self.live_seen=0.;self.goal_pending=False;self.route_request_pending=False
         self.auto_sc_database=''
         self.setWindowTitle('AGT Robot Studio  ·  ROS 2 Humble')
         self.ui_scale,self.sidebar_width=fit_to_screen(self)
@@ -470,7 +456,7 @@ class Studio(QMainWindow):
         lay=QHBoxLayout(root);lay.setContentsMargins(0,0,0,0);lay.setSpacing(0)
         self._sidebar(lay)
         right=QWidget();lay.addWidget(right,1)
-        r=QVBoxLayout(right);r.setContentsMargins(23,18,23,18);r.setSpacing(15)
+        r=QVBoxLayout(right);r.setContentsMargins(23,16,23,16);r.setSpacing(10)
         self._topbar(r)
         self._global_status(r)
         self.stack=QStackedWidget();r.addWidget(self.stack,1)
@@ -478,7 +464,7 @@ class Studio(QMainWindow):
         self.tri_view=TriViewWorkbench(self.nav_view)
         self.nav_view.goal_clicked.connect(self.send_goal)
         self._page_mapping();self._page_devices();self._page_maps();self._page_navigation();self._page_parameters();self._page_logs()
-        self.pages['设备与传感器'].click();self.setStyleSheet(scaled_style(self.ui_scale))
+        self.pages['定位与导航'].click();self.setStyleSheet(scaled_style(self.ui_scale))
         self.write_log('界面已启动；' + ('演示模式不连接机器人' if demo else '正在连接现有 Workbench 与 ROS'))
         self.timer=QTimer(self);self.timer.timeout.connect(self._poll);self.timer.start(1500)
         self.display_timer=QTimer(self);self.display_timer.timeout.connect(self._drain_display);self.display_timer.start(100)
@@ -498,11 +484,17 @@ class Studio(QMainWindow):
         self.worker.start()
 
     def _drain_display(self):
+        if hasattr(self,'actual_angles_label') and time.monotonic()-self.actual_gimbal_seen>2:
+            self.actual_gimbal=None;self.actual_angles_label.setText('实际角度：反馈过期 / 未连接')
+            self.copy_angles_btn.setEnabled(False)
+        if hasattr(self,'operator_gate_label'):
+            self._update_operator_gate();self._update_global_status()
         if not self.worker:return
         for kind,value in self.worker.frames.take().items():
             try:
                 if kind=='cloud':self._on_cloud(value)
                 elif kind=='grid':self._on_grid(value)
+                elif kind=='camera':self.camera_preview.set_frame(value)
             except Exception as exc:self.write_log('显示帧已隔离：'+str(exc))
 
     def _sidebar(self,layout):
@@ -519,10 +511,10 @@ class Studio(QMainWindow):
     def _topbar(self,layout):
         row=QHBoxLayout();layout.addLayout(row)
         title=QVBoxLayout();title.addWidget(text_label('AGT Robot Studio','title'))
-        title.addWidget(text_label('建图 → 生成与编辑地图 → 全局重定位 → 点击导航'))
+        title.addWidget(text_label('现场工作台 · 状态可见 · 操作有回执'))
         row.addLayout(title);row.addStretch()
         self.status=text_label('● 未连接')
-        self.status.setStyleSheet('color:#e5aa74;padding-left:12px');row.addWidget(self.status)
+        self.status.setStyleSheet('color:#875e17;padding-left:12px');row.addWidget(self.status)
 
     def _global_status(self,layout):
         self.global_status=QFrame();self.global_status.setObjectName('global_status')
@@ -585,27 +577,41 @@ class Studio(QMainWindow):
                          ('clear_area','测试区域已清空'),
                          ('supervised','现场有人监督')):
             control=QCheckBox(name);checks.addWidget(control);self.motion_checks[key]=control
-        camera=card(l,'三、C1 云台相机（不阻碍导航）')
-        camera.addWidget(text_label('相机设备及云台串口在「参数」页配置。'
-            '相机驱动独立于 Nav2；进程启动后仍需实测图像和云台反馈。'))
+        shortcut=button('打开相机画面与云台控制 →')
+        shortcut.clicked.connect(lambda:(self.pages['定位与导航'].click(),self.operator_tabs.setCurrentIndex(0)))
+        l.addWidget(shortcut)
+        self.camera_panel=QWidget();camera=QVBoxLayout(self.camera_panel);camera.setSpacing(5)
+        self.camera_panel.setStyleSheet('QPushButton{padding:6px 9px}')
+        self.camera_preview=CameraPreview(topic=self.cfg.get('camera_image_topic','/cv_camera0/image_raw'),timeout_sec=float(self.cfg.get('camera_frame_timeout_sec',2.)))
+        camera.addWidget(self.camera_preview,1)
+        self.camera_preview.setMaximumHeight(180)
+        self.camera_preview.setToolTip('相机设备与串口在参数页配置；实时预览不代表已保存照片。')
         row=QHBoxLayout();camera.addLayout(row)
         self.camera_start_btn=button('启动 C1 云台')
         self.camera_start_btn.clicked.connect(self.start_camera);row.addWidget(self.camera_start_btn)
         self.camera_stop_btn=button('停止 C1 云台')
         self.camera_stop_btn.clicked.connect(self.stop_camera);row.addWidget(self.camera_stop_btn)
         self.camera_status_label=text_label('云台：未启动');camera.addWidget(self.camera_status_label)
+        self.actual_angles_label=text_label('实际角度：反馈过期 / 未连接');camera.addWidget(self.actual_angles_label)
+        camera.addWidget(text_label('目标角度 · 调整数值后点击执行'))
         angle_row=QHBoxLayout();camera.addLayout(angle_row)
         self.camera_heading_edit=QDoubleSpinBox();self.camera_heading_edit.setRange(-160,160)
         self.camera_heading_edit.setDecimals(1);self.camera_heading_edit.setSuffix('° 航向');angle_row.addWidget(self.camera_heading_edit)
         self.camera_pitch_edit=QDoubleSpinBox();self.camera_pitch_edit.setRange(-90,90)
         self.camera_pitch_edit.setDecimals(1);self.camera_pitch_edit.setSuffix('° 俯仰');angle_row.addWidget(self.camera_pitch_edit)
-        self.camera_move_btn=button('仅移动云台');self.camera_move_btn.clicked.connect(self.move_camera);angle_row.addWidget(self.camera_move_btn)
-        self.camera_capture_btn=button('移动并拍照','primary');self.camera_capture_btn.clicked.connect(self.capture_camera);angle_row.addWidget(self.camera_capture_btn)
-        health_row=QHBoxLayout();camera.addLayout(health_row)
+        action_row=QHBoxLayout();camera.addLayout(action_row)
+        self.camera_move_btn=button('执行角度');self.camera_move_btn.clicked.connect(self.move_camera);action_row.addWidget(self.camera_move_btn)
+        self.camera_capture_btn=button('到位并拍照','primary');self.camera_capture_btn.clicked.connect(self.capture_camera);action_row.addWidget(self.camera_capture_btn)
+        self.capture_status_label=text_label('采集：尚未执行');camera.addWidget(self.capture_status_label)
+        self.copy_angles_btn=button('将实测角度写入选中航点');self.copy_angles_btn.setEnabled(False)
+        self.copy_angles_btn.clicked.connect(self.copy_actual_angles);camera.addWidget(self.copy_angles_btn)
+        more=button('健康检查与记录 ▾');more.setCheckable(True);camera.addWidget(more)
+        details=QWidget();details_layout=QVBoxLayout(details);details_layout.setContentsMargins(0,0,0,0)
+        more.toggled.connect(details.setVisible);details.setVisible(False);camera.addWidget(details)
+        health_row=QHBoxLayout();details_layout.addLayout(health_row)
         health=button('检查相机健康');health.clicked.connect(self.check_camera_health);health_row.addWidget(health)
         open_dir=button('打开采集目录');open_dir.clicked.connect(self.open_capture_directory);health_row.addWidget(open_dir)
-        export=button('导出采集与任务记录');export.clicked.connect(self.export_capture_session);health_row.addWidget(export)
-        self.capture_status_label=text_label('采集：尚未执行');camera.addWidget(self.capture_status_label)
+        export=button('导出采集与任务记录');export.clicked.connect(self.export_capture_session);details_layout.addWidget(export)
         records=card(l,'四、独立录包')
         row=QHBoxLayout();records.addLayout(row)
         record=button('开始/停止独立录包')
@@ -614,7 +620,7 @@ class Studio(QMainWindow):
             'FAST-LIO2 建图过程中不可再开第二份原始录包。'))
         stop=card(l,'五、现场恢复')
         stop_all=button('停止全部 Workbench ROS 进程','danger')
-        stop_all.clicked.connect(self.close_ros_nodes);stop.addWidget(stop_all)
+        stop_all.clicked.connect(self.confirm_close_ros_nodes);stop.addWidget(stop_all)
         stop.addWidget(text_label('此按钮不是实体急停；可选相机故障不要调用此按钮处理。'))
 
     def start_camera(self):
@@ -685,7 +691,7 @@ class Studio(QMainWindow):
         self.chassis_btn=button('连接底盘');self.chassis_btn.clicked.connect(self.connect_chassis);row.addWidget(self.chassis_btn)
         row=QHBoxLayout();c.addLayout(row)
         self.record_btn=button('开始录制');self.record_btn.clicked.connect(self.toggle_recording);row.addWidget(self.record_btn)
-        self.stop_ros_btn=button('停止全部 ROS','danger');self.stop_ros_btn.clicked.connect(self.close_ros_nodes);row.addWidget(self.stop_ros_btn)
+        self.stop_ros_btn=button('停止全部 ROS','danger');self.stop_ros_btn.clicked.connect(self.confirm_close_ros_nodes);row.addWidget(self.stop_ros_btn)
         self.stop_ros_btn.setToolTip('仅关闭 Studio 与 Workbench 启动的 ROS 进程；不是硬件急停')
         row.addStretch()
         self.sensor_rate_label=text_label('MID360S：-- Hz    IMU：-- Hz    base_link 里程计：-- Hz')
@@ -813,12 +819,20 @@ class Studio(QMainWindow):
         self.map_view.polygon=[];self.map_view.update()
 
     def _page_navigation(self):
-        l=self._page_shell(scroll=True);l.addWidget(text_label('定位与自主导航','title'))
-        c=card(l,'1. 地图与定位后端')
-        hint=text_label('步骤：设备页启动传感器、连接底盘 → 选图启动定位 → 停车并点击全局重定位 → 已定位后启动导航。\n正式导航还要求已验证标定和匹配的实车验收报告。')
+        l=self._page_shell()
+        row=QHBoxLayout();l.addLayout(row)
+        row.addWidget(text_label('现场操作','title'))
+        setup_btn=button('地图与定位设置');row.addWidget(setup_btn)
+        row.addStretch(1)
+        stop_goal=button('停止当前目标 / 任务','danger');stop_goal.clicked.connect(self.stop_goal);row.addWidget(stop_goal)
+        self.navigation_setup=QDialog(self);setup=self.navigation_setup;setup.setObjectName('navigation_setup');setup.setWindowTitle('地图、定位与导航会话')
+        c=QVBoxLayout(setup);setup.resize(740,430)
+        setup_btn.clicked.connect(setup.show)
+        hint=text_label('设备连接 → 选择地图 → 启动定位 → 停稳重定位 → 启动导航。底盘现场确认在设备页完成。')
         hint.setWordWrap(True);c.addWidget(hint)
         row=QHBoxLayout();c.addLayout(row);self.nav_map_box=QComboBox();row.addWidget(self.nav_map_box,1)
         self.nav_map_box.activated.connect(self.select_navigation_map)
+        self.nav_map_box.currentIndexChanged.connect(self.clear_draft_goal)
         self.lio_backend_box=QComboBox()
         self.lio_backend_box.addItem('Batch-LIO → base_link','batch_lio')
         self.lio_backend_box.addItem('FAST-LIO2 → base_link','fastlio2')
@@ -840,34 +854,51 @@ class Studio(QMainWindow):
         stop=button('结束会话');stop.clicked.connect(self.stop_field_session);row.addWidget(stop)
         row=QHBoxLayout();c.addLayout(row)
         reloc=button('全局重定位');reloc.clicked.connect(self.relocalize);row.addWidget(reloc)
-        stop_goal=button('停止当前目标 / 任务','danger');stop_goal.clicked.connect(self.stop_goal);row.addWidget(stop_goal)
-        row.addWidget(text_label('云台在设备页独立启动'))
-        self.localization_label=text_label('定位状态：等待 Workbench');self.localization_label.setWordWrap(True);row.addWidget(self.localization_label,1)
-        frame=QFrame();frame.setObjectName('viewer');l.addWidget(frame,1)
+        self.localization_label=text_label('定位状态：等待 Workbench');self.localization_label.setWordWrap(True);l.addWidget(self.localization_label)
+        self.operator_gate_label=text_label('导航许可：等待后端状态');l.addWidget(self.operator_gate_label)
+        split=QSplitter(Qt.Horizontal);l.addWidget(split,1)
+        frame=QFrame();frame.setObjectName('viewer');split.addWidget(frame)
         v=QVBoxLayout(frame);v.addWidget(self.tri_view,1)
+        self.tri_view.expand(0)
         self.view_status_label=text_label('实时视图：等待地图、点云和 map → base_link TF');v.addWidget(self.view_status_label)
         row=QHBoxLayout();v.addLayout(row)
-        self.target_mode_box=QComboBox();self.target_mode_box.addItem('两次点击导航','goal');self.target_mode_box.addItem('两次点击添加航点','route')
-        self.target_mode_box.currentIndexChanged.connect(lambda _:self.nav_view.reset_heading())
+        self.target_mode_box=QComboBox();self.target_mode_box.addItem('选择单点目标（待发送）','goal');self.target_mode_box.addItem('添加路线点','route')
+        self.target_mode_box.currentIndexChanged.connect(self.clear_draft_goal)
         row.addWidget(self.target_mode_box)
+        self.submit_goal_btn=button('发送导航目标','primary');self.submit_goal_btn.setEnabled(False)
+        self.submit_goal_btn.clicked.connect(self.submit_goal);row.addWidget(self.submit_goal_btn)
+        discard=button('取消选点');discard.clicked.connect(self.clear_draft_goal);row.addWidget(discard)
+        self.draft_label=text_label('先点位置，再点朝向；检查后发送。');self.draft_label.setWordWrap(True);v.addWidget(self.draft_label)
+        self.operator_tabs=QTabWidget();split.addWidget(self.operator_tabs)
+        self.operator_tabs.setMinimumWidth(330)
+        for widget,title in ((self.camera_panel,'画面 / 云台'),):
+            scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(widget);self.operator_tabs.addTab(scroll,title)
+        route_panel=QWidget();route_layout=QVBoxLayout(route_panel)
+        self.waypoint_editor=WaypointEditor();route_layout.addWidget(self.waypoint_editor,1)
+        self.waypoint_editor.points_changed.connect(self._route_edited)
+        route_layout.addWidget(text_label('新航点默认设置（已有点在上方修改）'))
+        row=QHBoxLayout();route_layout.addLayout(row)
         self.photo_box=QCheckBox('到点拍照');self.photo_box.setChecked(True);row.addWidget(self.photo_box)
         self.gimbal_heading=QDoubleSpinBox();self.gimbal_heading.setRange(-160,160);self.gimbal_heading.setSuffix('° 航向');row.addWidget(self.gimbal_heading)
         self.gimbal_pitch=QDoubleSpinBox();self.gimbal_pitch.setRange(-90,90);self.gimbal_pitch.setSuffix('° 俯仰');row.addWidget(self.gimbal_pitch)
-        clear=button('清空航点');clear.clicked.connect(self.clear_route);row.addWidget(clear)
-        row=QHBoxLayout();v.addLayout(row)
+        clear=button('清空航点草稿');clear.clicked.connect(self.clear_route);route_layout.addWidget(clear)
+        scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(route_panel);self.operator_tabs.addTab(scroll,'路线点')
+        split.setStretchFactor(0,3);split.setStretchFactor(1,2);split.setSizes([650,370])
+        row=QHBoxLayout();l.addLayout(row)
         self.route_box=QComboBox();row.addWidget(self.route_box,1)
         load_route=button('加载路线');load_route.clicked.connect(self.load_route);row.addWidget(load_route)
-        save_route=button('保存路线');save_route.clicked.connect(self.save_route);row.addWidget(save_route)
+        self.save_route_btn=button('保存路线');self.save_route_btn.clicked.connect(self.save_route);row.addWidget(self.save_route_btn)
         self.run_route_btn=button('开始航点任务','primary');self.run_route_btn.clicked.connect(self.run_route);row.addWidget(self.run_route_btn)
+        self.run_route_btn.setEnabled(False)
         self.mission_label=text_label('左键两次：先选择位置，再选择航向；航点模式下可逐点保存路线。')
-        v.addWidget(self.mission_label)
-        c=card(l,'2. 相对运动')
-        row=QHBoxLayout();c.addLayout(row);self.distance=QDoubleSpinBox();self.distance.setRange(.02,5.)
+        self.mission_label.setWordWrap(True);l.addWidget(self.mission_label)
+        row=QHBoxLayout();c.addLayout(row);row.addWidget(text_label('相对移动（非定点验收）'));self.distance=QDoubleSpinBox();self.distance.setRange(.02,5.)
         self.distance.setDecimals(2);self.distance.setSingleStep(.1);self.distance.setValue(.5);self.distance.setSuffix(' m')
         row.addWidget(self.distance)
         for title,sign in [('向前',1),('向后',-1)]:
             b=button(title);b.clicked.connect(lambda _,s=sign:self.move_distance(s));row.addWidget(b)
-        self.pose_label=text_label('base_link 当前位置：未知');row.addWidget(self.pose_label,1)
+        self.pose_label=text_label('base_link 当前位置：未知');l.addWidget(self.pose_label)
+        close_setup=button('返回现场操作');close_setup.clicked.connect(setup.close);c.addWidget(close_setup)
 
     def _page_parameters(self):
         l=self._page_shell();l.addWidget(text_label('参数配置','title'))
@@ -879,7 +910,8 @@ class Studio(QMainWindow):
         self.topic_edits={}
         for key,label in [('raw_lidar_topic','MID360S 原始 CustomMsg'),('imu_topic','IMU'),
                           ('odom_topic','base_link 里程计'),('points_topic','GLIM 地图'),
-                          ('live_points_topic','GLIM 实时点云'),('map_topic','Nav2 二维地图')]:
+                          ('live_points_topic','GLIM 实时点云'),('map_topic','Nav2 二维地图'),
+                          ('camera_image_topic','相机预览 sensor_msgs/Image')]:
             editor=QLineEdit(str(self.cfg.get(key,'')));self.topic_edits[key]=editor;form.addRow(label,editor)
         topics.addWidget(text_label('显示话题的修改在重新连接 ROS 显示适配器后生效；会话与设备参数在下次启动会话时生效。'))
         mapping=card(body,'建图与输出')
@@ -1074,17 +1106,19 @@ class Studio(QMainWindow):
             return
         if name=='camera_health':self.camera_health_pending=False
         if name=='map_loaded':
-            self.nav_view.navigation_mode=True
             if ok:
                 manifest,pixels=value
                 if manifest['id']==getattr(self,'pending_display_map_id',None):self._load_map(manifest,pixels)
             else:self.write_log('地图读取失败：'+str(value))
             return
         if name=='refresh_live':self.live_in_flight=False
+        if name=='goal':self.goal_pending=False
+        if name=='route_run':self.route_request_pending=False
         if name=='refresh_jobs':self.jobs_in_flight=False
         if not ok:
             self.write_log(f'{name}: {value}')
             if name=='session_stop':self.pending_session=None
+            if name=='route_save':self.route_save_snapshot=None;self.save_route_btn.setEnabled(True)
             if not name.startswith('refresh_'):
                 detail=session_error_detail(value) if name.startswith('session_') or name=='goal' else str(value)
                 QMessageBox.warning(self,'操作未完成',detail)
@@ -1156,7 +1190,7 @@ class Studio(QMainWindow):
             self.routes_by_id={r['id']:r for r in value}
             self._fill_combo(self.route_box,value,self.current_route_id);return
         if name=='refresh_live':
-            self.live_status=value;self.current_session=value.get('session')
+            self.live_status=value;self.current_session=value.get('session');self.live_seen=time.monotonic()
             metrics=value.get('global_relocalization')
             signature=json.dumps(metrics,sort_keys=True,ensure_ascii=False) if metrics else ''
             if signature and signature!=getattr(self,'last_relocalization_log',''):
@@ -1187,14 +1221,16 @@ class Studio(QMainWindow):
                                               if k in ('readiness','ready','health','health_error')})
             elif self.camera_job_state.get('state')!='RUNNING':
                 self.camera_health_state={}
-            captures=[j for j in value if j.get('kind')=='camera_capture' and j.get('id')!=self.last_capture_job_id]
-            if captures:
+            captures=[j for j in value if j.get('kind')=='camera_capture']
+            if captures and captures[0].get('id')!=self.last_capture_job_id:
                 newest=captures[0]
                 if newest.get('state') in ('PASS','FAILED','CANCELLED'):
                     self.last_capture_job_id=newest.get('id')
                     result=newest.get('capture_result') or {}
                     if newest.get('state')=='PASS':
-                        self.capture_status_label.setText('拍照成功：'+str(result.get('image_path','未返回路径')))
+                        if newest.get('save_image',True):
+                            self.capture_status_label.setText('拍照成功：'+str(result['image_path']) if result.get('image_path') else '动作 PASS，但缺少照片凭据')
+                        else:self.capture_status_label.setText('云台已到位 · 本次未拍照')
                     else:
                         self.capture_status_label.setText('拍照失败：'+str(result.get('message',newest.get('state'))))
             self._update_global_status()
@@ -1202,7 +1238,10 @@ class Studio(QMainWindow):
             active_capture=next((j for j in value if j.get('kind')=='camera_capture' and j.get('state')=='RUNNING'),None)
             if active_capture and active_capture.get('feedback'):
                 feedback=active_capture['feedback'];angles=feedback['actual_angles']
-                self.capture_status_label.setText(f"{feedback['stage']} · 实际航向 {angles['heading']:.1f}° 俯仰 {angles['pitch']:.1f}° · 稳定样本 {feedback['stable_count']}")
+                try:age=(datetime.now(timezone.utc)-datetime.fromisoformat(feedback['observed_at'])).total_seconds()
+                except (KeyError,ValueError,TypeError):age=float('inf')
+                prefix='动作反馈' if 0<=age<2 else '上次动作反馈（已过期）'
+                self.capture_status_label.setText(f"{prefix} · {feedback['stage']} · 航向 {angles['heading']:.1f}° 俯仰 {angles['pitch']:.1f}° · 稳定样本 {feedback['stable_count']}")
             self._update_global_status()
             running=next((j for j in value if j.get('kind')=='recorder' and j.get('state')=='RUNNING'),None)
             self.recorder_id=running['id'] if running else None
@@ -1355,17 +1394,24 @@ class Studio(QMainWindow):
         if name=='map_import':
             self.current_map_id=value['id'];self.refresh_library();self._load_map(value);return
         if name=='route_save':
-            self.current_route_id=value['id'];self.current_route_parent_id=value['id']
+            snapshot=self.route_save_snapshot;self.route_save_snapshot=None;self.save_route_btn.setEnabled(True)
+            if snapshot and snapshot['map_id']==self.nav_map_box.currentData() and snapshot['points']==self.route_points:
+                self.current_route_id=value['id'];self.current_route_parent_id=value['id']
+                self.mission_label.setText('当前路线已保存 · '+value['id'])
+            else:
+                self.mission_label.setText('旧草稿已保存；当前草稿有变化，请再次保存后执行')
             self.write_log('路线与拍照任务已保存：'+value['id'])
             self.refresh_library();return
         if name=='route_run':
             self.write_log('航点任务已提交；拍照由 V3 mission_runtime 顺序执行');self.refresh_live();return
         if name in ('goal','distance','relocalize','stop_goal'):
+            if name=='goal':
+                self.clear_draft_goal();self.mission_label.setText('导航请求已受理 · 等待任务执行结果')
             self.write_log(name+' 请求已接受');self.refresh_live()
 
     @staticmethod
     def _indicator(label,text,state='muted'):
-        colors={'good':'#65c7a9','warn':'#e8b178','bad':'#ec9c83','muted':'#90a1ae'}
+        colors={'good':'#386c1c','warn':'#92600c','bad':'#b6372a','muted':'#59654f'}
         label.setText(text);label.setStyleSheet('color:'+colors[state])
 
     def _update_global_status(self):
@@ -1389,6 +1435,13 @@ class Studio(QMainWindow):
             self._indicator(self.camera_state_label,'云台：'+state,'bad')
         else:self._indicator(self.camera_state_label,'云台：未启动')
         session=self.live_status.get('session') or {}
+        if time.monotonic()-self.live_seen>4:
+            self._indicator(self.robot_state_label,'设备：'+self.robot_box.currentText())
+            self._indicator(self.mode_state_label,'状态：后端反馈过期','warn')
+            self._indicator(self.chassis_state_label,'底盘：反馈未知 / 已过期','bad')
+            for label,name in ((self.lidar_state_label,'雷达'),(self.imu_state_label,'IMU'),(self.odom_state_label,'里程计')):
+                self._indicator(label,name+'：等待新鲜状态')
+            return
         if session:
             robot='FW-mini' if session.get('robot')=='fwmini' else 'Bunker'
             task=session.get('task','')
@@ -1417,7 +1470,7 @@ class Studio(QMainWindow):
     def _update_live(self):
         session=self.live_status.get('session')
         localized=bool(self.live_status.get('localized'))
-        self.localization_label.setStyleSheet('color:#65c7a9' if localized else 'color:#e8b178')
+        self.localization_label.setStyleSheet('color:#386c1c' if localized else 'color:#92600c')
         algorithm=(session or {}).get('global_backend') or self.global_backend_box.currentData()
         metrics=self.live_status.get('global_relocalization') or {}
         self.localization_label.setText(localization_progress(self.live_status)+' · '+str(algorithm))
@@ -1431,6 +1484,9 @@ class Studio(QMainWindow):
             states={0:'空闲',1:'定位中',2:'导航中',3:'停稳确认',4:'拍照中',5:'已暂停',6:'已完成',7:'已取消',8:'失败'}
             self.mission_label.setText(f"任务：{states.get(mission.get('state'),'未知')} · {mission.get('point_id','')} "
                 f"{mission.get('point_index',0)}/{mission.get('point_count',0)} · {mission.get('detail','')}")
+        elif self.live_status.get('goal_result'):
+            result=self.live_status['goal_result'];state={4:'已完成',5:'已取消',6:'失败'}.get(result.get('status'),'状态未知')
+            self.mission_label.setText('上次导航结果：'+state+' · '+str(result.get('result',''))[:180])
         if session:
             livox=session.get('livox') or {}
             identity=(f" · {livox.get('model','MID360S')} {livox.get('sensor_ip','--')} → 主机 {livox.get('host_ip','--')}"
@@ -1442,6 +1498,7 @@ class Studio(QMainWindow):
                 self.run_label.setText(f"Workbench 会话：{session.get('task')}  ·  {session.get('id')}  ·  {backend}")
         else:self.device_label.setText('设备会话：未连接')
         self._update_global_status()
+        self._update_operator_gate()
 
     def _update_recording(self):
         recording=bool(self.recorder_id)
@@ -1464,7 +1521,13 @@ class Studio(QMainWindow):
         online=s.get('connected',False);self.ros_display_connected=online
         self.topic_rates=dict(s.get('rates') or {})
         angles=s.get('gimbal_angles')
-        if angles:self.camera_status_label.setText(f"实际云台：航向 {angles['heading']:.1f}° 俯仰 {angles['pitch']:.1f}° 横滚 {angles['roll']:.1f}°")
+        self.actual_gimbal=dict(angles) if online and angles else None
+        if self.actual_gimbal:
+            self.actual_gimbal_seen=time.monotonic()-max(0.,float(s.get('gimbal_age_s',0.)))
+            self.actual_angles_label.setText(f"实际角度：航向 {angles['heading']:.1f}° · 俯仰 {angles['pitch']:.1f}° · 横滚 {angles['roll']:.1f}°")
+        else:self.actual_angles_label.setText('实际角度：反馈过期 / 未连接')
+        self.copy_angles_btn.setEnabled(bool(self.actual_gimbal))
+        self.camera_preview.set_connection(online);self.camera_preview.set_error(s.get('camera_image_error'))
         filter_state=s.get('self_filter')
         if filter_state:
             mode=filter_state.get('state','UNKNOWN')
@@ -1472,15 +1535,15 @@ class Studio(QMainWindow):
             self.self_filter_label.setText(
                 f"自体回波过滤：{detail} ({mode}) · 屏蔽累计 {filter_state.get('removed_points_total',0)} 点")
             self.self_filter_label.setStyleSheet(
-                'color:#65c7a9' if mode=='ACTIVE' else 'color:#ec9c83')
+                'color:#386c1c' if mode=='ACTIVE' else 'color:#b6372a')
         elif self.mapping_job_id:
             self.self_filter_label.setText('自体回波过滤：未收到在线状态；请检查过滤节点是否启动')
-            self.self_filter_label.setStyleSheet('color:#ec9c83')
+            self.self_filter_label.setStyleSheet('color:#b6372a')
         else:
             self.self_filter_label.setText('自体回波过滤：等待建图任务')
             self.self_filter_label.setStyleSheet('color:#90a1ae')
         self.status.setText('● ROS 已连接' if online else '● ROS 未连接')
-        self.status.setStyleSheet('color:#55c9a9' if online else 'color:#ec9c83')
+        self.status.setStyleSheet('color:#386c1c' if online else 'color:#b6372a')
         od=s.get('odom');self.odom_label.setText('base_link X={:.2f} Y={:.2f} Yaw={:.1f}°'.format(*od[:2],math.degrees(od[2])) if od else 'base_link 局部位姿：未收到')
         self.tri_view.set_robot(s.get('map_robot'))
         self.view_status_label.setText(s.get('display_error') or ('实时视图：map 坐标已对齐' if s.get('map_robot') else '实时视图：机器人 TF 不可用，保留地图'))
@@ -1609,34 +1672,113 @@ class Studio(QMainWindow):
         self.mapping_state.setText('正在请求停止 ROS 进程')
         if self.worker:
             self.worker.shutdown();self.worker.wait(2000);self.worker=None
-        self.status.setText('● ROS 未连接');self.status.setStyleSheet('color:#ec9c83')
+        self.status.setText('● ROS 未连接');self.status.setStyleSheet('color:#b6372a')
         self._api('session_stop_all','POST','/api/session/stop_all',{})
 
     def send_goal(self,point):
         map_id=self.nav_map_box.currentData()
-        pose=self.live_status.get('pose') or {};point['yaw']=float(point.get('yaw',pose.get('yaw',0.)))
+        if not self.demo and (not map_id or self.displayed_map_id!=map_id):
+            self.draft_label.setText('地图尚未加载完成，暂不能选点');return
+        point=dict(point);pose=self.live_status.get('pose') or {};point['yaw']=float(point.get('yaw',pose.get('yaw',0.)))
+        if not all(math.isfinite(float(point[k])) for k in ('x','y','yaw')):return
         if self.target_mode_box.currentData()=='route':
+            if self._route_locked():return
+            if self.route_points and self.route_map_id!=map_id:
+                self.mission_label.setText('路线草稿属于其他地图；请清空后重新添加，或加载旧路线并确认迁移');return
+            self.route_map_id=map_id
             point.update(photo=self.photo_box.isChecked(),heading=self.gimbal_heading.value(),
                          pitch=self.gimbal_pitch.value(),roll=0.,photo_required=True)
             self.route_points.append(point);self.current_route_id=None
             self.nav_view.set_waypoints(self.route_points)
+            self.waypoint_editor.set_points(self.route_points,len(self.route_points)-1)
+            self.operator_tabs.setCurrentIndex(1)
             self.mission_label.setText(f'已添加 {len(self.route_points)} 个航点；保存路线后开始任务。')
             return
-        self._api('goal','POST','/api/control/goal',{'robot':self._robot(),'map_id':map_id,'pose':point})
+        self.draft_goal=point;self.draft_map_id=map_id;self.nav_view.draft_goal=dict(point);self.nav_view.update()
+        self.draft_label.setText(f"待发送 · X {point['x']:.2f} m · Y {point['y']:.2f} m · 朝向 {math.degrees(point['yaw']):.1f}°")
+        self._update_operator_gate()
+
+    def clear_draft_goal(self,*_):
+        self.draft_goal=None;self.draft_map_id=None;self.nav_view.draft_goal=None;self.nav_view.reset_heading()
+        if hasattr(self,'draft_label'):self.draft_label.setText('先点位置，再点朝向；检查后发送。')
+        if hasattr(self,'submit_goal_btn'):self.submit_goal_btn.setEnabled(False)
+
+    def _navigation_precheck(self):
+        if self.demo:return False,'离线演示 · 不发送机器人指令'
+        if time.monotonic()-self.live_seen>4:return False,'后端状态过期 / 未连接'
+        status=self.live_status;session=status.get('session') or {}
+        if session.get('task')!='navigation':return False,'请先在「地图与定位设置」启动导航会话'
+        if session.get('robot')!=self._robot():return False,'所选底盘与运行会话不一致'
+        if session.get('map_id')!=self.nav_map_box.currentData():return False,'当前地图与运行会话不一致'
+        if self.displayed_map_id!=self.nav_map_box.currentData():return False,'当前地图尚未加载完成'
+        if not status.get('localized'):return False,'等待可靠定位'
+        feedback=status.get('feedback_fresh') or []
+        if not isinstance(feedback,(list,tuple)) or not feedback or feedback[0] is not True:
+            return False,'底盘许可未满足 · '+str(feedback[1] if isinstance(feedback,(list,tuple)) and len(feedback)>1 else '无新鲜反馈')
+        states=status.get('nav2_states') or {}
+        if any(states.get(k)!=3 for k in ('controller_server','bt_navigator')):return False,'等待 Nav2 激活'
+        if self._route_locked():return False,'任务运行中 · 修改目标前请先停止当前任务'
+        return True,'状态预检通过 · 提交时后端复核地图、标定与运动许可'
+
+    def _route_locked(self):
+        activity=self.live_status.get('navigation_activity') or {}
+        mission=self.live_status.get('mission') or {}
+        return bool(self.route_request_pending or activity.get('pending') or activity.get('active') or mission.get('state') in (1,2,3,4,5))
+
+    def _update_operator_gate(self):
+        ready,reason=self._navigation_precheck()
+        self._indicator(self.operator_gate_label,reason,'good' if ready else 'warn')
+        self.submit_goal_btn.setEnabled(ready and self.draft_goal is not None and not self.goal_pending)
+        self.run_route_btn.setEnabled(ready and bool(self.current_route_id) and self.route_map_id==self.nav_map_box.currentData())
+        self.waypoint_editor.set_editable(not self._route_locked(),'任务运行中，停止后编辑')
+
+    def submit_goal(self):
+        ready,reason=self._navigation_precheck()
+        if not ready:self.draft_label.setText('未发送：'+reason);return
+        if self.goal_pending or self.draft_goal is None:return
+        if self.draft_map_id!=self.nav_map_box.currentData():self.clear_draft_goal();return
+        self.goal_pending=True;self._update_operator_gate()
+        self._api('goal','POST','/api/control/goal',{'robot':self._robot(),'map_id':self.draft_map_id,'pose':dict(self.draft_goal)})
+
+    def _route_edited(self,points):
+        self.route_points=points;self.current_route_id=None;self.nav_view.set_waypoints(points)
+        self.mission_label.setText(f'路线草稿已修改 · {len(points)} 点 · 保存后才能执行')
+
+    def copy_actual_angles(self):
+        if self.actual_gimbal is None or time.monotonic()-self.actual_gimbal_seen>2:
+            self.capture_status_label.setText('无法复制：需要新鲜实测角度');return
+        if self.waypoint_editor.selected_index<0:
+            self.capture_status_label.setText('请先在路线点列表选择一个航点');return
+        self.waypoint_editor.apply_gimbal_angles(self.actual_gimbal)
+        self.capture_status_label.setText('实测角度已写入航点草稿 · 请保存路线')
+
+    def confirm_close_ros_nodes(self):
+        if QMessageBox.question(self,'结束全部进程','将结束当前任务、定位与设备进程。是否继续？\n停止当前运动请使用现场操作页的停止按钮。',
+                                QMessageBox.Yes|QMessageBox.No,QMessageBox.No)==QMessageBox.Yes:self.close_ros_nodes()
 
     def clear_route(self):
+        if self._route_locked():return
         self.route_points=[];self.current_route_id=None;self.current_route_parent_id=None
+        self.route_map_id=None
         self.nav_view.set_waypoints([])
+        self.waypoint_editor.set_points([])
         self.mission_label.setText('航点已清空。')
 
     def save_route(self):
+        if self.route_save_snapshot is not None:return
         map_id=self.nav_map_box.currentData()
         if not map_id or not self.route_points:
             QMessageBox.warning(self,'缺少路线','请先选择地图并添加至少一个航点。');return
-        self._api('route_save','POST','/api/routes',{'map_id':map_id,'points':self.route_points,
+        if self.route_map_id!=map_id:
+            QMessageBox.warning(self,'草稿地图不一致','请清空后重新添加，或加载旧路线并明确确认迁移到当前地图。');return
+        points=json.loads(json.dumps(self.route_points))
+        if not self.demo:
+            self.route_save_snapshot={'map_id':map_id,'points':points};self.save_route_btn.setEnabled(False)
+        self._api('route_save','POST','/api/routes',{'map_id':map_id,'points':points,
                   'name':f'Studio {len(self.route_points)} 点路线','parent':self.current_route_parent_id or self.current_route_id})
 
     def load_route(self):
+        if self._route_locked():return
         route=self.routes_by_id.get(self.route_box.currentData())
         if not route:return
         selected_map_id=self.nav_map_box.currentData()
@@ -1654,8 +1796,10 @@ class Studio(QMainWindow):
             if index>=0 and selected_map_id!=route['map_id']:
                 self.nav_map_box.setCurrentIndex(index);self.select_navigation_map()
         self.route_points=[dict(p) for p in route['points']]
+        self.route_map_id=self.nav_map_box.currentData()
         self.target_mode_box.setCurrentIndex(self.target_mode_box.findData('route'))
         self.nav_view.set_waypoints(self.route_points)
+        self.waypoint_editor.set_points(self.route_points)
         self.mission_label.setText(f"已加载 {len(self.route_points)} 个航点；旧地图路线已作为草稿时，必须保存新版本后执行。")
 
     def run_route(self):
@@ -1664,6 +1808,9 @@ class Studio(QMainWindow):
         route=self.routes_by_id.get(self.current_route_id,{})
         if route.get('map_id') and route.get('map_id')!=self.nav_map_box.currentData():
             QMessageBox.warning(self,'路线地图版本不匹配','该路线绑定旧地图版本。请加载为草稿、重新保存并检查航点后再执行。');return
+        ready,reason=self._navigation_precheck()
+        if not ready:self.mission_label.setText('未执行：'+reason);return
+        self.route_request_pending=True;self._update_operator_gate()
         self._api('route_run','POST','/api/control/route',{'robot':self._robot(),
                   'map_id':self.nav_map_box.currentData(),'route_id':self.current_route_id})
 
@@ -1884,6 +2031,7 @@ class Studio(QMainWindow):
                 view.image=pixels.copy();view.res=float(manifest['resolution']);view.origin=tuple(manifest['origin'])
                 view.set_keepout(manifest.get('keepout_polygons_px',[]));view.scale=1.;view.pan_x=view.pan_y=0.;view.reset_heading();view.update()
             self.current_map_id=manifest['id']
+            self.displayed_map_id=manifest['id'];self.nav_view.navigation_mode=True
             summary=manifest.get('asset_summary')
             if summary is None:
                 source=manifest.get('source_pcd')
@@ -1900,6 +2048,7 @@ class Studio(QMainWindow):
         if manifest:self._load_map(manifest)
 
     def select_navigation_map(self):
+        self.clear_draft_goal()
         manifest=self.maps_by_id.get(self.nav_map_box.currentData())
         if manifest:
             self._load_map(manifest)
@@ -1996,7 +2145,7 @@ class Studio(QMainWindow):
         cells[:8,:]=100;cells[-8:,:]=100;cells[:,20:25]=100;cells[:,172:178]=100;cells[35:115,88:100]=-1
         self.map_view.set_grid({'width':w,'height':h,'data':cells.ravel(),'resolution':.05,'origin':(-5.,-3.75,0.)})
         self.nav_view.set_grid({'width':w,'height':h,'data':cells.ravel(),'resolution':.05,'origin':(-5.,-3.75,0.)})
-        self.status.setText('● 演示模式');self.status.setStyleSheet('color:#eac18a')
+        self.status.setText('● 演示模式');self.status.setStyleSheet('color:#875e17')
         self.mapping_state.setText('离线演示：不会启动设备或控制底盘')
         self.sensor_rate_label.setText('MID360S：演示数据    IMU：演示数据    base_link 里程计：演示数据')
         self.asset_label.setText('当前地图资产：演示地图；AGT Polar Context 不是 Scan Context（SC）。')

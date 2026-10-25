@@ -339,7 +339,8 @@ class Bridge(Node):
         result=dict(session=self.current(),localized=self.localized(),localization=self.localization_status(),
                     wheel_odometry_fresh=self.fresh('wheel',.5),nav2_states=self.states,feedback_fresh=self.physical(),
                     sensors_ready=self.fresh('sensor_imu',1.) and self.fresh('sensor_lidar',1.),
-                    chassis=self.chassis_status(),goal_result=self.goal_result)
+                    chassis=self.chassis_status(),goal_result=self.goal_result,
+                    navigation_activity=dict(pending=self.pending_goal,active=bool(self.goals)))
         mission=self.samples.get('mission') if self.fresh('mission',5) else None
         try:result['global_relocalization']=json.loads(self.samples['global_relocalization'].data) if self.fresh('global_relocalization',60) else None
         except (ValueError,TypeError):result['global_relocalization']={'state':'INVALID_STATUS'}

@@ -14,6 +14,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from .cloud import xyz_from_cloud
 from .visualization import LatestFrames, cloud_snapshot, transform_xyz
 from .map_io import occupancy_to_gray
+from .camera_preview import decode_image
 
 
 class TopicRate:
@@ -71,6 +72,17 @@ class RosWorker(QThread):
         # Dedicated ROS executor: preview/map serialization must never starve 200Hz IMU.
         self._rate_stop = threading.Event()
         self._rate_thread = None
+        self._image_queue = queue.Queue(maxsize=1)
+        self._image_thread = None
+        self.last_image = 0.0
+        self.camera_image_seen = None
+        self.camera_image_source_age_s = 0.0
+        self.camera_image_error = None
+        try:
+            frequency = float(self.cfg.get('camera_preview_hz', 5.0))
+            self._image_interval = 1.0/min(10.0, max(1.0, frequency)) if math.isfinite(frequency) else .2
+        except (ValueError, TypeError):
+            self._image_interval = .2
 
     def shutdown(self):
         self.alive = False
@@ -106,6 +118,47 @@ class RosWorker(QThread):
                 self._decode_queue.put_nowait((msg, is_map))
             except (queue.Empty, queue.Full):
                 pass
+
+    def _on_image(self, msg):
+        now = time.monotonic()
+        if now-self.last_image < self._image_interval:
+            return
+        self.last_image = now
+        try:
+            self._image_queue.put_nowait((msg, now))
+        except queue.Full:
+            try:
+                self._image_queue.get_nowait()
+                self._image_queue.put_nowait((msg, now))
+            except (queue.Empty, queue.Full):
+                pass
+
+    def _decode_image(self, msg, received):
+        try:
+            checked_at = time.monotonic()
+            stamp = msg.header.stamp.sec + msg.header.stamp.nanosec/1e9
+            now = self._ros_node.get_clock().now().nanoseconds/1e9
+            if stamp <= 0 or not -.1 <= now-stamp <= 2.0:
+                raise ValueError('图像时间戳缺失或过期；请核对相机时钟和图像话题')
+            frame = decode_image(msg, received=received,
+                                 topic=self.cfg.get('camera_image_topic', '/cv_camera0/image_raw'))
+            # The widget adds elapsed monotonic time since receipt. Subtract
+            # decoder waiting time here so queue delay is not counted twice.
+            frame['source_age_s'] = max(0.0, now-stamp-max(0.0, checked_at-received))
+            self.frames.put('camera', frame)
+            self.camera_image_seen = received
+            self.camera_image_source_age_s = frame['source_age_s']
+            self.camera_image_error = None
+        except Exception as ex:
+            self.camera_image_error = str(ex)
+
+    def _decode_images(self):
+        while not self._decode_stop.is_set():
+            try:
+                msg, received = self._image_queue.get(timeout=.2)
+            except queue.Empty:
+                continue
+            self._decode_image(msg, received)
 
     def _decode_loop(self):
         while not self._decode_stop.is_set():
@@ -211,7 +264,10 @@ class RosWorker(QThread):
             return
         self.last_report = now
         self.state.emit({'connected': True, 'odom': self.odom,
+                         'camera_image_age_s': None if self.camera_image_seen is None else now-self.camera_image_seen+self.camera_image_source_age_s,
+                         'camera_image_error': self.camera_image_error,
                          'gimbal_angles':self.gimbal_angles if now-self.gimbal_seen<1.5 else None,
+                         'gimbal_age_s':max(0.0,now-self.gimbal_seen) if self.gimbal_angles is not None else None,
                          'map_robot': self._map_robot(), 'display_error': self.display_error,
                          'odom_age_s': now-self.odom_seen if self.odom else None,
                          'cloud_points': self.cloud_points,
@@ -229,7 +285,7 @@ class RosWorker(QThread):
             from rclpy.executors import SingleThreadedExecutor
             from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, qos_profile_sensor_data
             from nav_msgs.msg import Odometry, OccupancyGrid
-            from sensor_msgs.msg import PointCloud2, Imu
+            from sensor_msgs.msg import PointCloud2, Imu, Image
             from std_msgs.msg import String
             try:
                 from livox_ros_driver2.msg import CustomMsg
@@ -253,6 +309,10 @@ class RosWorker(QThread):
             map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                                  reliability=ReliabilityPolicy.RELIABLE)
             node.create_subscription(Odometry, self.cfg['odom_topic'], self._on_odom, qos_profile_sensor_data)
+            image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
+                                   durability=DurabilityPolicy.VOLATILE)
+            node.create_subscription(Image, self.cfg.get('camera_image_topic', '/cv_camera0/image_raw'),
+                                     self._on_image, image_qos)
             # Rate accounting needs only message arrival, not 400KB+ of decoded
             # CustomPoint objects. Full Python deserialization at 10 Hz starves
             # the IMU callback on the same executor (measured ~81 vs ~203 Hz).
@@ -292,6 +352,8 @@ class RosWorker(QThread):
             self._rate_thread.start()
             self._decode_thread = threading.Thread(target=self._decode_loop, name='studio-cloud-display', daemon=True)
             self._decode_thread.start()
+            self._image_thread = threading.Thread(target=self._decode_images, name='studio-camera-display', daemon=True)
+            self._image_thread.start()
             self.notice.emit('ROS 显示适配器已连接；运动与重定位由现有 Workbench 后端执行')
             while self.alive and rclpy.ok():
                 try:
@@ -307,6 +369,8 @@ class RosWorker(QThread):
             self._decode_stop.set()
             if self._decode_thread is not None:
                 self._decode_thread.join(timeout=2.0)
+            if self._image_thread is not None:
+                self._image_thread.join(timeout=2.0)
             if self._rate_thread is not None:
                 self._rate_thread.join(timeout=2.0)
             try:

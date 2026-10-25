@@ -11,7 +11,7 @@ class LatestFrames:
         self._lock = threading.Lock()
 
     def put(self, stream, value):
-        if stream not in ('cloud', 'grid'):
+        if stream not in ('cloud', 'grid', 'camera'):
             raise ValueError('unknown display stream')
         with self._lock:
             self._values[stream] = value

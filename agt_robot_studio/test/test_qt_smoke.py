@@ -100,6 +100,8 @@ class StudioSmoke(unittest.TestCase):
         window=self.window()
         self.assertIn('离线演示',window.mode_state_label.text())
         window.demo=False
+        import time
+        window.live_seen=time.monotonic()
         window.live_status={'session':{'id':'session-1','robot':'bunker','task':'navigation'},
             'localized':True,'chassis':{'enabled':True,'online':True,'state':0}}
         window._on_state({'connected':True,'rates':{'lidar':10.2,'imu':100.,'odom':50.}})
@@ -150,8 +152,15 @@ class StudioSmoke(unittest.TestCase):
         window.api = FakeApi()
         window.current_map_id = 'edited-map'
         window.nav_map_box.addItem('Navigation map', 'map-1')
+        window.displayed_map_id='map-1'
         window.live_status['pose'] = {'x':1.,'y':2.,'yaw':.3}
         window.send_goal({'x':3.,'y':4.})
+        self.assertEqual(calls,[])  # Choosing a pose never moves hardware.
+        import time
+        window.live_seen=time.monotonic()
+        window.live_status.update(session={'robot':'bunker','task':'navigation','map_id':'map-1'},localized=True,
+                                  feedback_fresh=[True,''],nav2_states={'controller_server':3,'bt_navigator':3})
+        window.submit_goal()
         window.move_distance(1)
         window.relocalize()
         self.assertEqual(calls[0][2], '/api/control/goal')
@@ -193,6 +202,7 @@ class StudioSmoke(unittest.TestCase):
             def call(self,*args):calls.append(args)
         window.demo=False;window.api=FakeApi();window._ensure_ros_worker=lambda:None
         window.nav_map_box.addItem('map','map-1')
+        window.displayed_map_id='map-1'
         window.target_mode_box.setCurrentIndex(window.target_mode_box.findData('route'))
         window.live_status['pose']={'x':0.,'y':0.,'yaw':.2}
         window.gimbal_heading.setValue(-30.)
@@ -204,6 +214,10 @@ class StudioSmoke(unittest.TestCase):
         self.assertEqual(calls[0][2],'/api/routes')
         self.assertEqual(calls[0][3]['map_id'],'map-1')
         window._on_api('route_save',True,{'id':'route-1'})
+        import time
+        window.live_seen=time.monotonic()
+        window.live_status.update(session={'robot':'bunker','task':'navigation','map_id':'map-1'},localized=True,
+                                  feedback_fresh=[True,''],nav2_states={'controller_server':3,'bt_navigator':3})
         window.run_route()
         self.assertEqual(calls[-1][2],'/api/control/route')
         self.assertEqual(calls[-1][3]['route_id'],'route-1')
