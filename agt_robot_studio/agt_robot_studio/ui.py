@@ -438,7 +438,7 @@ class Studio(QMainWindow):
         self.current_map_name=str(cfg.get('map_name') or '').strip()[:120]
         self.mapping_save_data=bool(cfg.get('save_mapping_data',True))
         self.live_status={};self.live_in_flight=False;self.pending_session=None
-        self.ros_display_connected=False;self.topic_rates={}
+        self.ros_display_connected=False;self.ros_state_seen=0.;self.topic_rates={}
         self.recorder_id=None;self.recorder_output='';self.jobs_in_flight=False;self.mapping_job_id=None
         self.mapping_saving=False;self.map_saving=False;self.grid_building=False;self.pending_load_map_id=None
         self.camera_job_state={'state':'STOPPED'};self.camera_health_state={};self.jobs_cache=[];self.last_capture_job_id=None
@@ -484,6 +484,10 @@ class Studio(QMainWindow):
         self.worker.start()
 
     def _drain_display(self):
+        if not self.demo and time.monotonic()-self.ros_state_seen>2:self.ros_display_connected=False
+        if not self.demo and time.monotonic()-self.live_seen>4:
+            self.localization_label.setText('定位状态：后端反馈过期，等待更新')
+            self.pose_label.setText('base_link 当前位置：后端反馈过期')
         if hasattr(self,'actual_angles_label') and time.monotonic()-self.actual_gimbal_seen>2:
             self.actual_gimbal=None;self.actual_angles_label.setText('实际角度：反馈过期 / 未连接')
             self.copy_angles_btn.setEnabled(False)
@@ -1518,7 +1522,7 @@ class Studio(QMainWindow):
             cursor.select(cursor.BlockUnderCursor);cursor.removeSelectedText();cursor.deleteChar()
 
     def _on_state(self,s):
-        online=s.get('connected',False);self.ros_display_connected=online
+        online=s.get('connected',False);self.ros_display_connected=online;self.ros_state_seen=time.monotonic()
         self.topic_rates=dict(s.get('rates') or {})
         angles=s.get('gimbal_angles')
         self.actual_gimbal=dict(angles) if online and angles else None

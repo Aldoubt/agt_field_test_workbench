@@ -70,6 +70,18 @@ def test_configured_camera_topic_and_mailbox_are_wired(studio):
     assert window.camera_preview.canvas.image is image
 
 
+def test_frozen_display_worker_and_old_backend_cannot_look_live(studio):
+    window, _, clock = studio
+    window._on_state({'connected':True,'rates':{'lidar':10.,'imu':100.,'odom':50.}})
+    window._update_live()
+    assert '已定位' in window.localization_label.text()
+    clock[0] += 4.1
+    window._drain_display()
+    assert not window.ros_display_connected
+    assert '过期' in window.localization_label.text()
+    assert '过期' in window.pose_label.text()
+
+
 def test_decoder_error_is_visible_without_replacing_last_image(studio):
     window, _, clock = studio
     image = QImage(2, 2, QImage.Format_RGB888)

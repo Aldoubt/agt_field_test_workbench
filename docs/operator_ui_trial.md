@@ -97,7 +97,7 @@ python3 -m pytest -q \
 
 这些结果不包含真实桌面启动、ROS DDS 图像/反馈、设备动作、实车停止时延或导航精度。上面的现场步骤均须在工控机上记录实测结果；Qt 离屏界面测试与 BBS 回归由各自交付证据单列。
 
-Qt 离屏回归：`QT_QPA_PLATFORM=offscreen PYTHONPATH=agt_robot_studio python -m pytest -q agt_robot_studio/test`，**87 passed**。包括真实主窗口配合 fake API 的显式目标提交、相机反馈过期、保存期间编辑/清空/加载、迟到地图回执及跨地图草稿检查；另外检查了 1440×900 主窗口和 1280×800 窗口尺寸下的设置入口。地图与定位设置使用独立窗口，保持现场地图及停止按钮的位置稳定。
+Qt 离屏回归：`QT_QPA_PLATFORM=offscreen PYTHONPATH=agt_robot_studio python -m pytest -q agt_robot_studio/test`，**88 passed**。包括真实主窗口配合 fake API 的显式目标提交、相机与定位反馈过期、保存期间编辑/清空/加载、迟到地图回执及跨地图草稿检查；另外检查了 1440×900 主窗口和 1280×800 窗口尺寸下的设置入口。地图与定位设置使用独立窗口，保持现场地图及停止按钮的位置稳定。
 
 BBS 的修复、33 项回归及真实合成点云烟测见 [BBS 证据与部署说明](evidence/bbs_recovery_20261026/README.md)。障碍相关建议核验见 [障碍建议审计](evidence/obstacle_suggestions_20261026/README.md)。当前 ROS 桥额外返回 `navigation_activity: {pending, active}` 供界面锁定运行中的路线编辑；该字段是只读状态，不改变运动控制逻辑。
 
