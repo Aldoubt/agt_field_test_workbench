@@ -73,7 +73,7 @@ Visualization Manager:
     Shape:
       Value: Arrow
   - Class: rviz_default_plugins/PointCloud2
-    Name: Local Obstacles
+    Name: Filtered Obstacles (marking)
     Enabled: true
     Topic:
       Value: /agt/navigation/points_obstacles
@@ -84,8 +84,35 @@ Visualization Manager:
     Queue Size: 5
     Style: Points
     Size (Pixels): 2
-    Color Transformer: AxisColor
-    Axis: Z
+    Color Transformer: FlatColor
+    Color: 255; 145; 40
+    Decay Time: 0
+  - Class: rviz_default_plugins/PointCloud2
+    Name: Raw Navigation Cloud (clearing source)
+    Enabled: false
+    Topic:
+      Value: /agt/livox/points
+      Reliability Policy: Best Effort
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Depth: 1
+    Queue Size: 1
+    Style: Points
+    Size (Pixels): 1
+    Color Transformer: FlatColor
+    Color: 50; 220; 230
+    Decay Time: 0
+  - Class: rviz_default_plugins/Polygon
+    Name: Local Costmap Footprint
+    Enabled: true
+    Topic:
+      Value: /local_costmap/published_footprint
+      Reliability Policy: Reliable
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Depth: 1
+    Color: 235; 65; 65
+    Alpha: 1
   - Class: rviz_default_plugins/PoseWithCovariance
     Name: Relocalization Pose
     Enabled: true
