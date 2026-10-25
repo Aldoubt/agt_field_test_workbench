@@ -1004,7 +1004,7 @@ class Studio(QMainWindow):
         if not self.api:self.write_log('Workbench 尚未初始化');return
         timeout=None
         if name in ('record_start','session_stop_all'):timeout=120
-        elif name=='cloud_project':timeout=1500
+        elif name=='cloud_project':timeout=4200  # BBS voxels + candidate index + SC DB can each take up to 1200 s
         elif name in ('cloud_import','cloud_clean'):timeout=600
         elif name in ('map_revise','map_diff','map_review'):timeout=120
         elif name=='component_stop':timeout=60
@@ -1860,7 +1860,7 @@ class Studio(QMainWindow):
         name=(self.clouds_by_id.get(cloud) or {}).get('name','')
         if self.grid_building:return
         self.grid_building=True
-        self.map_write_status.setText('正在保存：生成二维地图，并为同源 PCD 构建 BBS 索引')
+        self.map_write_status.setText('正在保存：生成二维地图，并为同源 PCD 构建 SC 描述子和 BBS 候选索引（缺少关键帧时会明确报告）')
         self._api('cloud_project','POST',f'/api/clouds/{cloud}/project',{'projection':projection,'name':name})
 
     def refresh_maps_and_select(self,map_id):self.current_map_id=map_id;self.refresh_library()
