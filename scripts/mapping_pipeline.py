@@ -157,7 +157,6 @@ def main():
     calibration_meta=dict(robot=args.robot,legacy_id=args.calibration,mount=mount_metadata,
                           internal_config=internal_config,source_artifact=str(output))
     if Path(internal_config).is_file():calibration_meta['internal_sha256']=sha256(Path(internal_config))
-    if cleanup:calibration_meta['sc_keyframes']=str(output/'temporal_cleanup'/'keyframes')
     if os.environ.get('FIELD_CALIBRATION_BUNDLE'):
         bundle_path=Path(os.environ['FIELD_CALIBRATION_BUNDLE']);calibration_meta.update(bundle=str(bundle_path),bundle_sha256=sha256(bundle_path))
     cleanup = None
@@ -167,6 +166,7 @@ def main():
         from workbench.map_cleanup import clean_mapping
         cleanup = clean_mapping(output, ROOT, os.environ['FIELD_CALIBRATION_BUNDLE'])
         selected_pcd = Path(cleanup['cleaned_pcd'])
+        calibration_meta['sc_keyframes']=str(output/'temporal_cleanup'/'keyframes')
     # Deliberately candidate-only: first-stage temporal cleanup remains the
     # default map source. Optional independent clearance evidence must be
     # reviewed before a later explicit map-version promotion.
