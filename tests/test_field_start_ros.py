@@ -12,8 +12,10 @@ pytestmark=pytest.mark.skipif(
     reason='requires isolated domain 183 on localhost')
 
 
-@pytest.mark.parametrize('mode,manual',[('nav',False),('distance',False),('photo',False),('nav',True)])
-def test_composite_startup_uses_real_services_and_keeps_task_trigger_external(tmp_path,monkeypatch,mode,manual):
+@pytest.mark.parametrize('mode,manual,replies',[
+    ('nav',False,'normal'),('distance',False,'normal'),('photo',False,'normal'),('nav',True,'normal'),
+    ('distance',False,'lost_first'),('distance',False,'lost_all')])
+def test_composite_startup_uses_real_services_and_keeps_task_trigger_external(tmp_path,monkeypatch,mode,manual,replies):
     import rclpy
     from rclpy.context import Context
     from rclpy.node import Node
@@ -64,8 +66,20 @@ def test_composite_startup_uses_real_services_and_keeps_task_trigger_external(tm
     def parameters(request,response):
         response.values=[Parameter(key,value=params[key]).get_parameter_value() for key in request.names]
         return response
+    sends=[]
     for endpoint in ['/mission_runtime/get_parameters','/controller_server/get_parameters']:
-        peer.create_service(GetParameters,endpoint,parameters)
+        service=peer.create_service(GetParameters,endpoint,parameters)
+        if endpoint=='/mission_runtime/get_parameters' and replies!='normal':
+            original_send=service.send_response
+            def send(response,header):
+                sends.append(header)
+                if replies=='lost_all' or len(sends)==1:return
+                original_send(response,header)
+            monkeypatch.setattr(service,'send_response',send)
+    if replies!='normal':
+        original_read=field_start.read_parameters
+        monkeypatch.setattr(field_start,'read_parameters',
+            lambda *a,**k:original_read(*a,response_timeout=.2,**k))
     odom=peer.create_publisher(Odometry,'/agt/odometry/local',10)
     status=peer.create_publisher(LocalizationStatus,'/agt/localization/status',10)
     camera=peer.create_publisher(CapabilityHealth,'/camera_gimbal/health',10)
@@ -108,9 +122,15 @@ def test_composite_startup_uses_real_services_and_keeps_task_trigger_external(tm
     monkeypatch.setattr(field_start.field_trial,'make_plan',lambda *a,**k:dict(map_id='fixture_map',global_backend='bbs'))
     monkeypatch.setattr(ActionClient,'send_goal_async',lambda *a,**k:pytest.fail('startup sent an Action goal'))
     try:
-        assert field_start.main([mode,'--no-clock-hold','--startup-timeout-sec','5',
-                                 *(['--manual-localization'] if manual else [])])==130
-        assert ready[0]
+        args=[mode,'--no-clock-hold','--startup-timeout-sec','5',
+              *(['--manual-localization'] if manual else [])]
+        if replies=='lost_all':
+            with pytest.raises(ValueError,match='3 次有界只读尝试'):field_start.main(args)
+            assert not ready[0] and len(sends)==3
+        else:
+            assert field_start.main(args)==130
+            assert ready[0]
+            if replies=='lost_first':assert len(sends)==2
         assert events.count('relocalize')==(0 if manual else 1)
         assert events.index('activate_map')<events.index('activate_navigation')
         launched=[e for e in events if isinstance(e,tuple) and e[0]=='launch']

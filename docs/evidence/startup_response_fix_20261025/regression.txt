@@ -1,0 +1,4 @@
+........................................................................ [ 88%]
+.........                                                                [100%]
+- generated xml file: /home/yangxuan/agt_field_test_ws/src/agt_field_test_workbench/docs/evidence/startup_response_fix_20261025/regression.xml -
+81 passed in 22.20s

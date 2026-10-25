@@ -12,7 +12,7 @@ pytestmark=pytest.mark.skipif(
     reason='requires isolated ROS domain 183 on localhost')
 
 
-@pytest.mark.parametrize('case',['precision','photo_runtime','stale_localization'])
+@pytest.mark.parametrize('case',['precision','photo_runtime','stale_localization','starting','ready'])
 def test_distance_execution_needs_ready_precision_runtime(tmp_path,monkeypatch,case):
     import rclpy
     from rclpy.context import Context
@@ -21,10 +21,15 @@ def test_distance_execution_needs_ready_precision_runtime(tmp_path,monkeypatch,c
     from rclpy.parameter import Parameter
     from rcl_interfaces.srv import GetParameters
     from workbench import field_trial
+    from workbench.mode_state import publish_mode_state
     repo=Path(__file__).resolve().parents[1]
     spec=importlib.util.spec_from_file_location('distance_test_tasks',repo/'scripts/field_tasks.py')
     tasks=importlib.util.module_from_spec(spec);spec.loader.exec_module(tasks)
     monkeypatch.setattr(tasks,'ROOT',tmp_path)
+    if case in ('starting','ready'):
+        publish_mode_state(tmp_path,'distance','fixture_map',case.upper())
+    if case=='starting':
+        monkeypatch.setattr(rclpy,'init',lambda **_:pytest.fail('unready start initialized ROS'))
     (tmp_path/'config').mkdir();(tmp_path/'config/field_trial.yaml').write_text('map_id: fixture_map\n')
     book=dict(map_id='fixture_map',points=dict(home=dict(pose=dict(x=0.,y=0.,yaw=0.,frame_id='map'))))
     mission=tmp_path/'accuracy_5m.yaml';tasks.save_new(mission,tasks.accuracy_mission(book,5.))
@@ -33,6 +38,10 @@ def test_distance_execution_needs_ready_precision_runtime(tmp_path,monkeypatch,c
     monkeypatch.setattr(field_trial,'require_navigation_ready',navigation)
     executed=[]
     monkeypatch.setattr(tasks.os,'execvp',lambda command,args:executed.append((command,args)))
+    if case=='starting':
+        with pytest.raises(ValueError,match='本次未提交任务'):tasks.execute_distance(mission)
+        assert not executed
+        return
     ctx=Context();rclpy.init(context=ctx);peer=Node('isolated_distance_params',context=ctx)
     def parameters(request,response):
         assert request.names==['nav_behavior_tree']
@@ -42,7 +51,7 @@ def test_distance_execution_needs_ready_precision_runtime(tmp_path,monkeypatch,c
     executor=SingleThreadedExecutor(context=ctx);executor.add_node(peer)
     spin=threading.Thread(target=executor.spin,daemon=True);spin.start()
     try:
-        if case=='precision':
+        if case in ('precision','ready'):
             tasks.execute_distance(mission)
             assert len(executed)==1
             _,command=executed[0]

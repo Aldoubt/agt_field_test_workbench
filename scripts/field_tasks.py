@@ -126,8 +126,8 @@ def execute_distance(path):
     from agt_navigation_runtime.mission_schema import load_mission
     from workbench import field_trial
     import rclpy
-    from rcl_interfaces.srv import GetParameters
-    from rclpy.parameter import parameter_value_to_python
+    from workbench.ros_parameters import read_parameters
+    from workbench.mode_state import require_mode_ready
     path = Path(path).resolve()
     mission = load_mission(str(path))
     if any(point.frame_id != 'map' for point in mission.points):
@@ -137,18 +137,12 @@ def execute_distance(path):
     config = yaml.safe_load((ROOT/'config/field_trial.yaml').read_text())
     if mission.map_id != config['map_id']:
         raise ValueError('mission belongs to another map; use the matching field_trial config')
+    require_mode_ready(ROOT)
     rclpy.init(args=[])
     node = rclpy.create_node('field_distance_submit')
     try:
         field_trial.require_navigation_ready(node)
-        client = node.create_client(GetParameters,'/mission_runtime/get_parameters')
-        if not client.wait_for_service(timeout_sec=3.):
-            raise ValueError('先启动 ./field_start distance 或独立精度 mission_runtime')
-        future = client.call_async(GetParameters.Request(names=['nav_behavior_tree']))
-        rclpy.spin_until_future_complete(node,future,timeout_sec=3.)
-        if not future.done() or future.result() is None or not future.result().values:
-            raise ValueError('distance runtime parameter query timed out')
-        tree = parameter_value_to_python(future.result().values[0])
+        tree = read_parameters(node,'mission_runtime',['nav_behavior_tree'])['nav_behavior_tree']
         if tree != '':
             raise ValueError('当前为拍照执行器；距离模式需要原精度到达判定')
     finally:

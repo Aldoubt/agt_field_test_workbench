@@ -28,6 +28,10 @@
 
 每个组件输出到启动终端打印的 `runs/<id>/process.log`。组合计划和阶段记录在 `runs/field_mode_*/session.json`。关闭 RViz 窗口不关闭导航链路，可重新单独打开。退出组合入口只关闭本次创建的进程组，不扫描/杀死其他会话。
 
+必须等启动终端最终显示 `导航已激活。使用 ./field_distance ...`（或对应模式提示）再提交任务。仅看到 RViz、任务服务可用或 `map_tracking_ok`，仍可能处于准备阶段。组合入口在 `work/field_mode_state.json` 原子记录进程身份及就绪状态；`field_distance run/home` 和 `field_photo start` 会拒绝尚未就绪或正在退出的组合会话。过期进程记录不会阻碍原来的分开启动方式。
+
+只读参数查询使用同一个客户端，服务发现最多等待 8 秒；单次响应等待 2 秒，最多尝试 3 次。首次响应丢失后会打印重试信息，迟到响应不会被当作下一次查询的结果。生命周期激活、重定位和参数写入不会自动重发。全部尝试失败仍会报告启动失败并清理本次组件，不显示就绪。
+
 ## 独立距离测试
 
 距离模式不启动相机，使用原通用到达判定（当前 0.08 m / 5°），不会套用拍照模式 0.35 m 的位置容差。它复用原 MissionRuntime 的导航、停车确认和记录过程。
@@ -38,7 +42,7 @@
 ./field_start distance
 ```
 
-准备好并确认现场测试方向后，操作终端：
+等待上述最终就绪提示，并确认现场测试方向后，操作终端：
 
 ```bash
 ./field_distance teach home
@@ -65,6 +69,8 @@ teach 读取当前停车位姿；accuracy 生成 `missions/distance/accuracy_5m.
 ./field_distance run 8 --directory missions/distance_batch2
 ./field_distance home --directory missions/distance_batch2
 ```
+
+已有同一地图、同一起点的距离任务时，重新启动后直接 `./field_distance run 5`，不必再次 teach 或生成文件。若任务刚下发组合入口就报参数响应超时并退出，目标会随清理取消；先解决启动失败并等最终就绪，再重试任务。本次故障证据见 [启动响应超时回归](evidence/startup_response_fix_20261025/README.md)。
 
 目前 run/home 按 `config/field_trial.yaml` 中地图校验任务；使用组合入口 `--map-id` 覆盖时，也应让该配置对应同一地图后再生成距离任务。`run/home` 拒绝带相机视图的任务、失效定位和正在使用拍照行为树的执行器。取消距离任务用 `./field_distance cancel`，它请求父任务取消；等待最终结果和停稳，不能把 Trigger 的提交响应当成停车完成。
 

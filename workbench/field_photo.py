@@ -24,20 +24,15 @@ def validate_photo_parameters(runtime, controller):
 def check_photo_runtime():
     """Read actual running parameters before submitting any motion-capable task."""
     import rclpy
-    from rcl_interfaces.srv import GetParameters
-    from rclpy.parameter import parameter_value_to_python
+    from .ros_parameters import read_parameters
+    from .mode_state import require_mode_ready
+
+    require_mode_ready(ROOT)
 
     rclpy.init(args=[])
     node = rclpy.create_node('field_photo_check_runtime')
     def read(name, keys):
-        client = node.create_client(GetParameters, '/'+name+'/get_parameters')
-        if not client.wait_for_service(timeout_sec=2.):
-            raise ValueError(name+' 未运行；本次未提交任务。')
-        future = client.call_async(GetParameters.Request(names=keys))
-        rclpy.spin_until_future_complete(node, future, timeout_sec=2.)
-        if not future.done() or future.result() is None:
-            raise ValueError(name+' 参数查询超时；本次未提交任务。')
-        return {key: parameter_value_to_python(value) for key, value in zip(keys, future.result().values)}
+        return read_parameters(node,name,keys)
     try:
         runtime = read('mission_runtime', ['nav_behavior_tree', 'recenter_after_capture'])
         controller = read('controller_server', ['goal_checker_plugins',

@@ -12,6 +12,8 @@ import time
 
 from . import field_trial, field_photo
 from .runtime import Jobs, REPO, ROOT, write_json, utc_now
+from .ros_parameters import read_parameters
+from .mode_state import publish_mode_state
 
 
 def positive(value):
@@ -190,10 +192,7 @@ class Readiness:
             raise ValueError(response.message)
 
     def parameters(self, name, keys):
-        from rcl_interfaces.srv import GetParameters
-        from rclpy.parameter import parameter_value_to_python
-        response = self.call(GetParameters, '/'+name+'/get_parameters', GetParameters.Request(names=keys))
-        return {key:parameter_value_to_python(value) for key,value in zip(keys,response.values)}
+        return read_parameters(self.node,name,keys,health_check=self.health_check)
 
     def mission_ready(self, mode, timeout):
         from std_srvs.srv import Trigger
@@ -227,7 +226,7 @@ class Readiness:
                 self.wait(camera_ready,timeout,'等待相机图像和云台反馈')
             finally:
                 self.node.destroy_subscription(sub)
-        elif self.parameters('mission_runtime',['nav_behavior_tree'])['nav_behavior_tree']:
+        elif self.parameters('mission_runtime',['nav_behavior_tree'])['nav_behavior_tree'] != '':
             raise ValueError('距离模式应使用原精度到达判定，执行器配置不匹配')
 
     def close(self):
@@ -331,6 +330,7 @@ def main(argv=None):
         probe = Readiness(session.check)
         directory = ROOT/'runs'/('field_mode_'+utc_now().replace(':','').replace('.','_'))
         write_json(directory/'session.json',dict(plan=plan,state='STARTING'))
+        publish_mode_state(ROOT,args.mode,plan['map_id'],'STARTING')
         def interrupted(_signum, _frame):
             raise KeyboardInterrupt
         previous = signal.signal(signal.SIGTERM, interrupted)
@@ -356,6 +356,7 @@ def main(argv=None):
             if args.mode in ('photo','distance'):
                 probe.mission_ready(args.mode,args.startup_timeout_sec)
             write_json(directory/'session.json',dict(plan=plan,state='READY',owned=session.owned))
+            publish_mode_state(ROOT,args.mode,plan['map_id'],'READY')
             print('导航已激活。'+({'photo':'在 RViz 排队后执行 ./field_photo start。',
                   'distance':'使用 ./field_distance teach home、accuracy、run；不会自动发车。',
                   'nav':'可在 RViz 手动指定导航目标。'}[args.mode]),flush=True)
@@ -370,6 +371,7 @@ def main(argv=None):
             signal.signal(signal.SIGTERM,signal.SIG_IGN)
             final_state = 'STOPPED'
             try:
+                publish_mode_state(ROOT,args.mode,plan['map_id'],'STOPPING')
                 session.close()
             except Exception:
                 final_state = 'STOP_FAILED'
@@ -377,6 +379,7 @@ def main(argv=None):
             finally:
                 probe.close()
                 write_json(directory/'session.json',dict(plan=plan,state=final_state,owned=session.owned))
+                publish_mode_state(ROOT,args.mode,plan['map_id'],final_state)
                 signal.signal(signal.SIGINT,old_int)
                 signal.signal(signal.SIGTERM,previous)
 
