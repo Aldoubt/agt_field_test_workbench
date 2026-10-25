@@ -62,9 +62,9 @@ def test_runtime_manager(mode,tmp_path):
         cfg['relocalization_assets']=str(assets)
         cfg['candidate_sdk_command']=('ros2 run agt_global_relocalization_native candidate_bbs_gicp_localizer '
             '--map {global_map} --scan {scan_pcd} {assets_arg} --timeout {timeout_sec} '
-            '--candidate-top-k 2 --descriptor-prefilter 40 --candidate-xy-radius 4.0 --candidate-z-radius 2.0 '
+            '--candidate-top-k 4 --descriptor-prefilter 80 --candidate-xy-radius 5.0 --candidate-z-radius 2.5 '
             '--candidate-yaw-range-deg 0.0 --roll-pitch-range-deg 0.0 '
-            '--bbs-query-frame-mode {bbs_query_frame_mode} --per-candidate-timeout 8.0 --bbs-score-threshold 0.05')
+            '--bbs-query-frame-mode {bbs_query_frame_mode} --per-candidate-timeout 6.0 --bbs-score-threshold 0.03 --gicp-max-corr 2.5')
     param=tmp_path/'params.yaml';param.write_text(yaml.safe_dump({'agt_global_relocalization':{'ros__parameters':cfg}}))
     rclpy.init(args=['--ros-args','--params-file',str(param)])
     runtime=GlobalRelocalization();manager=LocalizationManager();probe=Node('sc_experiment_probe')
