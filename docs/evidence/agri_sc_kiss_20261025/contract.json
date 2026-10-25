@@ -1,0 +1,33 @@
+{
+  "frame": "mapping_body",
+  "gravity": "remove_roll_pitch_preserve_yaw",
+  "body_from_lidar_rotation": [
+    [
+      0.992014494839,
+      -0.042373506107,
+      -0.118792794433
+    ],
+    [
+      0.039701756323,
+      0.998904535454,
+      -0.024768923946
+    ],
+    [
+      0.119712207289,
+      0.019854848999,
+      0.992610080745
+    ]
+  ],
+  "body_from_lidar_translation": [
+    0.11,
+    -0.07,
+    0.03
+  ],
+  "min_range": 0.5,
+  "max_range": 30.0,
+  "voxel": 0.25,
+  "rings": 20,
+  "sectors": 60,
+  "descriptor_radius": 30.0,
+  "height_offset": 0.0
+}

@@ -208,6 +208,7 @@ class Sessions:
         if (not current or current.get('task')!='localization' or current.get('robot')!=robot
                 or current.get('map_id')!=p.get('map_id')
                 or current.get('global_backend')!=p.get('global_backend','bbs')
+                or (p.get('global_backend')=='sc_kiss' and current.get('sc_database')!=p.get('sc_database'))
                 or current.get('lio_backend')!=p.get('lio_backend','batch_lio')):
             raise ValueError('running localization configuration differs; stop localization explicitly before changing it')
         m=Maps(self.root).get(p['map_id']);Maps(self.root).validate_identity(m)
@@ -345,7 +346,13 @@ class Sessions:
                 runtime_mount['validation'].update(localization='PASS',motion_safety='PASS')
                 copied.write_text(yaml.safe_dump(runtime_mount,sort_keys=False))
         backend=p.get('global_backend','bbs')
-        if backend not in ('bbs','kiss'):raise ValueError('unknown global localization backend')
+        if backend not in ('bbs','sc_kiss'):raise ValueError('unknown global localization backend')
+        sc_database=''
+        if backend=='sc_kiss':
+            from .relocalization import validate_sc_database
+            sc_database=validate_sc_database(p.get('sc_database',''),map_record)
+            ros_call(['ros2','pkg','prefix','agt_sc_kiss'],timeout=4)
+            args+=['sc_database:='+sc_database]
         lio_backend=p.get('lio_backend','batch_lio')
         if lio_backend not in ('batch_lio','fastlio2'):raise ValueError('unknown local odometry backend')
         args+=['global_backend:='+backend,'lio_backend:='+lio_backend]
@@ -362,6 +369,7 @@ class Sessions:
             localization_pcd=map_record.get('source_pcd') if map_record else None,
             localization_pcd_sha256=map_record.get('source_pcd_sha256') if map_record else None,
             global_backend=backend,lio_backend=lio_backend,relocalization_assets=assets,livox=livox_identity,
+            sc_database=sc_database,
             enable_camera_gimbal=False,camera_launch_owner='camera_gimbal_job',
             sensor_stack_job_id=sensor_job['id'] if sensor_job else None,
             chassis_job_id=(self._find_job('chassis_component') or {}).get('id'),

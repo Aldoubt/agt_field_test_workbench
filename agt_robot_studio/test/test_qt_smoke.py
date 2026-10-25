@@ -149,9 +149,9 @@ class StudioSmoke(unittest.TestCase):
         self.assertEqual(calls[1][3]['map_id'], 'map-1')
         self.assertEqual(calls[1][3]['distance_m'], .5)
         self.assertEqual(calls[2][2], '/api/control/relocalize')
-        window.global_backend_box.setCurrentIndex(window.global_backend_box.findData('kiss'))
+        window.global_backend_box.setCurrentIndex(window.global_backend_box.findData('sc_kiss'))
         payload = window._session_payload('navigation', 'map-1')
-        self.assertEqual(payload['global_backend'], 'kiss')
+        self.assertEqual(payload['global_backend'], 'sc_kiss')
         self.assertEqual(payload['lio_backend'], 'fastlio2')
         self.assertFalse(payload['enable_camera_gimbal'])
         self.assertNotIn('global_backend', window._session_payload('sensors'))
@@ -168,10 +168,10 @@ class StudioSmoke(unittest.TestCase):
         window.live_status['session'] = {
             'task':'localization', 'map_id':'map-1', 'robot':'bunker',
             'global_backend':'bbs'}
-        window.global_backend_box.setCurrentIndex(window.global_backend_box.findData('kiss'))
+        window.global_backend_box.setCurrentIndex(window.global_backend_box.findData('sc_kiss'))
         window._start_session('localization', 'map-1')
         self.assertEqual(calls[0][2], '/api/session/start')
-        self.assertEqual(calls[0][3]['global_backend'], 'kiss')
+        self.assertEqual(calls[0][3]['global_backend'], 'sc_kiss')
         self.assertIsNone(window.pending_session)
         window.api = None
 

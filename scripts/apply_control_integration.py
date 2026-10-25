@@ -20,6 +20,8 @@ def main():
     parser.add_argument('--manifest', type=Path, default=REPO/'patches/control_manifest.json')
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text())
+    experiment_path=REPO/'patches/sc_kiss_manifest.json'
+    experiment=json.loads(experiment_path.read_text()) if experiment_path.is_file() else {}
     pending = []
     # Validate every dependency and file before making any changes.
     for relative, spec in manifest.items():
@@ -33,7 +35,10 @@ def main():
             if actual == hashes['before']:
                 names.append(name)
             elif actual != hashes['after']:
-                raise SystemExit(f'{relative}/{name}: differs from reviewed source and patch; preserved')
+                followup=experiment.get(relative,{}).get('files',{}).get(name,{})
+                if not (args.manifest==REPO/'patches/control_manifest.json' and
+                        followup.get('before')==hashes['after'] and followup.get('after')==actual):
+                    raise SystemExit(f'{relative}/{name}: differs from reviewed source and patch; preserved')
         if names:
             command = ['git', '-C', str(root), 'apply', '--whitespace=error']
             for name in names:

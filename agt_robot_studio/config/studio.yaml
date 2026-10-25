@@ -42,6 +42,7 @@ projection:
 # Coarse global relocalization backend; both use small_gicp refinement.
 # KISS additionally requires its locked native build and replay/field acceptance.
 global_backend: bbs
+sc_database: ''  # immutable Scan Context DB; required only for sc_kiss
 # Mutually exclusive local odometry frontend; both publish base_link odometry.
 lio_backend: fastlio2  # prefer Bunker FAST-LIO2; batch_lio is optional
 # FAST-LIO2 without PGO is the current Bunker baseline. GLIM remains experimental

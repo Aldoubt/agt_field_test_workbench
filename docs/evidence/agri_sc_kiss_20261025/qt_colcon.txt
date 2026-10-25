@@ -1,0 +1,26 @@
+Starting >>> agt_robot_studio
+Finished <<< agt_robot_studio [0.62s]
+
+Summary: 1 package finished [0.98s]
+Starting >>> agt_robot_studio
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-6.2.5, py-1.10.0, pluggy-0.13.0
+cachedir: /workspace/work/agri-ws/build/agt_robot_studio/.pytest_cache
+rootdir: /workspace/work/agt_field_test_workbench/agt_robot_studio
+plugins: launch-testing-1.0.15, ament-lint-0.12.15, ament-flake8-0.12.15, ament-xmllint-0.12.15, ament-copyright-0.12.15, launch-testing-ros-0.19.14, ament-pep257-0.12.15, colcon-core-0.21.3
+collected 33 items
+
+test/test_core.py ...                                                    [  9%]
+test/test_live_views.py ........                                         [ 33%]
+test/test_motion_boundaries.py ...                                       [ 42%]
+test/test_qt_smoke.py .................                                  [ 93%]
+test/test_studio_flow.py ..                                              [100%]
+
+- generated xml file: /workspace/work/agri-ws/build/agt_robot_studio/pytest.xml -
+============================== 33 passed in 1.35s ==============================
+Finished <<< agt_robot_studio [1.93s]
+
+Summary: 1 package finished [2.10s]
+build/agt_robot_studio/pytest.xml: 33 tests, 0 errors, 0 failures, 0 skipped
+
+Summary: 33 tests, 0 errors, 0 failures, 0 skipped

@@ -31,7 +31,7 @@ DEFAULT_CONFIG = {
     'auto_start_workbench':True, 'calibration_bundle':'', 'mount_profile':'',
     'geometry_file':'', 'livox_config':'', 'safety_report':'', 'session_checks':{},
     'record_template':'full_field_test', 'record_topics':[],
-    'global_backend':'bbs', 'lio_backend':'fastlio2', 'mapping_backend':'fastlio',
+    'global_backend':'bbs', 'sc_database':'', 'lio_backend':'fastlio2', 'mapping_backend':'fastlio',
     'save_mapping_data':True, 'enable_camera_gimbal':True,
     'camera_device_path':'/dev/video0',
     'gimbal_port_name':'/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0',
@@ -824,7 +824,7 @@ class Studio(QMainWindow):
         row.addWidget(text_label('里程计后端'));row.addWidget(self.lio_backend_box,1)
         self.global_backend_box=QComboBox()
         self.global_backend_box.addItem('3D-BBS + GICP','bbs')
-        self.global_backend_box.addItem('KISS-Matcher + GICP（实验）','kiss')
+        self.global_backend_box.addItem('Scan Context + KISS-Matcher + GICP（实验）','sc_kiss')
         self.global_backend_box.setCurrentIndex(max(0,self.global_backend_box.findData(self.cfg.get('global_backend','bbs'))))
         self.global_backend_box.setToolTip('每次只使用一个粗定位后端；精化均为 GICP')
         row=QHBoxLayout();c.addLayout(row)
@@ -838,7 +838,7 @@ class Studio(QMainWindow):
         reloc=button('全局重定位');reloc.clicked.connect(self.relocalize);row.addWidget(reloc)
         stop_goal=button('停止当前目标 / 任务','danger');stop_goal.clicked.connect(self.stop_goal);row.addWidget(stop_goal)
         row.addWidget(text_label('云台在设备页独立启动'))
-        self.localization_label=text_label('定位状态：等待 Workbench');row.addWidget(self.localization_label,1)
+        self.localization_label=text_label('定位状态：等待 Workbench');self.localization_label.setWordWrap(True);row.addWidget(self.localization_label,1)
         frame=QFrame();frame.setObjectName('viewer');l.addWidget(frame,1)
         v=QVBoxLayout(frame);v.addWidget(self.tri_view,1)
         self.view_status_label=text_label('实时视图：等待地图、点云和 map → base_link TF');v.addWidget(self.view_status_label)
@@ -943,9 +943,13 @@ class Studio(QMainWindow):
         self.camera_device_edit=QLineEdit(str(self.cfg.get('camera_device_path','/dev/video0')))
         self.gimbal_port_edit=QLineEdit(str(self.cfg.get('gimbal_port_name','')))
         form.addRow('视频设备',self.camera_device_edit);form.addRow('云台串口',self.gimbal_port_edit)
+        research=card(body,'农科院重定位实验')
+        self.sc_database_edit=QLineEdit(str(self.cfg.get('sc_database','')))
+        self.sc_database_edit.setPlaceholderText('独立 Scan Context 数据库目录，含 manifest.json；BBS 不使用')
+        research.addWidget(self.sc_database_edit)
         assets=card(body,'重定位后端与地图资产（当前原生实现）')
         assets.addWidget(text_label('3D-BBS + GICP：有候选资产时加载 polar_context.db 与 voxelmaps_coords。AGT Polar Context 先以 ring key 从全库预筛选 40 个，再做 sector 相似度／位移排序，取 candidate_top_k = 2 个执行局部 BBS，最后 small_gicp GICP 精化；无数据库的旧地图走整图 BBS 回退。'))
-        assets.addWidget(text_label('KISS-Matcher + GICP：不读取 Polar Context 数据库，也不读取 BBS 体素层次；从同源 PCD 做全图粗匹配，有 global_map_downsampled.pcd 时优先复用，随后同样由 GICP 精化。40／2 为当前原生默认值，此页不伪装成在线调参。'))
+        assets.addWidget(text_label('Scan Context + KISS-Matcher + GICP：从独立 SC 数据库检索 Top-K 位置与航向，KISS 匹配候选局部地图，再调用原 small_gicp 精化。数据库必须与选定 PCD、导航地图及 LIO 标定一致；失败后停止定位并手动切回 BBS。'))
         row=QHBoxLayout();body.addLayout(row)
         save=button('保存参数','primary');save.clicked.connect(self.save_parameters);row.addWidget(save)
         self.parameter_status=text_label('保存到用户配置：'+str(USER_CONFIG));row.addWidget(self.parameter_status,1)
@@ -1147,6 +1151,10 @@ class Studio(QMainWindow):
             self._fill_combo(self.route_box,value,self.current_route_id);return
         if name=='refresh_live':
             self.live_status=value;self.current_session=value.get('session')
+            metrics=value.get('global_relocalization')
+            signature=json.dumps(metrics,sort_keys=True,ensure_ascii=False) if metrics else ''
+            if signature and signature!=getattr(self,'last_relocalization_log',''):
+                self.last_relocalization_log=signature;self.write_log('重定位：'+signature)
             self.nav_view.plan=value.get('plan',[]);self.nav_view.update()
             self._update_live();return
         if name=='refresh_jobs':
@@ -1404,6 +1412,10 @@ class Studio(QMainWindow):
         localized=bool(self.live_status.get('localized'))
         self.localization_label.setText('● 已定位' if localized else '● 未定位 / 重定位中')
         self.localization_label.setStyleSheet('color:#65c7a9' if localized else 'color:#e8b178')
+        algorithm=(session or {}).get('global_backend','bbs')
+        metrics=self.live_status.get('global_relocalization') or {}
+        self.localization_label.setText(('● 已定位' if localized else '● 未定位')+' · '+algorithm+
+            f" · 耗时 {metrics.get('total_elapsed_sec','--')} s · Fitness {metrics.get('fitness','--')} · Overlap {metrics.get('overlap','--')} · "+str(metrics.get('detail',''))[:180])
         pose=self.live_status.get('pose')
         self.pose_label.setText(f"base_link：X={pose['x']:.2f}  Y={pose['y']:.2f}  Yaw={math.degrees(pose['yaw']):.1f}°" if pose else 'base_link 当前位置：未知')
         mission=self.live_status.get('mission')
@@ -1490,6 +1502,9 @@ class Studio(QMainWindow):
             p['checks']={k:v.isChecked() for k,v in self.motion_checks.items()}
         if task in ('localization','navigation'):
             p['global_backend']=self.global_backend_box.currentData()
+            if p['global_backend']=='sc_kiss':
+                value=self.sc_database_edit.text().strip()
+                p['sc_database']=str(Path(value).expanduser().resolve()) if value else ''
             p['lio_backend']=self.lio_backend_box.currentData()
         if task=='navigation':
             p['enable_camera_gimbal']=False
@@ -1526,7 +1541,9 @@ class Studio(QMainWindow):
         if session:
             same_backend=(task not in ('localization','navigation') or
                 (session.get('global_backend','bbs')==self.global_backend_box.currentData()
-                 and session.get('lio_backend','batch_lio')==self.lio_backend_box.currentData()))
+                 and session.get('lio_backend','batch_lio')==self.lio_backend_box.currentData()
+                 and (self.global_backend_box.currentData()!='sc_kiss' or
+                      session.get('sc_database')==self._session_payload(task,map_id).get('sc_database'))))
             if (session.get('task')==task and session.get('map_id')==map_id
                     and session.get('robot')==self._robot() and same_backend):
                 self.write_log('所需现场会话已经在运行');return
@@ -1629,6 +1646,7 @@ class Studio(QMainWindow):
                 camera_device_path=self.camera_device_edit.text().strip(),
                 gimbal_port_name=self.gimbal_port_edit.text().strip(),
                 global_backend=self.global_backend_box.currentData(),
+                sc_database=self.sc_database_edit.text().strip(),
                 lio_backend=self.lio_backend_box.currentData(),
                 mapping_backend=self.mapping_backend_box.currentData(),
                 save_mapping_data=self.save_mapping_box.isChecked(),

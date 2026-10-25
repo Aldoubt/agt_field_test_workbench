@@ -54,8 +54,8 @@ def _configure(context):
     workspace = Path(os.environ.get('AGT_FIELD_TEST_WS', str(Path.home()/'agt_field_test_ws')))
     robot_profile = profiles.load(value('robot_profile_file') or profiles.selected_path(workspace,robot),robot)
     global_backend = value('global_backend')
-    if global_backend not in ('bbs', 'kiss'):
-        raise RuntimeError('global_backend must be bbs or kiss')
+    if global_backend not in ('bbs', 'sc_kiss'):
+        raise RuntimeError('global_backend must be bbs or sc_kiss')
     chassis = value('enable_chassis').lower() == 'true'
     localization = value('enable_localization').lower() == 'true'
     navigation = value('enable_navigation').lower() == 'true'
@@ -146,6 +146,7 @@ def _configure(context):
     if localization:
         localization_args = {
             'global_backend': global_backend,
+            'sc_database':value('sc_database'),
             'global_map': value('global_map'), 'lio_backend': value('lio_backend'),
             'relocalization_assets': value('relocalization_assets'),
             'enable_map_tracking': value('enable_map_tracking'),
@@ -277,6 +278,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('robot', default_value='bunker'),
         DeclareLaunchArgument('global_backend', default_value='bbs'),
+        DeclareLaunchArgument('sc_database', default_value=''),
         DeclareLaunchArgument('relocalization_assets', default_value=''),
         DeclareLaunchArgument('enable_inspection', default_value='true'),
         DeclareLaunchArgument('enable_camera_gimbal', default_value='false'),

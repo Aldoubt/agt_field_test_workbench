@@ -1,0 +1,27 @@
+Starting >>> agt_field_test_bringup
+--- stderr: agt_field_test_bringup
+** WARNING ** io features related to pcap will be disabled
+** WARNING ** io features related to png will be disabled
+CMake Error at CMakeLists.txt:20 (find_package):
+  By not providing "Findlivox_ros_driver2.cmake" in CMAKE_MODULE_PATH this
+  project has asked CMake to find a package configuration file provided by
+  "livox_ros_driver2", but CMake did not find one.
+
+  Could not find a package configuration file provided by "livox_ros_driver2"
+  with any of the following names:
+
+    livox_ros_driver2Config.cmake
+    livox_ros_driver2-config.cmake
+
+  Add the installation prefix of "livox_ros_driver2" to CMAKE_PREFIX_PATH or
+  set "livox_ros_driver2_DIR" to a directory containing one of the above
+  files.  If "livox_ros_driver2" provides a separate development package or
+  SDK, be sure it has been installed.
+
+
+---
+Failed   <<< agt_field_test_bringup [2.26s, exited with code 1]
+
+Summary: 0 packages finished [2.41s]
+  1 package failed: agt_field_test_bringup
+  1 package had stderr output: agt_field_test_bringup

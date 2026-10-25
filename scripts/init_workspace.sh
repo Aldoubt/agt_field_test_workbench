@@ -34,5 +34,6 @@ cp -n "$REPO/agt_field_test_bringup/config/bunker_calibration_candidate.yaml" "$
 python3 "$REPO/scripts/fetch_locked.py"
 python3 "$REPO/scripts/apply_mapping_calibration.py"
 python3 "$REPO/scripts/apply_control_integration.py"
+python3 "$REPO/scripts/apply_sc_kiss_integration.py"
 python3 "$REPO/scripts/audit.py" > "$ROOT/reports/dependency_audit.json"
 echo "Initialized $ROOT; next run scripts/build_humble.sh on Ubuntu 22.04/Humble."

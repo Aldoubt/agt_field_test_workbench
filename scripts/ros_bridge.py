@@ -68,6 +68,7 @@ class Bridge(Node):
             self.create_subscription(typ,topic,lambda m:self.observe(name,m),qos)
         if CapabilityHealth is not None:sub(CapabilityHealth,'/camera_gimbal/health','camera')
         sub(LocalizationStatus,'/agt/localization/status','localization')
+        sub(String,'/agt/global_relocalization/status','global_relocalization')
         sub(MissionStatus,'/agt/mission/status','mission')
         sub(Odometry,'/agt/odometry/local','lio');sub(Odometry,'/wheel/odom','wheel')
         if BunkerStatus is not None:sub(BunkerStatus,'/bunker_status','bunker')
@@ -331,6 +332,8 @@ class Bridge(Node):
                     sensors_ready=self.fresh('sensor_imu',1.) and self.fresh('sensor_lidar',1.),
                     chassis=self.chassis_status(),goal_result=self.goal_result)
         mission=self.samples.get('mission') if self.fresh('mission',5) else None
+        try:result['global_relocalization']=json.loads(self.samples['global_relocalization'].data) if self.fresh('global_relocalization',60) else None
+        except (ValueError,TypeError):result['global_relocalization']={'state':'INVALID_STATUS'}
         result['mission']=dict(state=int(mission.state),mission_id=mission.mission_id,point_id=mission.point_id,
             point_index=int(mission.point_index),point_count=int(mission.point_count),detail=mission.detail,
             error_code=int(mission.error_code)) if mission else None

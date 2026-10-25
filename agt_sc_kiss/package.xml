@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>agt_sc_kiss</name><version>0.1.0</version>
+  <description>Noncommercial Scan Context + KISS research adapter; uses the existing AGT small_gicp executable.</description>
+  <maintainer email="noreply@example.com">AGT research</maintainer>
+  <license>CC-BY-NC-SA-4.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend><buildtool_depend>ament_cmake_python</buildtool_depend>
+  <build_depend>python3-dev</build_depend><build_depend>pybind11-dev</build_depend><depend>libpcl-all-dev</depend><depend>eigen</depend>
+  <exec_depend>python3-numpy</exec_depend><exec_depend>python3-scipy</exec_depend><exec_depend>python3-yaml</exec_depend>
+  <exec_depend>ament_index_python</exec_depend><exec_depend>rclpy</exec_depend><exec_depend>tf2_ros</exec_depend><exec_depend>ros2run</exec_depend>
+  <exec_depend>agt_global_relocalization_native</exec_depend><exec_depend>agt_batch_lio_adapter</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

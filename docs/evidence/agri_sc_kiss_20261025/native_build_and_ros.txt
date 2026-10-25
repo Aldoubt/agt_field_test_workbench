@@ -1,0 +1,76 @@
+Starting >>> agt_global_relocalization_native
+Starting >>> agt_batch_lio_adapter
+[0.423s] WARNING:colcon.colcon_core.shell:The following packages are in the workspace but haven't been built:
+- agt_robot_interfaces
+They are being used from the following locations instead:
+- /workspace/work/humble-ws/install/agt_robot_interfaces
+To suppress this warning ignore these packages in the workspace:
+--packages-ignore agt_robot_interfaces
+Starting >>> agt_robot_studio
+Finished <<< agt_global_relocalization_native [0.38s]
+Starting >>> agt_localization_manager
+[0.800s] WARNING:colcon.colcon_core.shell:The following packages are in the workspace but haven't been built:
+- agt_robot_interfaces
+They are being used from the following locations instead:
+- /workspace/work/humble-ws/install/agt_robot_interfaces
+To suppress this warning ignore these packages in the workspace:
+--packages-ignore agt_robot_interfaces
+Finished <<< agt_batch_lio_adapter [0.88s]
+Starting >>> agt_global_relocalization
+[1.309s] WARNING:colcon.colcon_core.shell:The following packages are in the workspace but haven't been built:
+- agt_robot_interfaces
+They are being used from the following locations instead:
+- /workspace/work/humble-ws/install/agt_robot_interfaces
+To suppress this warning ignore these packages in the workspace:
+--packages-ignore agt_robot_interfaces
+Finished <<< agt_robot_studio [0.89s]
+Starting >>> agt_sc_kiss
+[1.318s] WARNING:colcon.colcon_core.shell:The following packages are in the workspace but haven't been built:
+- agt_robot_interfaces
+They are being used from the following locations instead:
+- /workspace/work/humble-ws/install/agt_robot_interfaces
+To suppress this warning ignore these packages in the workspace:
+--packages-ignore agt_robot_interfaces
+Finished <<< agt_localization_manager [0.68s]
+Finished <<< agt_sc_kiss [0.44s]
+Finished <<< agt_global_relocalization [0.57s]
+
+Summary: 6 packages finished [1.81s]
+......[INFO] [1792888080.062999251] [agt_localization_manager]: Localization Manager started as the exclusive map->odom owner.
+[INFO] [1792888080.538636093] [agt_global_relocalization]: {"state": "QUERY_READY", "detail": "stationary query is ready", "global_backend": "sc_kiss"}
+[INFO] [1792888080.937397565] [agt_global_relocalization]: Resolved relocalization body->base_link from active LIO T_body_lidar + robot_description livox_frame<- base_link: t=[-0.073189, -0.061637, -0.781709] q=[0.013464472, -0.173864933, 0.019142630, 0.984491368]
+[INFO] [1792888080.940598948] [agt_global_relocalization]: {"state": "SC_KISS_SEARCHING", "detail": "calling 3D relocalization backend", "global_backend": "sc_kiss", "points": 66500, "raw_points": 66500, "query_min_range_m": 0.5, "query_max_range_m": 30.0, "query_voxel_leaf_m": 0.25, "query_frame": "body", "bbs_query_frame_mode": "mapping_body", "assets": false, "backend": "scan_context_kiss_gicp", "map_id": "", "map_version": "", "map_generation": 0}
+[INFO] [1792888081.290297474] [agt_global_relocalization]: {"state": "REJECTED", "detail": "backend returned 2: {\"success\": false, \"message\": \"[Errno 2] No such file or directory: '/tmp/pytest-of-root/pytest-23/test_runtime_manager_sc_kiss_0/missing_database/manifest.json'\", \"backend\": \"sc_kiss\"}\n[ros2run]: Process exited with failure 2", "global_backend": "sc_kiss", "total_elapsed_sec": 0.75184301399986}
+[INFO] [1792888081.296048945] [agt_global_relocalization]: {"state": "COLLECTING", "detail": "collecting stationary PointCloud2 query: 0/5 frames", "global_backend": "sc_kiss", "collected_clouds": 0, "required_clouds": 5, "stationary_odom_topic": "/wheel/odom"}
+[INFO] [1792888081.533536051] [agt_global_relocalization]: {"state": "QUERY_READY", "detail": "stationary query is ready", "global_backend": "sc_kiss"}
+[INFO] [1792888081.834302769] [agt_global_relocalization]: {"state": "SC_KISS_SEARCHING", "detail": "calling 3D relocalization backend", "global_backend": "sc_kiss", "points": 66500, "raw_points": 66500, "query_min_range_m": 0.5, "query_max_range_m": 30.0, "query_voxel_leaf_m": 0.25, "query_frame": "body", "bbs_query_frame_mode": "mapping_body", "assets": false, "backend": "scan_context_kiss_gicp", "map_id": "", "map_version": "", "map_generation": 0}
+[INFO] [1792888082.558241065] [agt_global_relocalization]: {"state": "SC_KISS_COARSE_FOUND", "detail": "coarse pose found", "global_backend": "sc_kiss", "backend": "scan_context_kiss_gicp"}
+[INFO] [1792888082.656983907] [agt_global_relocalization]: {"state": "GICP_REFINING", "detail": "GICP refinement complete; publishing refined pose", "global_backend": "sc_kiss"}
+[INFO] [1792888082.742125477] [agt_localization_manager]: Global correction accepted: position_std=0.160m, yaw_std=3.19deg
+[INFO] [1792888082.753397169] [agt_global_relocalization]: {"state": "SUCCEEDED", "detail": "global base pose published", "global_backend": "sc_kiss", "score": 0.9842128616736514, "fitness": 0.00218842, "overlap": 1.0, "position_std_m": 0.1602616399121266, "yaw_std_deg": 3.189445659916183, "map_id": "", "map_version": "", "map_generation": 0, "query_frame": "body", "bbs_query_frame_mode": "mapping_body", "refined_pose_T_map_query": {"x": 85.0, "y": 9.99999, "z": 0.300058, "qx": -0.03611070477919703, "qy": 0.030303404010609575, "qz": 0.3096260409785371, "qw": 0.9496891256899158}, "published_pose_T_map_base": {"x": 84.94984872308315, "y": 9.839164991722727, "z": -0.46925675382592263, "qx": 0.03164958312721433, "qy": -0.13042399115364348, "qz": 0.328874077558908, "qw": 0.9347886004488959}, "bbs_elapsed_ms": null, "backend": "scan_context_kiss_gicp", "total_elapsed_sec": 1.1897883780002303, "sc_elapsed_sec": 0.12174629999981335, "kiss_elapsed_sec": 0.15610145200025727, "gicp_elapsed_sec": 0.08787989500024196, "kiss_final_inliers": 682, "sc_candidates": [{"name": "000001.pcd", "distance": 0.015787138326348593, "yaw_seed": 0.6188790204786392}], "candidate_patch": "000001.pcd", "descriptor_similarity": 0.9842128616736514, "descriptor_yaw_seed_deg": 35.45915590261647, "bbs_assets_loaded": null, "gicp_target_points": null, "gicp_full_map_fallback": null}
+[WARN] [1792888082.857134566] [agt_localization_manager]: Rejected global pose: global_position_uncertainty_too_large
+[INFO] [1792888082.862376905] [agt_global_relocalization]: {"state": "QUERY_READY", "detail": "stationary query is ready", "global_backend": "sc_kiss"}
+[INFO] [1792888083.195886885] [agt_global_relocalization]: {"state": "SC_KISS_SEARCHING", "detail": "calling 3D relocalization backend", "global_backend": "sc_kiss", "points": 66500, "raw_points": 66500, "query_min_range_m": 0.5, "query_max_range_m": 30.0, "query_voxel_leaf_m": 0.25, "query_frame": "body", "bbs_query_frame_mode": "mapping_body", "assets": false, "backend": "scan_context_kiss_gicp", "map_id": "", "map_version": "", "map_generation": 0}
+[INFO] [1792888083.307112964] [agt_global_relocalization]: {"state": "REJECTED", "detail": "localization stopped or robot moved; backend cancelled", "global_backend": "sc_kiss", "total_elapsed_sec": 0.44549610500007475}
+.RELOCALIZATION ASSETS BUILT
+output=/tmp/pytest-of-root/pytest-23/test_runtime_manager_bbs_0/bbs_assets
+points=12169
+map=/tmp/pytest-of-root/pytest-23/test_runtime_manager_bbs_0/bbs_assets/global_map_downsampled.pcd
+bbs=/tmp/pytest-of-root/pytest-23/test_runtime_manager_bbs_0/bbs_assets/voxelmaps_coords
+RELOCALIZATION CANDIDATES BUILT
+map_dir=/tmp/pytest-of-root/pytest-23/test_runtime_manager_bbs_0/fixture/keyframes
+output=/tmp/pytest-of-root/pytest-23/test_runtime_manager_bbs_0/bbs_assets
+entries=3
+skipped=0
+database=/tmp/pytest-of-root/pytest-23/test_runtime_manager_bbs_0/bbs_assets/polar_context.db
+[INFO] [1792888083.631138901] [agt_localization_manager]: Localization Manager started as the exclusive map->odom owner.
+[INFO] [1792888084.102940039] [agt_global_relocalization]: {"state": "QUERY_READY", "detail": "stationary query is ready", "global_backend": "bbs"}
+[INFO] [1792888084.360358715] [agt_global_relocalization]: Resolved relocalization body->base_link from active LIO T_body_lidar + robot_description livox_frame<- base_link: t=[-0.073189, -0.061637, -0.781709] q=[0.013464472, -0.173864933, 0.019142630, 0.984491368]
+[INFO] [1792888084.362348062] [agt_global_relocalization]: {"state": "BBS_SEARCHING", "detail": "calling 3D relocalization backend", "global_backend": "bbs", "points": 7835, "raw_points": 66500, "query_min_range_m": 0.5, "query_max_range_m": 30.0, "query_voxel_leaf_m": 0.25, "query_frame": "body", "bbs_query_frame_mode": "mapping_body", "assets": true, "backend": "polar_context_bbs_gicp", "map_id": "", "map_version": "", "map_generation": 0}
+[INFO] [1792888087.257219820] [agt_global_relocalization]: {"state": "BBS_COARSE_FOUND", "detail": "coarse pose found", "global_backend": "bbs", "backend": "polar_context_bbs_gicp"}
+[INFO] [1792888087.269457368] [agt_global_relocalization]: {"state": "GICP_REFINING", "detail": "GICP refinement complete; publishing refined pose", "global_backend": "bbs"}
+[INFO] [1792888087.278982048] [agt_global_relocalization]: {"state": "SUCCEEDED", "detail": "global base pose published", "global_backend": "bbs", "score": 0.813743, "fitness": 0.0118949, "overlap": 1.0, "position_std_m": 0.27106705, "yaw_std_deg": 5.2350840000000005, "map_id": "", "map_version": "", "map_generation": 0, "query_frame": "body", "bbs_query_frame_mode": "mapping_body", "refined_pose_T_map_query": {"x": 85.0001, "y": 9.99995, "z": 0.300179, "qx": 4.3821199999413404e-07, "qy": 3.3903799999546156e-06, "qz": 3.8840199999480076e-06, "qw": 0.9999999999866138}, "published_pose_T_map_base": {"x": 84.92690617959053, "y": 9.938313281830565, "z": -0.4815297718231024, "qx": 0.013465643651311584, "qy": -0.1738615508882501, "qz": 0.019146331478264104, "qw": 0.9844918768353108}, "bbs_elapsed_ms": 154.919, "backend": "polar_context_bbs_gicp", "total_elapsed_sec": 3.173822355000084, "sc_elapsed_sec": null, "kiss_elapsed_sec": null, "gicp_elapsed_sec": null, "kiss_final_inliers": null, "sc_candidates": null, "candidate_patch": "000001.pcd", "descriptor_similarity": 0.998745, "descriptor_yaw_seed_deg": -0.540844, "bbs_assets_loaded": null, "gicp_target_points": 3814, "gicp_full_map_fallback": false}
+[INFO] [1792888087.281212057] [agt_localization_manager]: Global correction accepted: position_std=0.271m, yaw_std=5.24deg
+[WARN] [1792888087.434329817] [agt_localization_manager]: Rejected global pose: global_position_uncertainty_too_large
+....
+11 passed in 9.95s
