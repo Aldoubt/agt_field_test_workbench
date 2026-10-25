@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shlex
 import signal
+import sys
 import time
 
 from . import field_trial, field_photo
@@ -25,8 +26,6 @@ def make_mode_plan(args):
     common = ['--config', str(args.config), '--map-id', base['map_id'],
               '--global-backend', base['global_backend']]
     core = ['bash', str(REPO/'scripts/field_trial.sh'), 'start', *common]
-    if not args.no_clock_hold:
-        core.append('--hold-system-clock')
     components = [('navigation_stack', core)]
     if args.mode == 'photo':
         components += [('camera', ['bash', str(REPO/'scripts/field_photo.sh'), 'camera',
@@ -38,12 +37,13 @@ def make_mode_plan(args):
         from ament_index_python.packages import get_package_share_directory
         params = Path(get_package_share_directory('agt_navigation_runtime'))/'config/runtime.yaml'
         components.append(('runtime', ['ros2', 'run', 'agt_navigation_runtime', 'mission_runtime',
-            '--ros-args', '--params-file', str(params), '-p', 'nav_behavior_tree:=',
+            '--ros-args', '--params-file', str(params), '-p', 'nav_behavior_tree:=""',
             '-p', 'recenter_after_capture:=false', '-p', 'record_root:='+str(ROOT/'data/captures/missions')]))
     if not args.no_rviz:
         script = 'field_photo.sh' if args.mode == 'photo' else 'field_trial.sh'
         components.append(('rviz', ['bash', str(REPO/'scripts'/script), 'rviz']))
     return dict(mode=args.mode, map_id=base['map_id'], base=base,
+                hold_system_clock=not args.no_clock_hold, clock_owner='foreground_mode',
                 automatic_relocalization=not args.manual_localization,
                 components=[dict(name=name, command=command) for name,command in components],
                 external_task_trigger='./field_photo start' if args.mode == 'photo' else None)
@@ -251,7 +251,16 @@ class ModeSession:
             process = self.jobs.jobs[ident]['process']
             code = process.poll()
             if code is not None and name != 'rviz':
-                raise ValueError(f'{name} exited ({code}); '+self.jobs.jobs[ident]['record']['log'])
+                log = self.jobs.jobs[ident]['record']['log']
+                tail = ''
+                try:
+                    with Path(log).open('rb') as stream:
+                        stream.seek(0,2)
+                        stream.seek(max(0,stream.tell()-2048))
+                        tail = '\n'.join(stream.read().decode(errors='replace').splitlines()[-8:])
+                except OSError:
+                    pass
+                raise ValueError(f'{name} exited ({code}); {log}'+('\n'+tail if tail else ''))
 
     def close(self):
         errors = []
@@ -282,15 +291,36 @@ def parser():
     return p
 
 
+def foreground_clock_command(argv):
+    # Keep sudo and clock restoration in the operator's controlling terminal.
+    # The component Jobs use setsid and must never ask for a password there.
+    return ['bash',str(REPO/'scripts/hold_field_clock.sh'),
+            'env','AGT_FIELD_MODE_CLOCK_SCOPE=foreground',
+            'bash',str(REPO/'scripts/field_start.sh'),*argv]
+
+
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
     args = parser().parse_args(argv)
     plan = make_mode_plan(args)
     if args.dry_run:
         print(json.dumps(plan,ensure_ascii=False,indent=2))
         for c in plan['components']:
             print(c['name']+': '+shlex.join(c['command']))
+        if not args.no_clock_hold:
+            print('前台时钟保持：'+shlex.join(foreground_clock_command(argv)))
         print('准备过程不发送导航/拍照目标。')
         return 0
+    if not args.no_clock_hold and os.environ.get('AGT_FIELD_MODE_CLOCK_SCOPE') != 'foreground':
+        # Reject an existing split stack before changing any clock service.
+        preflight = Readiness()
+        try:
+            preflight.reject_existing(args.mode)
+        finally:
+            preflight.close()
+        print('在当前终端保持本轮系统时钟；如需密码，请在这里输入。',flush=True)
+        command = foreground_clock_command(argv)
+        os.execvp(command[0],command)
     (ROOT/'work').mkdir(exist_ok=True)
     with (ROOT/'work/field_mode.lock').open('w') as lock:
         try:
@@ -306,7 +336,7 @@ def main(argv=None):
         previous = signal.signal(signal.SIGTERM, interrupted)
         try:
             probe.reject_existing(args.mode)
-            print('组合模式 '+args.mode+'；保持机器人静止。时钟助手可能在本终端请求 sudo 密码。',flush=True)
+            print('组合模式 '+args.mode+'；保持机器人静止。',flush=True)
             session.start('navigation_stack')
             probe.wait(probe.fresh_odom,args.startup_timeout_sec,'等待新鲜本地里程计')
             probe.activate(map_only=True)

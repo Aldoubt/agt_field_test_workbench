@@ -26,14 +26,15 @@ def test_three_modes_compose_existing_entrypoints_without_task_goals(base,mode,e
     args=field_start.parser().parse_args([mode])
     plan=field_start.make_mode_plan(args)
     assert [c['name'] for c in plan['components']]==expected
-    assert '--hold-system-clock' in plan['components'][0]['command']
+    assert plan['hold_system_clock'] and plan['clock_owner']=='foreground_mode'
+    assert '--hold-system-clock' not in plan['components'][0]['command']
     commands=[c['command'] for c in plan['components']]
     assert all('send_goal' not in c and 'start' not in c[2:] for c in commands[1:])
     if mode=='photo':
         assert plan['external_task_trigger']=='./field_photo start'
         assert plan['components'][3]['command'][-2:]==['--map-id','test_map']
     elif mode=='distance':
-        assert 'nav_behavior_tree:=' in commands[1]
+        assert 'nav_behavior_tree:=""' in commands[1]
         assert 'recenter_after_capture:=false' in commands[1]
     else:
         assert not any('mission_runtime' in c for c in commands)

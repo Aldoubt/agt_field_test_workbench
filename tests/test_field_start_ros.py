@@ -120,7 +120,7 @@ def test_composite_startup_uses_real_services_and_keeps_task_trigger_external(tm
             assert [e[1] for e in launched]==['field_session','mode_camera','mode_runtime','mode_queue','mode_rviz']
         if mode=='distance':
             runtime=next(e[2] for e in launched if e[1]=='mode_runtime')
-            assert 'nav_behavior_tree:=' in runtime
+            assert 'nav_behavior_tree:=""' in runtime
     finally:
         executor.shutdown(timeout_sec=3.);spin.join(timeout=3.)
         peer.destroy_node();ctx.try_shutdown()
