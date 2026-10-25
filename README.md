@@ -51,3 +51,5 @@ bash scripts/run_workbench.sh
 保留分终端启动：见 [CLI 导航](docs/cli_rviz_field_trial.md)、[多点云台拍照](docs/rviz_photo_tasks.md)、[距离精度测试](docs/accuracy_and_photo_tasks.md)。`./field_photo start` 仅在操作者明确执行时触发队列任务。
 
 [长距离导航阶段快照与测试边界](docs/evidence/long_distance_navigation_20261025/README.md)。依赖保持锁定，现场修复由 patches/ 中带 SHA 校验的补丁重放。
+
+三个组合入口和独立距离测试工具已提供：`./field_start distance`、`./field_start nav`、`./field_start photo`。原分终端入口保留，拍照模式仍由 `./field_photo start` 触发。详见 [启动模式和距离测试命令](docs/launch_modes.md)。

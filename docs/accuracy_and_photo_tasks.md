@@ -4,7 +4,7 @@
 
 如果直接在地图上选多个点，使用新增的 [RViz 多点拍照入口](rviz_photo_tasks.md)，无需逐点把车辆开过去记录。
 
-新增 `scripts/field_tasks.py` 只读取位姿和生成文件，**不会发送运动或拍照指令**。下面的 `ros2 action send_goal` 才开始实车任务。当前无实车精度/多点拍照结果，不能把文件生成测试当成实车验收。
+`scripts/field_tasks.py` 的 teach/accuracy/photos 只读取位姿或生成文件；新增 run/home 命令才显式发送距离任务。也可以继续用下面的 `ros2 action send_goal`。组合启动入口和短命令见 [启动模式](launch_modes.md)。当前无实车精度/多点拍照结果，不能把文件生成测试当成实车验收。
 
 ## 公共准备
 

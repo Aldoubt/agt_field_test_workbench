@@ -68,3 +68,40 @@ def test_accuracy_cli_produces_fifteen_unscored_physical_measurements(tmp_path):
     assert all(row['nav_result'] == row['measured_x'] == row['measured_y'] == '' for row in rows)
     with pytest.raises(FileExistsError):
         tasks.main(['--points', str(source), 'accuracy', '--output', str(output)])
+
+
+def test_custom_distances_use_fixed_anchor_and_no_photos(tmp_path):
+    source=tmp_path/'points.yaml';source.write_text(yaml.safe_dump(book()))
+    output=tmp_path/'measurements'
+    tasks.main(['--points',str(source),'accuracy','--distances','5','8','12',
+                '--trials','2','--output',str(output)])
+    for distance in [5,8,12]:
+        doc=yaml.safe_load((output/f'accuracy_{distance}m.yaml').read_text())
+        assert doc['points'][1]['pose']['y']==-4.+distance
+        assert all(not point['views'] for point in doc['points'])
+    import csv
+    assert len(list(csv.DictReader((output/'physical_measurements.csv').open())))==6
+
+
+@pytest.mark.parametrize('distances',[['0'],['-1'],['5','5'],['nan']])
+def test_bad_distance_sets_never_create_partial_output(tmp_path,distances):
+    source=tmp_path/'points.yaml';source.write_text(yaml.safe_dump(book()))
+    output=tmp_path/'measurements'
+    with pytest.raises((ValueError,SystemExit)):
+        tasks.main(['--points',str(source),'accuracy','--output',str(output),'--distances',*distances])
+    assert not output.exists()
+
+
+def test_only_explicit_run_and_home_reach_action_submission(monkeypatch,tmp_path):
+    submitted=[]
+    monkeypatch.setattr(tasks,'execute_distance',lambda path:submitted.append(path))
+    tasks.main(['run','8','--directory',str(tmp_path)])
+    tasks.main(['home','--directory',str(tmp_path)])
+    assert submitted==[tmp_path/'accuracy_8m.yaml',tmp_path/'return_home.yaml']
+
+
+def test_distance_cancel_targets_parent_mission_not_nav_child(monkeypatch):
+    commands=[]
+    monkeypatch.setattr(tasks.os,'execvp',lambda name,args:commands.append(args))
+    tasks.main(['cancel'])
+    assert commands==[['ros2','service','call','/agt/task/cancel','std_srvs/srv/Trigger','{}']]

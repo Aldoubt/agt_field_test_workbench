@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Prepare existing inspection missions; never send navigation or camera goals."""
+"""Distance tools: teach/generate only; run/home explicitly submit a prepared mission."""
 import argparse
 import csv
 import json
 import math
+import os
 from pathlib import Path
 import re
 import time
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(os.environ.get('AGT_FIELD_TEST_WS', str(Path(__file__).resolve().parents[3])))
 
 
 def finite(value):
@@ -95,12 +96,16 @@ def point(ident, pose, views=None):
 
 
 def accuracy_mission(data, distance):
+    distance = finite(distance)
+    if distance <= 0:
+        raise ValueError('distance must be positive')
+    label = str(float(distance)).removesuffix('.0')
     home = data['points']['home']['pose']
     yaw = finite(home['yaw'])
     target = dict(x=finite(home['x'])+distance*math.cos(yaw),
                   y=finite(home['y'])+distance*math.sin(yaw), yaw=yaw, frame_id='map')
-    return dict(version=1, mission_id=f'accuracy_{distance}m', map_id=data['map_id'],
-                points=[point('HOME_START', home), point(f'D{distance}m', target)])
+    return dict(version=1, mission_id=f'accuracy_{label}m', map_id=data['map_id'],
+                points=[point('HOME_START', home), point(f'D{label}m', target)])
 
 
 def photo_mission(data, ids):
@@ -116,6 +121,45 @@ def photo_mission(data, ids):
     return dict(version=1, mission_id='photo_route', map_id=data['map_id'], points=points)
 
 
+def execute_distance(path):
+    """Only the explicit run/home commands can submit an Action goal."""
+    from agt_navigation_runtime.mission_schema import load_mission
+    from workbench import field_trial
+    import rclpy
+    from rcl_interfaces.srv import GetParameters
+    from rclpy.parameter import parameter_value_to_python
+    path = Path(path).resolve()
+    mission = load_mission(str(path))
+    if any(point.frame_id != 'map' for point in mission.points):
+        raise ValueError('distance missions must use the map frame')
+    if any(point.views for point in mission.points):
+        raise ValueError('distance missions cannot contain camera views')
+    config = yaml.safe_load((ROOT/'config/field_trial.yaml').read_text())
+    if mission.map_id != config['map_id']:
+        raise ValueError('mission belongs to another map; use the matching field_trial config')
+    rclpy.init(args=[])
+    node = rclpy.create_node('field_distance_submit')
+    try:
+        field_trial.require_navigation_ready(node)
+        client = node.create_client(GetParameters,'/mission_runtime/get_parameters')
+        if not client.wait_for_service(timeout_sec=3.):
+            raise ValueError('先启动 ./field_start distance 或独立精度 mission_runtime')
+        future = client.call_async(GetParameters.Request(names=['nav_behavior_tree']))
+        rclpy.spin_until_future_complete(node,future,timeout_sec=3.)
+        if not future.done() or future.result() is None or not future.result().values:
+            raise ValueError('distance runtime parameter query timed out')
+        tree = parameter_value_to_python(future.result().values[0])
+        if tree != '':
+            raise ValueError('当前为拍照执行器；距离模式需要原精度到达判定')
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+    goal = yaml.safe_dump(dict(mission_file=str(path),resume=False))
+    print('提交距离任务：'+str(path),flush=True)
+    os.execvp('ros2',['ros2','action','send_goal','/agt/mission/execute',
+                     'agt_robot_interfaces/action/ExecuteInspectionMission',goal,'--feedback'])
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--points', type=Path, default=ROOT/'config/field_test_points.yaml')
@@ -127,11 +171,27 @@ def main(argv=None):
         teach.add_argument('--'+angle, type=finite, default=0.)
     accuracy = sub.add_parser('accuracy', help='generate fixed 5/7/10 m targets and a separate return mission')
     accuracy.add_argument('--trials', type=int, default=5)
-    accuracy.add_argument('--output', type=Path, required=True)
+    accuracy.add_argument('--output', type=Path, default=ROOT/'missions/distance')
+    accuracy.add_argument('--distances', type=finite, nargs='+', default=[5.,7.,10.])
     photos = sub.add_parser('photos', help='generate a multi-point AcquireView mission')
     photos.add_argument('ids', nargs='+')
     photos.add_argument('--output', type=Path, required=True)
+    run = sub.add_parser('run', help='explicitly execute one prepared distance mission')
+    run.add_argument('distance', type=finite)
+    run.add_argument('--directory',type=Path,default=ROOT/'missions/distance')
+    home = sub.add_parser('home', help='explicitly execute the prepared return-home mission')
+    home.add_argument('--directory',type=Path,default=ROOT/'missions/distance')
+    sub.add_parser('cancel',help='request parent mission cancellation')
     args = parser.parse_args(argv)
+    if args.command == 'cancel':
+        return os.execvp('ros2',['ros2','service','call','/agt/task/cancel','std_srvs/srv/Trigger','{}'])
+    if args.command in ('run','home'):
+        if args.command == 'run' and args.distance <= 0:
+            raise ValueError('distance must be positive')
+        filename = ('return_home.yaml' if args.command == 'home' else
+                    'accuracy_'+str(float(args.distance)).removesuffix('.0')+'m.yaml')
+        return execute_distance(args.directory/filename)
+
     if args.command == 'teach':
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}', args.id):
             raise ValueError('use a short point ID such as home or P01')
@@ -155,6 +215,8 @@ def main(argv=None):
     elif args.command == 'accuracy':
         if not 1 <= args.trials <= 20:
             raise ValueError('trials must be between 1 and 20')
+        if not args.distances or any(d <= 0 for d in args.distances) or len(set(args.distances)) != len(args.distances):
+            raise ValueError('distances must be positive and unique')
         data = load_points(args.points)
         if 'home' not in data['points']:
             raise ValueError('teach home before generating accuracy missions')
@@ -165,9 +227,10 @@ def main(argv=None):
                       'nav_result', 'truth_source', 'evidence', 'notes']
             writer = csv.DictWriter(stream, fieldnames=fields)
             writer.writeheader()
-            for distance in (5, 7, 10):
+            for distance in args.distances:
+                label = str(float(distance)).removesuffix('.0')
                 mission = accuracy_mission(data, distance)
-                save_new(args.output/f'accuracy_{distance}m.yaml', mission)
+                save_new(args.output/f'accuracy_{label}m.yaml', mission)
                 target = mission['points'][1]['pose']
                 for trial in range(1, args.trials+1):
                     writer.writerow(dict(distance_m=distance, trial=trial,
