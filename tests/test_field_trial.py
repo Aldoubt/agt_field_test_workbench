@@ -103,6 +103,14 @@ def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypa
     assert tree['velocity_smoother']['ros__parameters']['max_velocity'] == [plan['limits']['forward_mps'], 0., plan['limits']['angular_radps']]
     assert tree['local_costmap']['local_costmap']['ros__parameters']['update_frequency'] == 20.
     assert tree['local_costmap']['local_costmap']['ros__parameters']['publish_frequency'] == 10.
+    local=tree['local_costmap']['local_costmap']['ros__parameters']
+    assert local['plugins']==['obstacle_layer','inflation_layer']
+    assert local['obstacle_layer']['plugin']=='nav2_costmap_2d::ObstacleLayer'
+    assert local['obstacle_layer']['min_obstacle_height']==-3.
+    assert local['inflation_layer']['inflation_radius']==.65
+    assert tree['global_costmap']['global_costmap']['ros__parameters']['inflation_layer']['inflation_radius']==.8
+    assert local['inflation_layer']['cost_scaling_factor']==tree['controller_server']['ros__parameters']['FollowPath']['inflation_cost_scaling_factor']==3.
+    assert tree['controller_server']['ros__parameters']['FollowPath']['cost_scaling_dist']<=local['inflation_layer']['inflation_radius']
     assert tree['agt_pointcloud_preprocessor']['ros__parameters']['self_filter']['extra_boxes'] == [
         -.36,.02,-.17,.19,.72,1.68, -.95,-.60,-.12,.31,.82,1.00]
     assert Path(plan['inputs']['calibration_bundle']).read_bytes() == before
