@@ -1,7 +1,7 @@
 diff --git a/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml b/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml
 --- a/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml
 +++ b/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml
-@@ -65,15 +65,15 @@
+@@ -65,18 +65,18 @@
        ros2 run agt_global_relocalization_native candidate_bbs_gicp_localizer
        --map {global_map} --scan {scan_pcd} {assets_arg}
        --timeout {timeout_sec}
@@ -23,7 +23,7 @@ diff --git a/navigation/localization/agt_global_relocalization/config/global_rel
        --local-map-radius-xy {local_map_radius_xy}
        --local-map-half-height {local_map_half_height}
        --min-local-map-points {min_local_map_points}
-@@ -95,7 +95,7 @@
+@@ -94,5 +94,5 @@
      backend_local_map_radius_xy: 35.0
      backend_local_map_half_height: 8.0
      backend_min_local_map_points: 800
