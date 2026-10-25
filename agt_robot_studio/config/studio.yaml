@@ -39,10 +39,11 @@ projection:
   obstacle_min_height: 0.12
   obstacle_max_height: 1.8
   occupied_threshold: 2
-# Coarse global relocalization backend; both use small_gicp refinement.
-# KISS additionally requires its locked native build and replay/field acceptance.
-global_backend: bbs
-sc_database: ''  # immutable Scan Context DB; required only for sc_kiss
+# Qt defaults to Scan Context -> KISS-Matcher -> small_gicp. Real-bag acceptance remains NOT_RUN.
+# Empty DB path auto-selects the SC database generated for the selected map.
+global_backend: sc_kiss
+global_backend_default_version: 1
+sc_database: ''  # optional explicit override; otherwise selected-map asset is used
 # Mutually exclusive local odometry frontend; both publish base_link odometry.
 lio_backend: fastlio2  # prefer Bunker FAST-LIO2; batch_lio is optional
 # FAST-LIO2 without PGO is the current Bunker baseline. GLIM remains experimental

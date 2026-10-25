@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from workbench.session import Sessions
+from workbench.session import Sessions, localization_matches_navigation_map
 
 
 class SessionStartupTests(unittest.TestCase):
@@ -49,3 +49,18 @@ class SessionStartupTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_navigation_reuses_localization_across_grid_only_revision():
+    current={'task':'localization','robot':'bunker','localization_pcd_sha256':'pcd-sha',
+             'global_backend':'sc_kiss','sc_database':'/assets/sc_db','lio_backend':'fastlio2'}
+    revised_grid={'id':'new-grid-version','sha256':'new-pgm-sha','source_pcd_sha256':'pcd-sha'}
+    assert localization_matches_navigation_map(
+        current,'bunker',revised_grid,'sc_kiss','/assets/sc_db','fastlio2')
+    assert not localization_matches_navigation_map(
+        current,'bunker',dict(revised_grid,source_pcd_sha256='different-pcd'),
+        'sc_kiss','/assets/sc_db','fastlio2')
+    assert not localization_matches_navigation_map(
+        current,'bunker',revised_grid,'bbs','/assets/sc_db','fastlio2')
+    assert not localization_matches_navigation_map(
+        current,'bunker',revised_grid,'sc_kiss','/assets/other_db','fastlio2')

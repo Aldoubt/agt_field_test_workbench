@@ -321,7 +321,7 @@ class StudioSmoke(unittest.TestCase):
         self.assertLessEqual(window.height(), available.height())
         self.assertLessEqual(window.minimumWidth(), available.width())
         self.assertLessEqual(window.minimumHeight(), available.height())
-        self.assertEqual(window.global_backend_box.currentData(), 'bbs')
+        self.assertEqual(window.global_backend_box.currentData(), 'sc_kiss')
 
     def test_device_recording_and_stop_all_buttons_use_managed_backend(self):
         window = self.window()

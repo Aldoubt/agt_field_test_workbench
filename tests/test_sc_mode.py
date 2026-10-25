@@ -1,24 +1,40 @@
 """Optional experiment routing/provenance tests; do not need SC or KISS installed."""
+import base64
+import hashlib
 import json
 from pathlib import Path
 import subprocess
 import pytest
-from workbench.maps import Maps,hash_file
+from workbench.maps import Maps,hash_file,read_pgm
 from workbench.relocalization import validate_sc_database
 from test_map_diff import make_map
 
 REPO=Path(__file__).resolve().parents[1]
 
 
-def test_sc_database_bound_to_exact_map_and_grid(tmp_path):
-    m=make_map(Maps(tmp_path),tmp_path,'source',[254]*6,'DRAFT')
+def test_sc_database_bound_to_pcd_and_geometry_not_grid_pixels(tmp_path):
+    maps=Maps(tmp_path)
+    m=make_map(maps,tmp_path,'source',[254]*6,'DRAFT')
     directory=tmp_path/'sc';directory.mkdir();data=directory/'descriptors.npz';data.write_bytes(b'opaque descriptor fixture')
-    manifest=dict(algorithm='scancontext',map_sha256=m['source_pcd_sha256'],navigation_yaml_sha256=hash_file(Path(m['yaml'])),
-        navigation_pgm_sha256=m['sha256'],descriptors_sha256=hash_file(data))
+    manifest=dict(algorithm='scancontext',map_sha256=m['source_pcd_sha256'],
+        navigation_yaml=str(Path(m['yaml'])),navigation_yaml_sha256=hash_file(Path(m['yaml'])),
+        navigation_pgm_sha256=hash_file(Path(m['pgm'])),descriptors_sha256=hash_file(data))
+    manifest['metadata_sha256']=hashlib.sha256(json.dumps(manifest,sort_keys=True,allow_nan=False).encode()).hexdigest()
     (directory/'manifest.json').write_text(json.dumps(manifest))
     assert validate_sc_database(str(directory),m)==str(directory)
+    _,_,old_pixels=read_pgm(Path(m['pgm']))
+    edited_pixels=bytearray(old_pixels);edited_pixels[1]=0
+    edited=maps.revise(m['id'],base64.b64encode(bytes(edited_pixels)).decode('ascii'),status='DRAFT')
+    assert edited['sha256']!=m['sha256']
+    assert edited['source_pcd_sha256']==m['source_pcd_sha256']
+    assert validate_sc_database(str(directory),edited)==str(directory)
     changed=dict(m,source_pcd_sha256='wrong')
     with pytest.raises(ValueError,match='identity'):validate_sc_database(str(directory),changed)
+    shifted=maps._save(m['width'],m['height'],old_pixels,
+        {'resolution':m['resolution'],'origin':[m['origin'][0]+1.,m['origin'][1],m['origin'][2]],
+         'negate':0,'occupied_thresh':.65,'free_thresh':.196},
+        {'name':'shifted','source_pcd':m['source_pcd'],'source_pcd_sha256':m['source_pcd_sha256']},status='DRAFT')
+    with pytest.raises(ValueError,match='geometry'):validate_sc_database(str(directory),shifted)
     data.write_bytes(b'changed')
     with pytest.raises(ValueError,match='SHA'):validate_sc_database(str(directory),m)
 

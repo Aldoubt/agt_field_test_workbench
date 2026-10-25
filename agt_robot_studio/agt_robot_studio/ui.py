@@ -31,7 +31,7 @@ DEFAULT_CONFIG = {
     'auto_start_workbench':True, 'calibration_bundle':'', 'mount_profile':'',
     'geometry_file':'', 'livox_config':'', 'safety_report':'', 'session_checks':{},
     'record_template':'full_field_test', 'record_topics':[],
-    'global_backend':'bbs', 'sc_database':'', 'lio_backend':'fastlio2', 'mapping_backend':'fastlio',
+    'global_backend':'sc_kiss', 'global_backend_default_version':1, 'sc_database':'', 'lio_backend':'fastlio2', 'mapping_backend':'fastlio',
     'save_mapping_data':True, 'enable_camera_gimbal':True,
     'camera_device_path':'/dev/video0',
     'gimbal_port_name':'/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0',
@@ -461,7 +461,8 @@ class Studio(QMainWindow):
         self.camera_health_seen=0.;self.camera_health_pending=False
         self.components_in_flight=False
         self.pending_mapping_start=False
-        self.routes_by_id={};self.route_points=[];self.current_route_id=None
+        self.routes_by_id={};self.route_points=[];self.current_route_id=None;self.current_route_parent_id=None
+        self.auto_sc_database=''
         self.setWindowTitle('AGT Robot Studio  ·  ROS 2 Humble')
         self.ui_scale,self.sidebar_width=fit_to_screen(self)
         root=QWidget();root.setObjectName('root');self.setCentralWidget(root)
@@ -823,10 +824,10 @@ class Studio(QMainWindow):
         row=QHBoxLayout();c.addLayout(row)
         row.addWidget(text_label('里程计后端'));row.addWidget(self.lio_backend_box,1)
         self.global_backend_box=QComboBox()
-        self.global_backend_box.addItem('3D-BBS + GICP','bbs')
-        self.global_backend_box.addItem('Scan Context + KISS-Matcher + GICP（实验）','sc_kiss')
-        self.global_backend_box.setCurrentIndex(max(0,self.global_backend_box.findData(self.cfg.get('global_backend','bbs'))))
-        self.global_backend_box.setToolTip('每次只使用一个粗定位后端；精化均为 GICP')
+        self.global_backend_box.addItem('Scan Context + KISS-Matcher + GICP（默认）','sc_kiss')
+        self.global_backend_box.addItem('3D-BBS + GICP（备用）','bbs')
+        self.global_backend_box.setCurrentIndex(max(0,self.global_backend_box.findData(self.cfg.get('global_backend','sc_kiss'))))
+        self.global_backend_box.setToolTip('默认 Scan Context → KISS → small_gicp；BBS 保留为显式备用，不会在 SC 失败时静默切换。')
         row=QHBoxLayout();c.addLayout(row)
         row.addWidget(text_label('重定位后端'));row.addWidget(self.global_backend_box,1)
         row=QHBoxLayout();c.addLayout(row)
@@ -945,11 +946,11 @@ class Studio(QMainWindow):
         form.addRow('视频设备',self.camera_device_edit);form.addRow('云台串口',self.gimbal_port_edit)
         research=card(body,'农科院重定位实验')
         self.sc_database_edit=QLineEdit(str(self.cfg.get('sc_database','')))
-        self.sc_database_edit.setPlaceholderText('独立 Scan Context 数据库目录，含 manifest.json；BBS 不使用')
+        self.sc_database_edit.setPlaceholderText('留空：自动使用所选地图生成的 SC 数据库；也可指定含 manifest.json 的目录')
         research.addWidget(self.sc_database_edit)
-        assets=card(body,'重定位后端与地图资产（当前原生实现）')
-        assets.addWidget(text_label('3D-BBS + GICP：有候选资产时加载 polar_context.db 与 voxelmaps_coords。AGT Polar Context 先以 ring key 从全库预筛选 40 个，再做 sector 相似度／位移排序，取 candidate_top_k = 2 个执行局部 BBS，最后 small_gicp GICP 精化；无数据库的旧地图走整图 BBS 回退。'))
-        assets.addWidget(text_label('Scan Context + KISS-Matcher + GICP：从独立 SC 数据库检索 Top-K 位置与航向，KISS 匹配候选局部地图，再调用原 small_gicp 精化。数据库必须与选定 PCD、导航地图及 LIO 标定一致；失败后停止定位并手动切回 BBS。'))
+        assets=card(body,'重定位资产与后端选择')
+        assets.addWidget(text_label('默认 Scan Context → KISS-Matcher → small_gicp：数据库绑定同源三维 PCD、预处理/LIO 标定与地图坐标几何；二维 PGM 像素编辑不会使描述子失效。SC 数据库缺失或身份不匹配时明确拒绝，不静默退回慢速 BBS。'))
+        assets.addWidget(text_label('备用 3D-BBS + GICP：优先使用同源 Polar Context 候选子图与 voxelmaps_coords；工作台要求候选索引，缺失时拒绝启动，避免整图 BBS 超时。地图生成会尝试同时构建 SC 描述子和 BBS 候选资产。'))
         row=QHBoxLayout();body.addLayout(row)
         save=button('保存参数','primary');save.clicked.connect(self.save_parameters);row.addWidget(save)
         self.parameter_status=text_label('保存到用户配置：'+str(USER_CONFIG));row.addWidget(self.parameter_status,1)
@@ -1344,12 +1345,13 @@ class Studio(QMainWindow):
             self.refresh_library();self._load_map(value)
             message=f"版本：{value['id']}\n状态：{value['status']}\n电子围栏：{len(value.get('keepout_polygons_px',[]))} 个（已烘焙进 PGM）"
             if value['status']=='ACCEPTED':
-                message+='\n\n这是新地图版本和新 SHA-256。正式导航仍需与该 SHA 匹配的 PHYSICAL_NAVIGATION 报告；旧路线不会自动跨版本执行。'
+                message+='\n\n二维栅格已保存为新版本；同源三维 PCD、SC/BBS 定位资产保持不变。若只是像素编辑且 PCD/地图坐标几何/标定未变，可沿用原物理报告；旧路线仍须在新地图上重新校验并保存。'
             QMessageBox.information(self,'地图已保存',message);return
         if name=='map_import':
             self.current_map_id=value['id'];self.refresh_library();self._load_map(value);return
         if name=='route_save':
-            self.current_route_id=value['id'];self.write_log('路线与拍照任务已保存：'+value['id'])
+            self.current_route_id=value['id'];self.current_route_parent_id=value['id']
+            self.write_log('路线与拍照任务已保存：'+value['id'])
             self.refresh_library();return
         if name=='route_run':
             self.write_log('航点任务已提交；拍照由 V3 mission_runtime 顺序执行');self.refresh_live();return
@@ -1504,6 +1506,10 @@ class Studio(QMainWindow):
             p['global_backend']=self.global_backend_box.currentData()
             if p['global_backend']=='sc_kiss':
                 value=self.sc_database_edit.text().strip()
+                record=self.maps_by_id.get(map_id,{}) if map_id else {}
+                auto_db=record.get('sc_database','')
+                if auto_db and (not value or value==getattr(self,'auto_sc_database','')):
+                    value=auto_db
                 p['sc_database']=str(Path(value).expanduser().resolve()) if value else ''
             p['lio_backend']=self.lio_backend_box.currentData()
         if task=='navigation':
@@ -1530,7 +1536,23 @@ class Studio(QMainWindow):
     def start_field_session(self,task):
         map_id=self.nav_map_box.currentData()
         if not map_id:QMessageBox.warning(self,'缺少地图','请先在地图页生成并选择带三维 PCD 的地图版本。');return
-        if map_id in self.maps_by_id:self._load_map(self.maps_by_id[map_id])
+        manifest=self.maps_by_id.get(map_id,{})
+        if task=='navigation':
+            if manifest.get('status')!='ACCEPTED':
+                QMessageBox.warning(self,'导航地图未验收','先在地图页点击“保存为导航地图”，确认二维栅格与禁行区。');return
+            if not manifest.get('source_pcd') or manifest.get('localization_geometry_valid') is False:
+                QMessageBox.warning(self,'缺少有效定位地图','当前二维地图没有可验证的同源三维 PCD。请从原地图重新编辑/导出，不要仅导入独立 PGM。');return
+            if self.global_backend_box.currentData()=='sc_kiss':
+                db=manifest.get('sc_database') or self.sc_database_edit.text().strip()
+                if not db:
+                    QMessageBox.warning(self,'缺少 Scan Context 数据库',
+                        '当前地图尚未生成有效 SC 数据库。请用包含 frames.csv、trajectory.csv、points.raw 的建图产物重新生成定位资产，或在参数页指定同源数据库；系统不会静默切换到可能超时的 BBS。');return
+            elif self.global_backend_box.currentData()=='bbs':
+                assets=manifest.get('relocalization_assets','')
+                if not assets or not (Path(assets)/'polar_context.db').is_file():
+                    QMessageBox.warning(self,'缺少 BBS 候选索引',
+                        '当前地图没有同源 Polar Context 候选子图索引。请从带关键帧的建图产物重新生成定位资产；为避免整图 BBS 超时，工作台不会启动慢速回退。');return
+        if map_id in self.maps_by_id:self._load_map(manifest)
         self.current_map_id=map_id
         self._start_session(task,map_id)
 
@@ -1597,7 +1619,8 @@ class Studio(QMainWindow):
         self._api('goal','POST','/api/control/goal',{'robot':self._robot(),'map_id':map_id,'pose':point})
 
     def clear_route(self):
-        self.route_points=[];self.current_route_id=None;self.nav_view.set_waypoints([])
+        self.route_points=[];self.current_route_id=None;self.current_route_parent_id=None
+        self.nav_view.set_waypoints([])
         self.mission_label.setText('航点已清空。')
 
     def save_route(self):
@@ -1605,21 +1628,36 @@ class Studio(QMainWindow):
         if not map_id or not self.route_points:
             QMessageBox.warning(self,'缺少路线','请先选择地图并添加至少一个航点。');return
         self._api('route_save','POST','/api/routes',{'map_id':map_id,'points':self.route_points,
-                  'name':f'Studio {len(self.route_points)} 点路线','parent':self.current_route_id})
+                  'name':f'Studio {len(self.route_points)} 点路线','parent':self.current_route_parent_id or self.current_route_id})
 
     def load_route(self):
         route=self.routes_by_id.get(self.route_box.currentData())
         if not route:return
-        self.current_route_id=route['id'];self.route_points=[dict(p) for p in route['points']]
+        selected_map_id=self.nav_map_box.currentData()
+        if selected_map_id and selected_map_id!=route['map_id']:
+            answer=QMessageBox.question(self,'路线绑定旧地图',
+                '这条路线属于另一个地图版本。是否把航点载入当前地图作为新路线草稿？保存时会重新检查航点是否落在已知自由栅格中。\n'
+                '选择“否”将取消；如需执行旧路线，请先手动切回它绑定的地图版本。',
+                QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
+            if answer!=QMessageBox.Yes:return
+            self.current_route_id=None
+            self.current_route_parent_id=route['id']
+        else:
+            self.current_route_id=route['id'];self.current_route_parent_id=route['id']
+            index=self.nav_map_box.findData(route['map_id'])
+            if index>=0 and selected_map_id!=route['map_id']:
+                self.nav_map_box.setCurrentIndex(index);self.select_navigation_map()
+        self.route_points=[dict(p) for p in route['points']]
         self.target_mode_box.setCurrentIndex(self.target_mode_box.findData('route'))
-        index=self.nav_map_box.findData(route['map_id'])
-        if index>=0:self.nav_map_box.setCurrentIndex(index);self.select_navigation_map()
         self.nav_view.set_waypoints(self.route_points)
-        self.mission_label.setText(f"已加载 {len(self.route_points)} 个航点；地图版本必须与路线绑定版本一致。")
+        self.mission_label.setText(f"已加载 {len(self.route_points)} 个航点；旧地图路线已作为草稿时，必须保存新版本后执行。")
 
     def run_route(self):
         if not self.current_route_id:
-            QMessageBox.warning(self,'请先保存路线','保存会固定地图与航点版本，然后再执行任务。');return
+            QMessageBox.warning(self,'请先保存路线','当前航点是新地图草稿或尚未保存；请先保存路线以固定当前地图版本。');return
+        route=self.routes_by_id.get(self.current_route_id,{})
+        if route.get('map_id') and route.get('map_id')!=self.nav_map_box.currentData():
+            QMessageBox.warning(self,'路线地图版本不匹配','该路线绑定旧地图版本。请加载为草稿、重新保存并检查航点后再执行。');return
         self._api('route_run','POST','/api/control/route',{'robot':self._robot(),
                   'map_id':self.nav_map_box.currentData(),'route_id':self.current_route_id})
 
@@ -1640,6 +1678,7 @@ class Studio(QMainWindow):
                 raise ValueError('相对地面障碍高度下限必须小于上限')
             self.cfg.update(topics)
             self.cfg.update(record_topics=record_topics,projection=projection,
+                global_backend_default_version=1,
                 record_template=self.record_template_box.currentText(),
                 glim_config_path=self.glim_config_edit.text().strip(),
                 bag_root=self.bag_root_edit.text().strip() or '~/agt_studio_runs',
@@ -1856,7 +1895,15 @@ class Studio(QMainWindow):
 
     def select_navigation_map(self):
         manifest=self.maps_by_id.get(self.nav_map_box.currentData())
-        if manifest:self._load_map(manifest)
+        if manifest:
+            self._load_map(manifest)
+            if hasattr(self,'sc_database_edit'):
+                current=self.sc_database_edit.text().strip()
+                auto=getattr(self,'auto_sc_database','')
+                selected=manifest.get('sc_database','')
+                if not current or current==auto:
+                    self.sc_database_edit.setText(selected)
+                    self.auto_sc_database=selected
 
     def import_pgm(self):
         path,_=QFileDialog.getOpenFileName(self,'导入二维 PGM（旁边必须有 YAML）',str(Path.home()),'PGM (*.pgm)',options=QFileDialog.DontUseNativeDialog)
@@ -1985,6 +2032,11 @@ def main():
     if USER_CONFIG.is_file():
         saved=yaml.safe_load(USER_CONFIG.read_text(encoding='utf8'))
         if not isinstance(saved,dict):parser.error('user config YAML should be a mapping')
+        # Migrate the previous implicit BBS default once. An explicit BBS choice
+        # saved after this version is retained.
+        if saved.get('global_backend')=='bbs' and int(saved.get('global_backend_default_version',0) or 0)<1:
+            saved['global_backend']='sc_kiss'
+            saved['global_backend_default_version']=1
         cfg.update(saved)
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling,True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps,True)

@@ -1,9 +1,10 @@
 """Conservative map version diff and immutable update candidate tests."""
 from pathlib import Path
+import base64
 import json
 import pytest
 
-from workbench.maps import Maps, hash_file
+from workbench.maps import Maps, hash_file, read_pgm
 
 
 def make_map(maps, root, name, pixels, status, origin=(0.,0.,0.), resolution=1.0):
@@ -61,3 +62,43 @@ def test_map_diff_requires_source_pcd_hash_unchanged(tmp_path):
     Path(candidate['source_pcd']).write_text('tampered')
     with pytest.raises(ValueError,match='SHA-256 changed'):
         maps.compare_and_propose(base['id'],candidate['id'])
+
+
+def test_manual_grid_edit_keeps_same_source_pcd_and_relocalization_assets(tmp_path):
+    maps=Maps(tmp_path)
+    original=make_map(maps,tmp_path,'editable',[0,254,205,0,254,205],'ACCEPTED')
+    assets=Path(original['source_pcd']).parent/'relocalization'
+    (assets/'voxelmaps_coords').mkdir(parents=True)
+    (assets/'global_map_downsampled.pcd').write_bytes(b'valid same-source BBS asset')
+    (assets/'asset_status.json').write_text(json.dumps({
+        'state':'READY','bbs':'READY','source_sha256':original['source_pcd_sha256']}))
+    _,_,old_pixels=read_pgm(Path(original['pgm']))
+    pixels=bytearray(old_pixels);pixels[1]=0
+    revised=maps.revise(original['id'],base64.b64encode(bytes(pixels)).decode('ascii'),status='ACCEPTED')
+    assert revised['id']!=original['id']
+    assert revised['sha256']!=original['sha256']
+    assert revised['source_pcd']==original['source_pcd']
+    assert revised['source_pcd_sha256']==original['source_pcd_sha256']
+    assert revised['localization_geometry_valid'] is True
+    assert revised['navigation_grid_edited'] is True
+    from workbench.maps import relocalization_assets
+    assert relocalization_assets(revised)==str(assets)
+    assert maps.get(original['id'])['sha256']==original['sha256']
+
+
+def test_legacy_grid_only_invalidation_can_restore_unchanged_pcd(tmp_path):
+    maps=Maps(tmp_path)
+    original=make_map(maps,tmp_path,'legacy-edit',[0,254,205,0,254,205],'DRAFT')
+    manifest_path=Path(tmp_path/'maps'/'versions'/original['id']/'manifest.json')
+    legacy=dict(original,source_pcd=None,source_pcd_sha256=None,
+        localization_geometry_valid=False,
+        invalidated_source_pcd=original['source_pcd'],
+        invalidated_source_pcd_sha256=original['source_pcd_sha256'],
+        asset_invalidation_reason='Grid edited independently of PCD; rebuild from a matching PCD before localization')
+    manifest_path.write_text(json.dumps(legacy))
+    _,_,old_pixels=read_pgm(Path(original['pgm']))
+    pixels=bytearray(old_pixels);pixels[1]=0
+    revised=maps.revise(original['id'],base64.b64encode(bytes(pixels)).decode('ascii'),status='ACCEPTED')
+    assert revised['source_pcd']==original['source_pcd']
+    assert revised['source_pcd_sha256']==original['source_pcd_sha256']
+    assert revised['localization_geometry_valid'] is True
