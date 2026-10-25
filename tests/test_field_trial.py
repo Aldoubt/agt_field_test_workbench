@@ -45,10 +45,10 @@ def test_freeze_preserves_calibration_and_rejects_mid_startup_changes(tmp_path):
         field_trial.snapshot_plan(tmp_path, plan)
 
 
-@pytest.mark.parametrize('backend', ['sc_kiss', 'bbs'])
-def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypatch, tmp_path, backend):
+@pytest.mark.parametrize('backend,planning_profile', [('sc_kiss','navigation'),('bbs','navigation'),('bbs','distance')])
+def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypatch, tmp_path, backend,planning_profile):
     # Uses current map/SC files read-only, and constructs launch actions without executing them.
-    plan = field_trial.make_plan(ROOT, ROOT/'config/field_trial.yaml', global_backend=backend)
+    plan = field_trial.make_plan(ROOT, ROOT/'config/field_trial.yaml', global_backend=backend,planning_profile=planning_profile)
     assert plan['calibration_status'] == 'CANDIDATE'
     before = Path(plan['inputs']['calibration_bundle']).read_bytes()
     module_path = REPO/'agt_field_test_bringup/launch/field_test.launch.py'
@@ -83,6 +83,16 @@ def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypa
     nav = next(args for package, filename, args in includes if filename == 'navigation.launch.py')
     assert nav['autostart'] == 'false'
     tree = yaml.safe_load(Path(nav['runtime_params_file']).read_text())
+    planner=tree['planner_server']['ros__parameters']['GridBased']
+    assert planner['allow_unknown'] is False
+    assert planner['cost_travel_multiplier']==3.
+    if planning_profile=='distance':
+        assert planner['smoother']==dict(w_data=0.,max_iterations=100000)
+        inflation=tree['global_costmap']['global_costmap']['ros__parameters']['inflation_layer']
+        assert inflation['inflate_around_unknown'] and inflation['inflate_unknown']
+    else:
+        assert 'smoother' not in planner
+        assert 'inflate_around_unknown' not in tree['global_costmap']['global_costmap']['ros__parameters']['inflation_layer']
     guard = tree['agt_cmd_vel_guard']['ros__parameters']
     assert guard['require_localization_status'] is True
     assert guard['require_chassis_feedback'] is True

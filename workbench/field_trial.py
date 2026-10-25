@@ -19,9 +19,11 @@ from .relocalization import validate_sc_database
 from .runtime import REPO, ROOT, TEMPLATES
 
 
-def make_plan(root, config_path, map_id=None, global_backend=None):
+def make_plan(root, config_path, map_id=None, global_backend=None, planning_profile='navigation'):
     """Validate selected inputs without starting ROS nodes or changing acceptance."""
     root = Path(root).resolve()
+    if planning_profile not in ('navigation','distance'):
+        raise ValueError('invalid planning profile')
     cfg = yaml.safe_load(Path(config_path).read_text())
     resolve = lambda value: (root/Path(value).expanduser()).resolve()
     selected_map = Maps(root).get(map_id or cfg['map_id'])
@@ -55,7 +57,7 @@ def make_plan(root, config_path, map_id=None, global_backend=None):
     else:
         raise ValueError('global_backend must be bbs or sc_kiss')
     args = ['robot:=bunker', 'navigation_mode:=field_test', 'supervised:=true',
-            'navigation_autostart:=false',
+            'navigation_autostart:=false', 'planning_profile:='+planning_profile,
             'enable_mid360:=true', 'enable_chassis:=true', 'enable_description:=true',
             'enable_localization:=true', 'enable_navigation:=true', 'enable_guard:=true',
             'enable_inspection:=false', 'enable_camera_gimbal:=false',
@@ -64,6 +66,7 @@ def make_plan(root, config_path, map_id=None, global_backend=None):
             'robot_profile_file:='+str(profile_path), 'calibration_bundle:='+str(cal_path),
             'livox_config:='+str(livox_path)]
     return dict(mode='field_test', global_backend=backend, relocalization_strategy=strategy,
+        planning_profile=planning_profile,
         map_id=selected_map['id'], map_name=selected_map.get('name'),
         map_size_m=[round(selected_map[key]*selected_map['resolution'], 2) for key in ('width', 'height')],
         calibration_status=bundle['status'], calibration_sha256=calibration.digest(bundle),
@@ -359,6 +362,8 @@ def main(argv=None):
     parser.add_argument('--config', type=Path, default=ROOT/'config/field_trial.yaml')
     parser.add_argument('--map-id', help='显式覆盖配置中的地图版本')
     parser.add_argument('--global-backend', choices=('sc_kiss', 'bbs'), help='启动时显式选择全局匹配后端')
+    parser.add_argument('--planning-profile', choices=('navigation','distance'), default='navigation',
+                        help='distance 用于空地距离测试的路径平滑配置')
     parser.add_argument('--hold-system-clock', action='store_true',
                         help='start 时暂时停止已同步的 systemd-timesyncd，退出后恢复，避免现场时钟跳变')
     parser.add_argument('--timeout-sec', type=float, help='relocalize 请求的匹配计算预算（秒），不改变数据时效门禁')
@@ -385,7 +390,7 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get('polar_context') == 'READY' else 1
     elif args.command in ('start', 'check'):
-        plan = make_plan(ROOT, args.config, args.map_id, args.global_backend)
+        plan = make_plan(ROOT, args.config, args.map_id, args.global_backend,args.planning_profile)
         command = ['bash', str(REPO/'scripts/run_field_test.sh'), *plan['launch_args']]
         if args.command == 'check' or args.dry_run:
             if args.hold_system_clock:

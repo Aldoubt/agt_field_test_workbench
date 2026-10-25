@@ -29,6 +29,7 @@ def test_three_modes_compose_existing_entrypoints_without_task_goals(base,mode,e
     assert plan['hold_system_clock'] and plan['clock_owner']=='foreground_mode'
     assert '--hold-system-clock' not in plan['components'][0]['command']
     commands=[c['command'] for c in plan['components']]
+    assert commands[0][-2:]==['--planning-profile','distance' if mode=='distance' else 'navigation']
     assert all('send_goal' not in c and 'start' not in c[2:] for c in commands[1:])
     if mode=='photo':
         assert plan['external_task_trigger']=='./field_photo start'

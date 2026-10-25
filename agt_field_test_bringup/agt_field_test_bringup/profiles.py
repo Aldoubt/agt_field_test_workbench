@@ -64,7 +64,9 @@ def guard(p, navigation=False):
         command_timeout_sec=p['command_timeout_sec'], publish_rate_hz=float(p['control_hz']))
 
 
-def navigation(p, config_dir, output):
+def navigation(p, config_dir, output, planning_profile='navigation'):
+    if planning_profile not in ('navigation','distance'):
+        raise ValueError('invalid planning profile')
     tree = {}
     def merge(a,b):
         for k,v in b.items():
@@ -82,6 +84,13 @@ def navigation(p, config_dir, output):
     # The field map can contain unknown cells after local-ground projection.
     # Never plan through unobserved space just to get a shorter Smac path.
     params('planner_server')['GridBased']['allow_unknown'] = False
+    if planning_profile == 'distance':
+        # Equal-cost 8-neighbor choices left 13.5 cm bends on the captured
+        # clear 5 m route. The default data term pins those bends in place.
+        # Relax it only for distance trials; keep native costmap-aware
+        # smoothing and the existing total planning-time budget.
+        params('planner_server')['GridBased'].setdefault('smoother', {}).update(
+            w_data=0.0, max_iterations=100000)
     # Selected explicitly by the photo BT. Ordinary/accuracy navigation keeps
     # the original checker as the first (default) entry.
     controller = params('controller_server')
@@ -119,6 +128,12 @@ def navigation(p, config_dir, output):
     params('agt_cmd_vel_guard').update(guard(p,True))
     for key in ('local_costmap','global_costmap'):
         tree[key][key]['ros__parameters'].update(footprint=json.dumps(p['footprint_m']),robot_base_frame=p['body_frame'])
+    if planning_profile == 'distance':
+        # Humble Smac smoothing permits unknown cells although the search
+        # disallows them. Inflate their boundary as well, so relaxation cannot
+        # pull a valid detour through an unknown corner.
+        tree['global_costmap']['global_costmap']['ros__parameters']['inflation_layer'].update(
+            inflate_around_unknown=True, inflate_unknown=True)
     tree['local_costmap']['local_costmap']['ros__parameters'].update(
         update_frequency=p['local_costmap_update_hz'], publish_frequency=p['local_costmap_publish_hz'])
     # These limits are in odom, whereas the upstream ground/self filtering

@@ -24,9 +24,10 @@ def positive(value):
 
 
 def make_mode_plan(args):
-    base = field_trial.make_plan(ROOT, args.config, args.map_id, args.global_backend)
+    planning_profile = 'distance' if args.mode == 'distance' else 'navigation'
+    base = field_trial.make_plan(ROOT, args.config, args.map_id, args.global_backend,planning_profile)
     common = ['--config', str(args.config), '--map-id', base['map_id'],
-              '--global-backend', base['global_backend']]
+              '--global-backend', base['global_backend'],'--planning-profile',planning_profile]
     core = ['bash', str(REPO/'scripts/field_trial.sh'), 'start', *common]
     components = [('navigation_stack', core)]
     if args.mode == 'photo':

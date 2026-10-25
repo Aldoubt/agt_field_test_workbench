@@ -258,7 +258,7 @@ def _configure(context):
         if _sha256(global_map) != manifest.get('source_pcd_sha256'):
             raise RuntimeError('localization PCD SHA-256 differs from Map Studio provenance')
         runtime_params = profiles.navigation(robot_profile, Path(get_package_share_directory('agt_system_bringup'))/'config',
-            Path(tempfile.mkdtemp(prefix='field_profile_'))/'navigation.yaml')
+            Path(tempfile.mkdtemp(prefix='field_profile_'))/'navigation.yaml',value('planning_profile'))
         if value('enable_camera_gimbal').lower() == 'true':
             nodes.append(_include('autolabor_c1_bringup', 'autolabor_c1.launch.py', {
                 'device_path': value('camera_device_path'),
@@ -296,6 +296,7 @@ def generate_launch_description():
         DeclareLaunchArgument('safety_report', default_value=''),
         DeclareLaunchArgument('navigation_mode', default_value='formal', choices=['formal', 'field_test']),
         DeclareLaunchArgument('navigation_autostart', default_value='true'),
+        DeclareLaunchArgument('planning_profile', default_value='navigation', choices=['navigation','distance']),
         DeclareLaunchArgument('livox_config', default_value=str(
             Path(get_package_share_directory('agt_field_test_bringup')) / 'config/MID360s_config.json')),
         DeclareLaunchArgument('enable_chassis', default_value='false'),
