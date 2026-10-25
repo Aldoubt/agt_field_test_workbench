@@ -152,8 +152,12 @@ def main():
         return 3
     from workbench.artifacts import Clouds
     clouds=Clouds(ROOT)
-    calibration_meta=dict(robot=args.robot,legacy_id=args.calibration,mount=mount_metadata,internal_config=os.environ.get('AGT_FIELD_TEST_FASTLIO_CONFIG'))
-    if calibration_meta['internal_config']:calibration_meta['internal_sha256']=sha256(Path(calibration_meta['internal_config']))
+    default_lio_config=ROOT/'src/agt-lio-pgo-mapping/bringup/agt_mapping_bringup/config/fastlio2_mid360.yaml'
+    internal_config=mount_metadata.get('internal_config') or os.environ.get('AGT_FIELD_TEST_FASTLIO_CONFIG') or str(default_lio_config)
+    calibration_meta=dict(robot=args.robot,legacy_id=args.calibration,mount=mount_metadata,
+                          internal_config=internal_config,source_artifact=str(output))
+    if Path(internal_config).is_file():calibration_meta['internal_sha256']=sha256(Path(internal_config))
+    if cleanup:calibration_meta['sc_keyframes']=str(output/'temporal_cleanup'/'keyframes')
     if os.environ.get('FIELD_CALIBRATION_BUNDLE'):
         bundle_path=Path(os.environ['FIELD_CALIBRATION_BUNDLE']);calibration_meta.update(bundle=str(bundle_path),bundle_sha256=sha256(bundle_path))
     cleanup = None
@@ -187,15 +191,17 @@ def main():
                             cleanup=cleanup)
     save_stage('GRID_EXPORT', cloud_id=cloud['id'])
     version=clouds.grid(cloud['id'], {},build_assets=False)
-    save_stage('BBS_ASSETS', cloud_id=cloud['id'], map_id=version['id'])
-    assets=clouds.build_assets(cloud['id'])
-    result_stage='COMPLETE' if assets['state']=='READY' else 'PARTIAL_ASSETS_FAILED'
+    save_stage('RELOCALIZATION_ASSETS', cloud_id=cloud['id'], map_id=version['id'])
+    assets=clouds.build_assets(cloud['id'],map_id=version['id'])
+    result_stage=('COMPLETE' if assets.get('bbs')=='READY' and assets.get('polar_context')=='READY'
+                  and assets.get('scan_context')=='READY' else 'PARTIAL_ASSETS')
     save_stage(result_stage, cloud_id=cloud['id'], map_id=version['id'],
                asset_state=assets['state'], asset_error=assets.get('error',''))
     write_json(output / 'field_test_result.json', {'robot': args.robot, 'calibration': args.calibration,
                'source_bag': args.bag or str(output / 'raw_bag'), 'map_version': version['id'],
                'raw_bag_integrity': raw_integrity, 'mount_profile': mount_metadata,
-               'relocalization_assets': assets, 'status': 'DRAFT',
+               'relocalization_assets': assets, 'sc_database':assets.get('sc_database'),
+               'status': 'DRAFT',
                'temporal_cleanup': cleanup or {'state':'NOT_RUN', 'reason':'requires indexed FAST-LIO export and selected Bunker bundle'},
                'start_clearance_candidate': start_clearance,
                'save_state': result_stage})

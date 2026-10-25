@@ -152,17 +152,62 @@ def relocalization_assets(record):
     return str(directory) if ready else ''
 
 
+def scan_context_database(record):
+    """Find a Scan Context DB matching the 3D source and current map-frame geometry."""
+    source=record.get('source_pcd')
+    source_sha=record.get('source_pcd_sha256')
+    if not source or not source_sha:return ''
+    root=Path(source).expanduser().resolve().parent/'relocalization'
+    status={}
+    try:status=json.loads((root/'asset_status.json').read_text())
+    except (OSError,ValueError):pass
+    candidates=[]
+    if status.get('sc_database'):candidates.append(Path(status['sc_database']).expanduser())
+    if root.is_dir():candidates.extend(sorted(root.glob('scancontext_db*/manifest.json'),reverse=True))
+    try:current_meta=yaml.safe_load(Path(record['yaml']).read_text())
+    except (OSError,KeyError,ValueError):return ''
+    for candidate in candidates:
+        directory=candidate.parent if candidate.name=='manifest.json' else candidate
+        try:
+            manifest=json.loads((directory/'manifest.json').read_text())
+            if manifest.get('algorithm')!='scancontext' or manifest.get('map_sha256')!=source_sha:
+                continue
+            if not (directory/'descriptors.npz').is_file():continue
+            built_yaml=Path(manifest['navigation_yaml']).expanduser()
+            if not built_yaml.is_file():continue
+            if manifest.get('navigation_yaml_sha256') and hash_file(built_yaml)!=manifest['navigation_yaml_sha256']:
+                continue
+            built=yaml.safe_load(built_yaml.read_text())
+            if (not math.isclose(float(built['resolution']),float(current_meta['resolution']),rel_tol=0,abs_tol=1e-9)
+                    or len(built.get('origin',[]))!=3 or len(current_meta.get('origin',[]))!=3
+                    or any(not math.isclose(float(a),float(b),rel_tol=0,abs_tol=1e-8)
+                           for a,b in zip(built['origin'],current_meta['origin']))):
+                continue
+            return str(directory.resolve())
+        except (OSError,ValueError,TypeError,KeyError):
+            continue
+    return ''
+
+
 def asset_summary(record):
     directory,status,ready,legacy=_asset_health(record)
-    if directory is None:return '未找到重定位资产：使用整图 3D-BBS 回退'
-    polar=(directory/'polar_context.db').is_file() and ready
+    polar=(directory is not None and (directory/'polar_context.db').is_file() and ready)
+    sc_db=scan_context_database(record)
+    sc=('已生成' if sc_db else
+        '构建失败：'+str(status.get('scan_context_error','请检查关键帧与 LIO 配置'))[:100]
+        if status.get('scan_context')=='FAILED' else
+        '未生成（需要关键帧与匹配的 LIO 配置）')
     bbs=('已生成（旧版元数据，同源 SHA）' if legacy else
          '已生成（同源 SHA）' if ready else
          '正在构建' if status.get('bbs')=='BUILDING' else
          '构建失败：'+str(status.get('error','请检查依赖'))[:120] if status.get('bbs')=='FAILED' else
          '未生成／版本校验失败')
-    return ('AGT Polar Context（非 SC）：已生成' if polar else
-            'AGT Polar Context：未生成（没有可用的关键帧描述子库）')+'；BBS 体素资产：'+bbs
+    polar_label=('已生成（候选子图索引）' if polar else
+        '构建失败：'+str(status.get('polar_context_error','请检查关键帧'))[:100]
+        if status.get('polar_context')=='FAILED' else
+        '未生成（没有可用的关键帧描述子库）')
+    return f'Scan Context：{sc}；AGT Polar Context：{polar_label}；BBS 体素资产：{bbs}'
+
 
 class Maps:
     def __init__(self, root=ROOT):
@@ -172,7 +217,8 @@ class Maps:
 
     def list(self):
         records=[json.loads(p.read_text()) for p in sorted(self.directory.glob('*/manifest.json'), reverse=True)]
-        return [dict(record,relocalization_assets=relocalization_assets(record),asset_summary=asset_summary(record)) for record in records]
+        return [dict(record,relocalization_assets=relocalization_assets(record),asset_summary=asset_summary(record),
+                     sc_database=scan_context_database(record)) for record in records]
 
     def get(self, map_id):
         if not re.fullmatch(r'[0-9TZ-]{16,24}-[0-9a-f]{8}', map_id):
@@ -233,15 +279,45 @@ class Maps:
         pixels=bake_keepout_pixels(pixels,width,height,polygons)
         _,_,old_pixels=read_pgm(Path(original['pgm']))
         expected=bake_keepout_pixels(old_pixels,width,height,polygons)
-        if pixels!=expected or original.get('localization_geometry_valid') is False:
-            lineage.update(localization_geometry_valid=False,source_pcd=None,source_pcd_sha256=None,
-                invalidated_source_pcd=original.get('source_pcd'),
-                invalidated_source_pcd_sha256=original.get('source_pcd_sha256'),
-                asset_invalidation_reason='Grid edited independently of PCD; rebuild from a matching PCD before localization')
-        else:
-            lineage['localization_geometry_valid']=True
-        if status=='ACCEPTED' and lineage.get('localization_geometry_valid') is False:
-            raise ValueError('edited grid has no matching localization PCD; rebuild geometry before accepting')
+        grid_edited=pixels!=expected
+
+        # 2D occupancy edits change Nav2's planner grid, not the 3D source PCD,
+        # map frame, or SC/BBS descriptors. Restore only the known legacy
+        # grid-only invalidation when the retained PCD still matches its SHA.
+        source_pcd=lineage.get('source_pcd')
+        source_sha=lineage.get('source_pcd_sha256')
+        restored_legacy=False
+        if (not source_pcd and
+                str(original.get('asset_invalidation_reason','')).startswith('Grid edited independently of PCD')):
+            candidate=original.get('invalidated_source_pcd')
+            candidate_sha=original.get('invalidated_source_pcd_sha256')
+            try:
+                if candidate and candidate_sha and Path(candidate).is_file() and hash_file(candidate)==candidate_sha:
+                    source_pcd=str(Path(candidate).resolve());source_sha=candidate_sha
+                    lineage.update(source_pcd=source_pcd,source_pcd_sha256=source_sha)
+                    restored_legacy=True
+                    for key in ('invalidated_source_pcd','invalidated_source_pcd_sha256','asset_invalidation_reason'):
+                        lineage.pop(key,None)
+            except (OSError,ValueError):
+                pass
+
+        if not lineage.get('source_pgm_sha256'):
+            lineage['source_pgm_sha256']=original.get('source_pgm_sha256') or original['sha256']
+        geometry_valid=bool(source_pcd and source_sha and
+                            (restored_legacy or original.get('localization_geometry_valid') is not False))
+        lineage['localization_geometry_valid']=geometry_valid
+        lineage['navigation_grid_edited']=bool(original.get('navigation_grid_edited',False) or grid_edited)
+        if grid_edited:
+            lineage['navigation_grid_edit_parent_sha256']=original.get('navigation_grid_edit_parent_sha256') or original['sha256']
+            lineage['navigation_grid_edit_parent_id']=original.get('navigation_grid_edit_parent_id') or original['id']
+            lineage['navigation_grid_edit_changed_cells']=sum(a!=b for a,b in zip(pixels,expected))
+        elif original.get('navigation_grid_edit_parent_sha256'):
+            lineage['navigation_grid_edit_parent_sha256']=original['navigation_grid_edit_parent_sha256']
+            lineage['navigation_grid_edit_parent_id']=original.get('navigation_grid_edit_parent_id')
+            lineage['navigation_grid_edit_changed_cells']=original.get('navigation_grid_edit_changed_cells',0)
+
+        if status=='ACCEPTED' and (not geometry_valid or not source_pcd or not source_sha):
+            raise ValueError('cannot accept navigation grid without a verified source PCD and localization geometry')
         return self._save(width, height, pixels, meta, lineage, status)
 
     def validate_identity(self, record):
@@ -416,8 +492,9 @@ class Maps:
         manifest = self.get(map_id)
         if status=='ACCEPTED':
             self.validate_identity(manifest)
-            if manifest.get('localization_geometry_valid') is False:
-                raise ValueError('edited grid has no matching localization PCD; rebuild geometry before accepting')
+            if (not manifest.get('source_pcd') or not manifest.get('source_pcd_sha256')
+                    or manifest.get('localization_geometry_valid') is False):
+                raise ValueError('cannot accept navigation map without a verified source PCD and localization geometry')
             if manifest.get('diff_report_id') and not manifest.get('diff_report'):
                 raise ValueError('legacy diff candidate has no bound review report; regenerate comparison before accepting')
             if manifest.get('diff_report'):
@@ -469,6 +546,9 @@ class Maps:
         directory = self.directory / map_id
         directory.mkdir(parents=True, exist_ok=False)
         write_pgm(directory / 'map.pgm', width, height, pixels)
+        pgm_sha=hashlib.sha256((directory/'map.pgm').read_bytes()).hexdigest()
+        if lineage.get('source_pcd') and not lineage.get('source_pgm_sha256'):
+            lineage['source_pgm_sha256']=pgm_sha
         config = {key: meta.get(key) for key in
                   ('resolution', 'origin', 'negate', 'occupied_thresh', 'free_thresh')}
         config['image'] = 'map.pgm'
@@ -493,7 +573,7 @@ class Maps:
         (directory / 'keepout_bake.yaml').write_text(yaml.safe_dump(bake,sort_keys=False))
         manifest = {'id': map_id, 'status': status, 'created_at': datetime.now(timezone.utc).isoformat(),
                     'width': width, 'height': height, 'resolution': meta['resolution'],
-                    'origin': meta['origin'], 'sha256': hashlib.sha256((directory / 'map.pgm').read_bytes()).hexdigest(),
+                    'origin': meta['origin'], 'sha256': pgm_sha,
                     'yaml_sha256':hash_file(directory/'map.yaml'),
                     'yaml': str(directory / 'map.yaml'), 'pgm': str(directory / 'map.pgm'),
                     'keepout_zones': str(directory / 'keepout_zones.yaml'),

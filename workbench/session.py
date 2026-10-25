@@ -6,7 +6,7 @@ import socket
 import time
 import threading
 from .runtime import ROOT,REPO,ROS_EXEC,write_json,ros_ready,ros_call
-from .maps import Maps,_new_id,hash_file,relocalization_assets
+from .maps import Maps,_new_id,hash_file,relocalization_assets,scan_context_database
 from .fwmini import candidate_path,resolve_profile,load_profile,digest
 from .safety import setup,report
 from agt_field_test_bringup import profiles,calibration
@@ -26,6 +26,22 @@ def rpc(root,operation,payload=None):
     response=json.loads(b''.join(chunks))
     if 'error' in response:raise ValueError(response['error'])
     return response
+
+def localization_matches_navigation_map(current, robot, map_record, backend, sc_database, lio_backend):
+    """A 2D grid revision may reuse localization only when its 3D source is identical."""
+    if not current or current.get('task')!='localization' or current.get('robot')!=robot:
+        return False
+    source_sha=map_record.get('source_pcd_sha256')
+    if not source_sha or current.get('localization_pcd_sha256')!=source_sha:
+        return False
+    if current.get('global_backend','sc_kiss')!=backend:
+        return False
+    if backend=='sc_kiss' and current.get('sc_database')!=sc_database:
+        return False
+    if current.get('lio_backend','batch_lio')!=lio_backend:
+        return False
+    return True
+
 
 class Sessions:
     def __init__(self,jobs,root=ROOT):
@@ -192,7 +208,7 @@ class Sessions:
         with self.lock:return self._start(p)
 
     def _start_navigation(self,p):
-        """Reuse the sole localization and chassis owners; only Nav2 owns its guard."""
+        """Reuse localization by immutable 3D source identity; Nav2 binds the selected 2D grid."""
         robot=p['robot']
         if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')):
             raise ValueError('navigation component already owned; stop/recover it first')
@@ -200,30 +216,54 @@ class Sessions:
             raise ValueError('start and verify the independent chassis component before navigation')
         sensor_job,sensor=self._sensor_stack(robot)
         if not sensor:raise ValueError('matching sensor stack required')
+
+        m=Maps(self.root).get(p.get('map_id',''))
+        Maps(self.root).validate_identity(m)
+        if not m.get('source_pcd') or not m.get('source_pcd_sha256') or m.get('localization_geometry_valid') is False:
+            raise ValueError('navigation map requires a verified source PCD and unchanged localization geometry')
+        if m['status']!='ACCEPTED':
+            raise ValueError('formal navigation requires an ACCEPTED navigation grid')
+        backend=p.get('global_backend','sc_kiss')
+        if backend not in ('bbs','sc_kiss'):raise ValueError('unknown localization backend')
+        if backend=='sc_kiss':
+            from .relocalization import validate_sc_database
+            selected_db=p.get('sc_database') or scan_context_database(m)
+            p=dict(p,global_backend=backend,sc_database=validate_sc_database(selected_db,m))
+        else:
+            assets=relocalization_assets(m)
+            if not assets or not (Path(assets)/'polar_context.db').is_file():
+                raise ValueError('BBS requires same-source Polar Context candidates; refusing slow whole-map fallback')
+            p=dict(p,global_backend=backend)
+
+        profile_source=Path(sensor['profile_snapshot']).resolve()
+        if not profile_source.is_file() or hash_file(profile_source)!=sensor['profile']['profile_sha256']:
+            raise ValueError('sensor session profile changed; restart sensors before navigation')
+        sensor_calibration=Path(sensor['calibration']).resolve()
+        if (not sensor_calibration.is_file() or
+                hash_file(sensor_calibration)!=sensor['calibration_snapshot_sha256']):
+            raise ValueError('sensor session calibration changed; restart sensors before navigation')
+        sensor_calibration_record=(calibration.load(sensor_calibration,robot) if robot=='bunker'
+                                   else load_profile(sensor_calibration))
+        if sensor_calibration_record.get('status')!='VERIFIED':
+            raise ValueError('formal navigation requires VERIFIED calibration')
+        checks=setup(p.get('checks'))
+        compatible=[m.get('source_pgm_sha256')] if m.get('navigation_grid_edited') else []
+        acceptance=report(p.get('safety_report',''),robot,sensor['profile']['profile_sha256'],
+                          m['sha256'],sensor['calibration_sha256'],compatible_map_sha256s=compatible)
+
         localization=self._find_job('field_session')
         if not localization:
             self._start(dict(p,task='localization'))
             localization=self._find_job('field_session')
         current=self.current()
-        if (not current or current.get('task')!='localization' or current.get('robot')!=robot
-                or current.get('map_id')!=p.get('map_id')
-                or current.get('global_backend')!=p.get('global_backend','bbs')
-                or (p.get('global_backend')=='sc_kiss' and current.get('sc_database')!=p.get('sc_database'))
-                or current.get('lio_backend')!=p.get('lio_backend','batch_lio')):
-            raise ValueError('running localization configuration differs; stop localization explicitly before changing it')
-        m=Maps(self.root).get(p['map_id']);Maps(self.root).validate_identity(m)
-        if (m['sha256']!=current.get('map_sha256') or m.get('source_pcd_sha256')!=current.get('localization_pcd_sha256')
-                or hash_file(Path(current['profile_snapshot']))!=current['profile']['profile_sha256']
-                or hash_file(Path(current['calibration']))!=current['calibration_snapshot_sha256']):
-            raise ValueError('running localization map/profile/calibration identity changed')
-        if m['status']!='ACCEPTED' or m.get('localization_geometry_valid') is False:
-            raise ValueError('formal navigation requires ACCEPTED map with matching PCD')
-        import yaml
-        calibration_record=(calibration.load(current['calibration'],robot) if robot=='bunker' else load_profile(current['calibration']))
-        if calibration_record.get('status')!='VERIFIED':
-            raise ValueError('formal navigation requires VERIFIED calibration')
-        checks=setup(p.get('checks'))
-        acceptance=report(p.get('safety_report',''),robot,current['profile']['profile_sha256'],m['sha256'],current['calibration_sha256'])
+        if not localization_matches_navigation_map(current,robot,m,backend,p.get('sc_database'),
+                                                    p.get('lio_backend','batch_lio')):
+            raise ValueError('running localization does not use this map PCD/backend; stop and restart localization explicitly')
+        if (hash_file(Path(current['profile_snapshot']))!=current['profile']['profile_sha256']
+                or hash_file(Path(current['calibration']))!=current['calibration_snapshot_sha256']
+                or current.get('calibration_sha256')!=sensor['calibration_sha256']):
+            raise ValueError('running localization profile/calibration identity changed')
+
         ident=_new_id();directory=self.root/'runs'/ident;directory.mkdir(parents=True)
         args=['robot:='+robot,'robot_profile_file:='+current['profile_snapshot'],
               'enable_chassis:=false','external_chassis:=true','enable_mid360:=false',
@@ -233,15 +273,17 @@ class Sessions:
               'safety_report:='+acceptance['path'],'lio_backend:='+current['lio_backend']]
         if robot=='bunker':args+=['calibration_bundle:='+current['calibration']]
         else:
-            mount=directory/'navigation_mount.yaml';runtime_mount=dict(calibration_record)
+            mount=directory/'navigation_mount.yaml';runtime_mount=dict(sensor_calibration_record)
             runtime_mount['validation']=dict(runtime_mount.get('validation',{}),localization='PASS',motion_safety='PASS')
             mount.write_text(yaml.safe_dump(runtime_mount,sort_keys=False))
             args+=['fwmini_mount_file:='+str(mount),'fwmini_mode:=autonomous_navigation','supervised:=true']
-        # Stop before transferring the command owner. A stop failure aborts transfer.
         rpc(self.root,'stop')
         self._stop_kind('control_guard')
         snapshot=dict(current,id=ident,task='navigation',localization_session=current,
-            localization_job_id=localization['id'],checks=checks,safety_report=acceptance)
+            localization_job_id=localization['id'],checks=checks,safety_report=acceptance,
+            map_id=m['id'],map_sha256=m['sha256'],map_yaml_sha256=hash_file(Path(m['yaml'])),
+            localization_pcd=m['source_pcd'],localization_pcd_sha256=m['source_pcd_sha256'],
+            global_backend=backend,sc_database=p.get('sc_database',''),lio_backend=current['lio_backend'])
         write_json(directory/'session.json',snapshot)
         meta=dict(snapshot);meta['session_id']=meta.pop('id');meta.pop('job_id',None)
         try:
@@ -314,7 +356,9 @@ class Sessions:
         if task=='navigation':
             if map_record['status']!='ACCEPTED':raise ValueError('formal navigation requires ACCEPTED map')
             if (bundle or mount)['status']!='VERIFIED':raise ValueError('formal navigation requires VERIFIED calibration')
-            acceptance=report(p.get('safety_report',''),robot,limits['profile_sha256'],map_record['sha256'],cal_sha)
+            compatible=[map_record.get('source_pgm_sha256')] if map_record.get('navigation_grid_edited') else []
+            acceptance=report(p.get('safety_report',''),robot,limits['profile_sha256'],
+                              map_record['sha256'],cal_sha,compatible_map_sha256s=compatible)
         sensor_enabled=bool(p.get('enable_sensor',True)) if task=='sensors' else False
         livox_identity=None
         if sensor_enabled:
@@ -345,14 +389,20 @@ class Sessions:
                 runtime_mount=yaml.safe_load(copied.read_text())
                 runtime_mount['validation'].update(localization='PASS',motion_safety='PASS')
                 copied.write_text(yaml.safe_dump(runtime_mount,sort_keys=False))
-        backend=p.get('global_backend','bbs')
+        backend=p.get('global_backend','sc_kiss')
         if backend not in ('bbs','sc_kiss'):raise ValueError('unknown global localization backend')
         sc_database=''
-        if backend=='sc_kiss':
+        if task in ('localization','navigation') and backend=='sc_kiss':
             from .relocalization import validate_sc_database
-            sc_database=validate_sc_database(p.get('sc_database',''),map_record)
+            requested_db=p.get('sc_database') or scan_context_database(map_record)
+            sc_database=validate_sc_database(requested_db,map_record)
+            p=dict(p,global_backend=backend,sc_database=sc_database)
             ros_call(['ros2','pkg','prefix','agt_sc_kiss'],timeout=4)
             args+=['sc_database:='+sc_database]
+        elif task in ('localization','navigation') and backend=='bbs':
+            assets=relocalization_assets(map_record) if map_record else ''
+            if not assets or not (Path(assets)/'polar_context.db').is_file():
+                raise ValueError('BBS requires same-source Polar Context candidates; refusing slow whole-map fallback')
         lio_backend=p.get('lio_backend','batch_lio')
         if lio_backend not in ('batch_lio','fastlio2'):raise ValueError('unknown local odometry backend')
         args+=['global_backend:='+backend,'lio_backend:='+lio_backend]

@@ -39,8 +39,10 @@ def build(map_pcd,map_yaml,keyframes,output,spec):
         raise ValueError('map source changed while building SC DB')
     output.mkdir(parents=True)
     np.savez_compressed(output/'descriptors.npz',descriptors=np.stack(descriptions))
-    manifest=dict(schema_version=1,algorithm='scancontext',upstream_commit=sc.upstream_commit,
+    manifest=dict(schema_version=2,algorithm='scancontext',upstream_commit=sc.upstream_commit,
         map_path=str(Path(map_pcd).resolve()),navigation_yaml=str(Path(map_yaml).resolve()),
+        navigation_geometry=dict(resolution=float(nav['resolution']),
+                                  origin=[float(v) for v in nav['origin']]),
         preprocessing=spec,entries=entries,descriptors_sha256=sha(output/'descriptors.npz'),
         pose_file_sha256=sha(poses),REAL_BAG_VERIFIED='NOT_RUN',**identities)
     manifest['metadata_sha256']=metadata_sha(manifest)

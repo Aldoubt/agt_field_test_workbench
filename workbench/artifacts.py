@@ -5,8 +5,8 @@ import math
 import shutil
 import os
 import yaml
-from .runtime import ROOT, ros_call, write_json
-from .maps import Maps, _new_id, hash_file, read_pgm
+from .runtime import ROOT, REPO, ros_call, write_json
+from .maps import Maps, _new_id, hash_file, read_pgm, scan_context_database
 
 
 def finite(value):
@@ -60,73 +60,188 @@ class Clouds:
         config.write_text(yaml.safe_dump(spec,sort_keys=False));output=self.directory/ident
         self.runner(['ros2','run','agt_field_test_bringup','pcd_ops',str(source),str(config),str(output)],timeout=3600)
         return ident,output,config
+    @staticmethod
+    def _artifact_root(path):
+        if not path:return None
+        source=Path(path).expanduser().resolve()
+        for candidate in (source.parent,*source.parents):
+            if all((candidate/name).is_file() for name in ('frames.csv','trajectory.csv','points.raw')):
+                return candidate
+        return None
+
+    @staticmethod
+    def _keyframes_ready(path):
+        if not path:return False
+        root=Path(path).expanduser()
+        return root.is_dir() and (root/'patches').is_dir() and any(
+            (root/name).is_file() for name in ('poses_timed.txt','poses.txt'))
+
     def import_pcd(self,path,calibration=None,bag=None,name='',cleanup=None):
         source=Path(path).expanduser().resolve()
         if not source.is_file() or source.suffix.lower()!='.pcd': raise ValueError('existing PCD required')
         sha=hash_file(source)
+        calibration=dict(calibration or {})
+        artifact=calibration.get('source_artifact') or self._artifact_root(source)
+        if artifact and not Path(artifact).expanduser().is_dir():artifact=None
+        if artifact:artifact=str(Path(artifact).expanduser().resolve())
+        keyframes=calibration.get('sc_keyframes')
+        if not self._keyframes_ready(keyframes) and artifact:
+            for candidate in (Path(artifact)/'temporal_cleanup'/'keyframes',Path(artifact)/'sc_keyframes'):
+                if self._keyframes_ready(candidate):
+                    keyframes=str(candidate.resolve());break
+        lio_config=calibration.get('internal_config') or calibration.get('lio_config')
+        if lio_config and not Path(lio_config).expanduser().is_file():lio_config=None
         ident,out,config=self._process(source,{'operations':[]})
         shutil.copyfile(source,out/'original.pcd')
         if hash_file(source)!=sha or hash_file(out/'original.pcd')!=sha: raise ValueError('source changed during import')
         bag_sha={str(p.relative_to(Path(bag))):hash_file(p) for p in Path(bag).rglob('*') if p.is_file()} if bag and Path(bag).is_dir() else None
         return self._save(ident,out,dict(source=str(source),source_sha256=sha,calibration=calibration,source_bag=bag,source_bag_sha256=bag_sha,
+            source_artifact=artifact,sc_keyframes=str(Path(keyframes).resolve()) if self._keyframes_ready(keyframes) else None,
+            lio_config=str(Path(lio_config).expanduser().resolve()) if lio_config else None,
             name=str(name).strip()[:120],parent=None,operations=[],temporal_cleanup=cleanup))
+
     def _save(self,ident,out,lineage):
         record=dict(id=ident,pcd=str(out/'cloud.pcd'),sha256=hash_file(out/'cloud.pcd'),status='DRAFT',
                     frame_id='map',processing=yaml.safe_load((out/'result.yaml').read_text()),**lineage)
         write_json(out/'manifest.json',record);return record
+
     def clean(self,parent,items):
         original=self.get(parent);items=operations(items)
         ident,out,config=self._process(original['pcd'],{'operations':items})
         return self._save(ident,out,dict(parent=parent,parent_sha256=original['sha256'],operations=items,
             calibration=original.get('calibration'),source_bag=original.get('source_bag'),source_bag_sha256=original.get('source_bag_sha256'),
-            name=original.get('name',''),source=original['pcd'],source_sha256=original['sha256']))
-    def build_assets(self, cloud_id):
-        """Build 3D-BBS cache from the SAME immutable cloud used by Nav2.
+            source_artifact=original.get('source_artifact'),sc_keyframes=original.get('sc_keyframes'),
+            lio_config=original.get('lio_config'),name=original.get('name',''),source=original['pcd'],source_sha256=original['sha256']))
 
-        Polar Context requires actual keyframe patches; a fused no-PGO PCD
-        and trajectory.csv are not that dataset. Report NOT_GENERATED honestly.
-        """
-        cloud = self.get(cloud_id)
-        source = Path(cloud['pcd'])
-        directory = source.parent / 'relocalization'
-        status_path = directory / 'asset_status.json'
+    def _scan_context_inputs(self,cloud):
+        calibration=cloud.get('calibration') or {}
+        artifact_value=cloud.get('source_artifact') or calibration.get('source_artifact')
+        if not artifact_value and cloud.get('source'):
+            artifact_value=self._artifact_root(cloud['source'])
+        artifact=Path(artifact_value).expanduser().resolve() if artifact_value else None
+        if artifact and not artifact.is_dir():artifact=None
+        keyframes_value=cloud.get('sc_keyframes') or calibration.get('sc_keyframes')
+        if not self._keyframes_ready(keyframes_value) and artifact:
+            for candidate in (artifact/'temporal_cleanup'/'keyframes',artifact/'sc_keyframes',
+                              Path(cloud['pcd']).parent/'sc_keyframes'):
+                if self._keyframes_ready(candidate):
+                    keyframes_value=str(candidate.resolve());break
+        keyframe_error=''
+        if not self._keyframes_ready(keyframes_value) and artifact and all(
+                (artifact/name).is_file() for name in ('frames.csv','trajectory.csv','points.raw')):
+            target=Path(cloud['pcd']).parent/'sc_keyframes'
+            if target.exists() and not self._keyframes_ready(target):
+                target=Path(cloud['pcd']).parent/('sc_keyframes_'+cloud['sha256'][:8])
+            if not target.exists():
+                try:
+                    from .map_cleanup import prepare_keyframes
+                    prepare_keyframes(artifact,target)
+                except Exception as exc:
+                    keyframe_error=str(exc)[:500]
+            if self._keyframes_ready(target):keyframes_value=str(target.resolve())
+        lio_value=cloud.get('lio_config') or calibration.get('internal_config') or calibration.get('lio_config')
+        lio_config=Path(lio_value).expanduser().resolve() if lio_value else None
+        lio_error=''
+        if lio_config and not lio_config.is_file():
+            lio_error='recorded LIO configuration is missing: '+str(lio_config);lio_config=None
+        elif lio_config and calibration.get('internal_sha256') and hash_file(lio_config)!=calibration['internal_sha256']:
+            lio_error='recorded LIO configuration SHA-256 changed';lio_config=None
+        keyframes=Path(keyframes_value).expanduser().resolve() if self._keyframes_ready(keyframes_value) else None
+        return artifact,keyframes,lio_config,keyframe_error,lio_error
+
+    def build_assets(self,cloud_id,map_id=None):
+        """Build same-source BBS voxels, Polar Context candidates and SC descriptors."""
+        cloud=self.get(cloud_id);source=Path(cloud['pcd'])
+        directory=source.parent/'relocalization';directory.mkdir(exist_ok=True)
+        status_path=directory/'asset_status.json'
+        old={}
         if status_path.is_file():
+            try:old=json.loads(status_path.read_text())
+            except (OSError,ValueError):old={}
+        state=dict(old) if old.get('source_sha256')==cloud['sha256'] else {}
+        state.update(source_sha256=cloud['sha256'],source_pcd=str(source))
+        artifact,keyframes,lio_config,keyframe_error,lio_error=self._scan_context_inputs(cloud)
+
+        map_record=None
+        if map_id:
+            map_record=Maps(self.root).get(map_id)
+        else:
+            for candidate in Maps(self.root).list():
+                if candidate.get('cloud_id')==cloud_id and candidate.get('source_pcd_sha256')==cloud['sha256']:
+                    map_record=candidate;break
+
+        bbs_ready=(state.get('state')=='READY' and state.get('bbs')=='READY'
+            and (directory/'voxelmaps_coords').is_dir()
+            and (directory/'global_map_downsampled.pcd').is_file())
+        if not bbs_ready:
+            state.update(state='BUILDING',bbs='BUILDING')
+            write_json(status_path,state)
+            temporary=source.parent/('relocalization_build_'+_new_id())
             try:
-                old = json.loads(status_path.read_text())
-                if (old.get('state') == 'READY' and old.get('source_sha256') == cloud['sha256']
-                    and (directory / 'voxelmaps_coords').is_dir()
-                    and (directory / 'global_map_downsampled.pcd').is_file()):
-                    return old
-            except (ValueError, OSError):
-                pass
-        directory.mkdir(exist_ok=True)
-        state = {'state': 'BUILDING', 'source_sha256': cloud['sha256'],
-                 'source_pcd': str(source), 'bbs': 'BUILDING',
-                 'polar_context': 'NOT_GENERATED_NO_KEYFRAME_PATCHES'}
-        write_json(status_path, state)
-        temporary = source.parent / ('relocalization_build_' + _new_id())
-        try:
-            self.runner(['ros2', 'run', 'agt_global_relocalization_native',
-                         'build_relocalization_assets', '--map', str(source),
-                         '--output', str(temporary)], timeout=1200)
-            if not (temporary / 'voxelmaps_coords').is_dir() or not (
-                temporary / 'global_map_downsampled.pcd').is_file():
-                raise RuntimeError('BBS builder returned without mandatory voxel assets')
-            # Commit artifacts only after the builder completed. Existing PCD
-            # versions are immutable; a stale READY cache never crosses SHA.
-            for child in temporary.iterdir():
-                target = directory / child.name
-                if target.is_dir():
-                    if target.exists(): shutil.rmtree(target)
-                    os.replace(child, target)
-                else:
-                    os.replace(child, target)
-            state.update(state='READY', bbs='READY')
-        except Exception as error:
-            state.update(state='FAILED', bbs='FAILED', error=str(error)[:800])
-        finally:
-            if temporary.exists(): shutil.rmtree(temporary)
-        write_json(status_path, state)
+                self.runner(['ros2','run','agt_global_relocalization_native',
+                             'build_relocalization_assets','--map',str(source),
+                             '--output',str(temporary)],timeout=1200)
+                if not (temporary/'voxelmaps_coords').is_dir() or not (temporary/'global_map_downsampled.pcd').is_file():
+                    raise RuntimeError('BBS builder returned without mandatory voxel assets')
+                for child in temporary.iterdir():
+                    target=directory/child.name
+                    if target.is_dir():
+                        if target.exists():shutil.rmtree(target)
+                        os.replace(child,target)
+                    else:os.replace(child,target)
+                state.update(state='READY',bbs='READY',error='')
+            except Exception as error:
+                state.update(state='FAILED',bbs='FAILED',error=str(error)[:800])
+            finally:
+                if temporary.exists():shutil.rmtree(temporary)
+
+        if (directory/'polar_context.db').is_file():
+            state['polar_context']='READY'
+        elif keyframes and state.get('bbs')=='READY':
+            try:
+                self.runner(['ros2','run','agt_global_relocalization_native',
+                             'build_relocalization_candidates','--map-dir',str(keyframes),
+                             '--output',str(directory)],timeout=1200)
+                if not (directory/'polar_context.db').is_file():
+                    raise RuntimeError('candidate builder returned without polar_context.db')
+                state['polar_context']='READY';state.pop('polar_context_error',None)
+            except Exception as error:
+                state['polar_context']='FAILED';state['polar_context_error']=str(error)[:600]
+        else:
+            state.setdefault('polar_context','NOT_GENERATED_NO_KEYFRAME_PATCHES')
+
+        sc_database='';sc_error=''
+        if map_record:
+            from .relocalization import validate_sc_database
+            existing=state.get('sc_database') or scan_context_database(map_record)
+            if existing:
+                try:sc_database=validate_sc_database(existing,map_record)
+                except Exception:sc_database=''
+            if not sc_database and keyframes and lio_config:
+                base_name='scancontext_db_'+cloud['sha256'][:12]+'_'+hash_file(lio_config)[:8]
+                output=directory/base_name
+                if output.exists():output=directory/(base_name+'_'+_new_id())
+                command=['python3',str(REPO/'scripts/build_sc_database.py'),
+                         '--map',str(source),'--map-yaml',str(map_record['yaml']),
+                         '--lio-config',str(lio_config),'--output',str(output),'--keyframes',str(keyframes)]
+                try:
+                    self.runner(command,timeout=1200)
+                    sc_database=validate_sc_database(str(output),map_record)
+                except Exception as error:
+                    sc_error=str(error)[:800]
+            if sc_database:
+                state.update(scan_context='READY',sc_database=sc_database)
+                state.pop('scan_context_error',None)
+            else:
+                state['scan_context']='FAILED' if sc_error else 'NOT_GENERATED'
+                state['scan_context_error']=sc_error or lio_error or keyframe_error or (
+                    'mapping artifact keyframes are unavailable' if not keyframes else
+                    'matching LIO configuration is unavailable' if not lio_config else
+                    'no SC database matches this PCD and map-frame geometry')
+        else:
+            state['scan_context']='NOT_GENERATED_NO_MAP_VERSION'
+            state['scan_context_error']='generate the navigation grid before building the SC database'
+        write_json(status_path,state)
         return state
 
     def grid(self,parent,params,name=None,build_assets=True):
@@ -212,7 +327,8 @@ class Clouds:
             name=original.get('name','') if name is None else str(name).strip()[:120],
             source_yaml=str(out/'map.yaml'),source_pgm_sha256=hash_file(out/'map.pgm')))
         if build_assets:
-            self.build_assets(parent)
-        from .maps import asset_summary, relocalization_assets
+            self.build_assets(parent,map_id=result['id'])
+        from .maps import asset_summary, relocalization_assets, scan_context_database
         return dict(result, asset_summary=asset_summary(result),
-                    relocalization_assets=relocalization_assets(result))
+                    relocalization_assets=relocalization_assets(result),
+                    sc_database=scan_context_database(result))
