@@ -1,0 +1,32 @@
+diff --git a/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml b/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml
+--- a/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml
++++ b/navigation/localization/agt_global_relocalization/config/global_relocalization.yaml
+@@ -65,15 +65,15 @@
+       ros2 run agt_global_relocalization_native candidate_bbs_gicp_localizer
+       --map {global_map} --scan {scan_pcd} {assets_arg}
+       --timeout {timeout_sec}
+-      --candidate-top-k 2 --descriptor-prefilter 40
+-      --candidate-xy-radius 4.0 --candidate-z-radius 2.0
++      --candidate-top-k 4 --descriptor-prefilter 80
++      --candidate-xy-radius 5.0 --candidate-z-radius 2.5
+       --candidate-yaw-range-deg 0.0 --roll-pitch-range-deg 0.0
+       --bbs-query-frame-mode {bbs_query_frame_mode}
+       --base-from-body-tx {base_from_body_tx}
+       --base-from-body-ty {base_from_body_ty}
+       --base-from-body-tz {base_from_body_tz}
+       --base-from-body-qx {base_from_body_qx}
+       --base-from-body-qy {base_from_body_qy}
+       --base-from-body-qz {base_from_body_qz}
+       --base-from-body-qw {base_from_body_qw}
+-      --per-candidate-timeout 8.0 --bbs-score-threshold 0.05
++      --per-candidate-timeout 6.0 --bbs-score-threshold 0.03 --gicp-max-corr 2.5
+       --local-map-radius-xy {local_map_radius_xy}
+       --local-map-half-height {local_map_half_height}
+       --min-local-map-points {min_local_map_points}
+@@ -95,7 +95,7 @@
+     backend_local_map_radius_xy: 35.0
+     backend_local_map_half_height: 8.0
+     backend_min_local_map_points: 800
+     work_dir: ~/.ros/agt_global_relocalization
+-    sdk_timeout_sec: 18.0
++    sdk_timeout_sec: 30.0
