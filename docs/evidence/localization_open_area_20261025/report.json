@@ -36,5 +36,12 @@
     "global_correction_valid": true,
     "evidence": "near_trees_status.json",
     "causality": "position/scene dependence observed; root cause unconfirmed"
+  },
+  "additional_operator_observation": {
+    "report": "保持同一朝向，向后退少量后在特定位置又定位失败",
+    "hypothesis": "操作者怀疑输入点云太少",
+    "measured_distance_m": null,
+    "exact_query_association": null,
+    "assessment": "总点数不能证明；先前失败16220点，树旁成功11989点。需要比较结构与候选/粗匹配。20:57启动底盘崩溃另行归档。"
   }
 }
