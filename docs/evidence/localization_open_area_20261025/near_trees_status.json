@@ -1,0 +1,118 @@
+{
+  "wheel_odom": {
+    "hz": 50.6,
+    "samples": 152,
+    "receive_age_sec": 0.015,
+    "stamp_age_ms": {
+      "p50": 0.96,
+      "p95": 4.47,
+      "max": 35.95
+    }
+  },
+  "chassis": {
+    "hz": 50.3,
+    "samples": 151,
+    "receive_age_sec": 0.016,
+    "vehicle_state": 0,
+    "control_mode": 3,
+    "error_code": 0
+  },
+  "local_odom": {
+    "hz": 10.0,
+    "samples": 30,
+    "receive_age_sec": 0.091,
+    "stamp_age_ms": {
+      "p50": 35.47,
+      "p95": 47.44,
+      "max": 66.34
+    }
+  },
+  "adapter": {
+    "hz": 5.0,
+    "samples": 15,
+    "receive_age_sec": 0.142,
+    "status": {
+      "state": 0,
+      "input_age_sec": 0.084,
+      "last_valid_pose_age_sec": 0.047,
+      "accepted_count": 714,
+      "rejected_count": 0,
+      "publish_rate": 10.0
+    }
+  },
+  "localization": {
+    "hz": 5.0,
+    "samples": 12,
+    "receive_age_sec": 0.196,
+    "state": 3,
+    "reason": "map_tracking_ok",
+    "local_odom_fresh": true,
+    "global_correction_valid": true
+  },
+  "imu": {
+    "hz": 200.3,
+    "samples": 314,
+    "receive_age_sec": 0.0
+  },
+  "lidar": {
+    "hz": 10.0,
+    "samples": 16,
+    "receive_age_sec": 0.023
+  },
+  "matcher": {
+    "status": {
+      "state": "SUCCEEDED",
+      "detail": "global base pose published",
+      "global_backend": "bbs",
+      "score": 0.854535,
+      "fitness": 0.199488,
+      "overlap": 0.987252,
+      "position_std_m": 0.24455225000000003,
+      "yaw_std_deg": 4.74558,
+      "map_id": "",
+      "map_version": "",
+      "map_generation": 0,
+      "query_frame": "body",
+      "bbs_query_frame_mode": "mapping_body",
+      "refined_pose_T_map_query": {
+        "x": -3.52409,
+        "y": 14.466,
+        "z": -0.126123,
+        "qx": 0.1044379399041139,
+        "qy": 0.08784264945340878,
+        "qz": -0.7598355627739164,
+        "qw": 0.6356306342441622
+      },
+      "published_pose_T_map_base": {
+        "x": -3.4701033430682346,
+        "y": 14.901705108523013,
+        "z": -0.7882865274380492,
+        "qx": 0.017750770112493597,
+        "qy": 0.015322553659263369,
+        "qz": -0.7667739405507878,
+        "qw": 0.6414887790148707
+      },
+      "bbs_elapsed_ms": 1307.75,
+      "backend": "polar_context_bbs_gicp",
+      "total_elapsed_sec": 2.064176266000686,
+      "sc_elapsed_sec": null,
+      "kiss_elapsed_sec": null,
+      "gicp_elapsed_sec": null,
+      "kiss_final_inliers": null,
+      "sc_candidates": null,
+      "candidate_patch": "003334.pcd",
+      "descriptor_similarity": 0.949396,
+      "descriptor_yaw_seed_deg": -91.8546,
+      "bbs_assets_loaded": null,
+      "gicp_target_points": 33070,
+      "gicp_full_map_fallback": false
+    },
+    "source": "current_matcher_ros_log",
+    "cached": true,
+    "note": "最近一次匹配事件；缓存结果，不表示当前定位已有效"
+  },
+  "nav2": {
+    "controller_server": "active",
+    "bt_navigator": "active"
+  }
+}

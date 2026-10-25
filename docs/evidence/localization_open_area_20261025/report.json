@@ -23,5 +23,18 @@
   "sample_provenance": "five current raw frames reconstructed with mapping_body contract; NOT exact backend input",
   "exact_backend_query_saved": false,
   "changes_to_live_matching_or_motion": "none",
-  "root_cause": "not yet determined; open scene is operator context, not proven cause"
+  "root_cause": "not yet determined; open scene is operator context, not proven cause",
+  "followup": {
+    "operator_report": "从较空旷的位置向前方树木附近移动后，再次定位成功",
+    "session": "20261025T125344Z-d54b43e1",
+    "result": "SUCCEEDED",
+    "elapsed_sec": 2.064176266000686,
+    "candidate_patch": "003334.pcd",
+    "fitness": 0.199488,
+    "overlap": 0.987252,
+    "current_state": "map_tracking_ok",
+    "global_correction_valid": true,
+    "evidence": "near_trees_status.json",
+    "causality": "position/scene dependence observed; root cause unconfirmed"
+  }
 }
