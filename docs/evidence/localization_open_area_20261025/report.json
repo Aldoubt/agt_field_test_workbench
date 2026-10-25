@@ -1,0 +1,27 @@
+{
+  "recorded_at": "2026-10-25T12:53:02.037435+00:00",
+  "operator_report": "换到空旷位置后仍无法全局定位",
+  "session": "20261025T125138Z-81e55b1b",
+  "mode": "nav",
+  "result": "REJECTED",
+  "stage": "GICP refinement after candidate BBS",
+  "backend_return_code": 4,
+  "detail": "small_gicp did not converge after candidate-guided BBS",
+  "elapsed_sec": 14.26246256200011,
+  "query_points": 16220,
+  "raw_points": 48490,
+  "local_odom_hz": 10.0,
+  "local_odom_age_ms": {
+    "p50": 37.02,
+    "p95": 46.54,
+    "max": 73.61
+  },
+  "global_correction_valid": false,
+  "local_odom_fresh": true,
+  "nav2": "unconfigured while waiting_global_pose",
+  "passive_sample": "../current_125140",
+  "sample_provenance": "five current raw frames reconstructed with mapping_body contract; NOT exact backend input",
+  "exact_backend_query_saved": false,
+  "changes_to_live_matching_or_motion": "none",
+  "root_cause": "not yet determined; open scene is operator context, not proven cause"
+}

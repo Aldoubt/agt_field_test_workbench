@@ -1,0 +1,16 @@
+# 空旷位置全局定位失败记录
+
+2026-10-25 20:52（北京时间）操作者报告：换到空旷位置后仍无法全局定位。记录为失败，不作为定位通过验收。
+
+- 会话 `runs/20261025T125138Z-81e55b1b`，`field_start nav`。
+- 地图 PCD：`maps/clouds/20261024T124930Z-714128a2/cloud.pcd`，使用同目录 relocalization 资产。
+- 查询 16,220 点，范围过滤后、体素化前 48,490 点；mapping_body，0.25 m 体素，0.5–30 m 范围。
+- Polar Context 候选引导 BBS 后，small_gicp 未收敛；backend return 4，14.262 s 后 REJECTED。
+- 本地里程计 10 Hz；时间戳年龄 p50/p95/max = 37.02/46.54/73.61 ms；适配器接受 29、拒绝 0。`local_odom_fresh=true`，`global_correction_valid=false`。
+- 状态 `waiting_global_pose`，Nav2 未配置。当前阻塞发生于全局匹配，不是里程计新鲜度检查。
+
+现场原始记录保存在工作区 `runs/relocalization_failure_20261025/open_area/`：`report.json`、`status.json`、`matcher.log`、`process_snapshot.log`。相邻 `current_125140/` 包含只读采集的五帧点云、时间戳、轮速/局部位姿和按相同固定外参重建的查询 PCD。该样本并非后端使用的精确查询；后端临时文件在拒绝后已删除，未及时复制成功。不能用重建样本替代精确输入宣称原失败已复现。
+
+区分其他会话：20:40、20:42 失败为 BBS 未得到有效粗位姿；20:45 会话成功（候选 004204.pcd，约 1.877 s），随后追踪有效。此成功不覆盖本次失败。空旷环境只是操作者描述；具体失败原因尚未确认，不能直接归因于特征少、地图错误或标定错误。
+
+诊断没有发送重定位请求、初始位姿、运动或云台命令，也没有修改匹配阈值、新鲜度门禁或时间戳。
