@@ -1,0 +1,19 @@
+<!-- Photo arrival: position only; camera heading is handled by AcquireView.
+     Controller/planner failure propagates immediately. No recovery motion or
+     costmap clearing; normal collision-aware steering remains in FollowPath. -->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <PipelineSequence name="PhotoNavigateWithReplanning">
+      <RateController hz="1.0">
+        <Fallback>
+          <ReactiveSequence>
+            <Inverter><GlobalUpdatedGoal/></Inverter>
+            <IsPathValid path="{path}"/>
+          </ReactiveSequence>
+          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+        </Fallback>
+      </RateController>
+      <FollowPath path="{path}" controller_id="FollowPath" goal_checker_id="photo_goal_checker"/>
+    </PipelineSequence>
+  </BehaviorTree>
+</root>

@@ -327,8 +327,17 @@ class Bridge(Node):
         if self.goals:
             try:self.check_navigation()
             except Exception:self.stop();self.record('cancelled','runtime gate closed')
+    def localization_status(self):
+        """Expose the manager's reason without changing any readiness predicate."""
+        message=self.samples.get('localization')
+        if message is None:return None
+        result={name:getattr(message,name) for name in (
+            'state','reason','local_odom_fresh','local_odom_age_sec','global_correction_valid')}
+        result['fresh']=self.fresh('localization',.5)
+        return result
     def snapshot(self):
-        result=dict(session=self.current(),localized=self.localized(),nav2_states=self.states,feedback_fresh=self.physical(),
+        result=dict(session=self.current(),localized=self.localized(),localization=self.localization_status(),
+                    wheel_odometry_fresh=self.fresh('wheel',.5),nav2_states=self.states,feedback_fresh=self.physical(),
                     sensors_ready=self.fresh('sensor_imu',1.) and self.fresh('sensor_lidar',1.),
                     chassis=self.chassis_status(),goal_result=self.goal_result)
         mission=self.samples.get('mission') if self.fresh('mission',5) else None

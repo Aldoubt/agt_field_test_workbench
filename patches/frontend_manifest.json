@@ -9,7 +9,7 @@
       },
       "fastlio2/src/lio_node.cpp": {
         "before": "8942b97bdf563639c6b39adaf1b3ce0f6c1ba8d24c81947350b3d0e6ba08e6e8",
-        "after": "f0ca8af4851152a3134d3a55173ff9ba96fd7693ead6a682fb751485f4210fde"
+        "after": "5dba0a23511f66d37a72864ee0b7b11ceec8092b1b8b6134893c38c272978529"
       },
       "fastlio2/src/map_builder/lidar_processor.cpp": {
         "before": "b475ba78fedcb79fff4405ca3693c69a0ca6bdb968ccfc1b241cd7c992995c8c",
@@ -22,6 +22,22 @@
       "fastlio2/test/test_point_plane_jacobian.cpp": {
         "before": null,
         "after": "3f7d0ccce24116516c2ab93e08f03f36918c79424776940c8c70f8c509d8e922"
+      },
+      "fastlio2/test/latency_replay.py": {
+        "before": null,
+        "after": "0e16afdb95cd5eabcbeb97db6e4a5eb0b1ba727fe5e905820d06d80bab2726a7"
+      },
+      "fastlio2/test/latency_replay_qos.yaml": {
+        "before": null,
+        "after": "7813859f0ec18b32073986797565c672684b7f67f2bf8dbf457a9d3a70eef7f8"
+      },
+      "fastlio2/test/make_timing_fault_bag.py": {
+        "before": null,
+        "after": "e5463a44a31643acffb1e11c6727dc25939eb048e7448d8498cd58decdb97ff3"
+      },
+      "fastlio2/test/startup_history_replay.py": {
+        "before": null,
+        "after": "ff183a8749324465f8ba621b2e5b04a6d551a49ca43871be742203a4b42e21d7"
       }
     }
   }

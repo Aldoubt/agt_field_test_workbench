@@ -1,0 +1,10 @@
+{
+  "camera_stamp_age_sec": {
+    "min": -1.117991728,
+    "p50": -1.0920528680000001,
+    "max": -1.036234358
+  },
+  "clouds_received": 5,
+  "odom_received": 42,
+  "no_goals_or_services_sent": true
+}

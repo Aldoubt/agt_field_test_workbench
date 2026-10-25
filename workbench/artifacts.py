@@ -199,11 +199,25 @@ class Clouds:
             state['polar_context']='READY'
         elif keyframes and state.get('bbs')=='READY':
             try:
+                from .polar_context import prepare_builder_input
+                compatible = directory/('polar_context_source_'+_new_id())
+                provenance = prepare_builder_input(keyframes, compatible)
+                temporary = directory/('.polar_context_build_'+_new_id())
                 self.runner(['ros2','run','agt_global_relocalization_native',
-                             'build_relocalization_candidates','--map-dir',str(keyframes),
-                             '--output',str(directory)],timeout=1200)
-                if not (directory/'polar_context.db').is_file():
+                             'build_relocalization_candidates','--map-dir',str(compatible),
+                             '--output',str(temporary)],timeout=1200)
+                if not (temporary/'polar_context.db').is_file() or not (temporary/'polar_context.db').stat().st_size:
                     raise RuntimeError('candidate builder returned without polar_context.db')
+                metadata = yaml.safe_load((temporary/'polar_context.yaml').read_text())
+                if metadata.get('entries', 0) <= 0:
+                    raise RuntimeError('candidate builder returned an empty index')
+                # Publish the complete DB last. A running matcher must never read a partial file.
+                os.replace(temporary/'polar_context.yaml', directory/'polar_context.yaml')
+                os.replace(temporary/'polar_context.db', directory/'polar_context.db')
+                temporary.rmdir()
+                state.update(polar_context_entries=metadata['entries'],
+                    polar_context_db_sha256=hash_file(directory/'polar_context.db'),
+                    polar_context_source=provenance)
                 state['polar_context']='READY';state.pop('polar_context_error',None)
             except Exception as error:
                 state['polar_context']='FAILED';state['polar_context_error']=str(error)[:600]

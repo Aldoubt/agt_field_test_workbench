@@ -27,6 +27,8 @@ else
   cp "$REPO/dependencies/field_test.repos" "$ROOT/.repos"
 fi
 cp -an "$REPO/templates/config/." "$ROOT/config/"
+# Preserve operator-owned entrypoints; only install missing wrappers.
+cp -an "$REPO/templates/bin/." "$ROOT/"
 mkdir -p "$ROOT/calibration/bunker" "$ROOT/calibration/fwmini"
 cp -n "$REPO/agt_field_test_bringup/config/fwmini_mid360_candidate.yaml" \
   "$ROOT/calibration/fwmini/fwmini_mid360_candidate.yaml"
@@ -35,5 +37,8 @@ python3 "$REPO/scripts/fetch_locked.py"
 python3 "$REPO/scripts/apply_mapping_calibration.py"
 python3 "$REPO/scripts/apply_control_integration.py"
 python3 "$REPO/scripts/apply_sc_kiss_integration.py"
+python3 "$REPO/scripts/apply_control_integration.py" --manifest "$REPO/patches/navigation_perception_manifest.json"
+python3 "$REPO/scripts/apply_control_integration.py" --manifest "$REPO/patches/photo_mission_manifest.json"
+python3 "$REPO/scripts/apply_control_integration.py" --manifest "$REPO/patches/map_tracking_support_manifest.json"
 python3 "$REPO/scripts/audit.py" > "$ROOT/reports/dependency_audit.json"
 echo "Initialized $ROOT; next run scripts/build_humble.sh on Ubuntu 22.04/Humble."

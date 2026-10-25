@@ -16,6 +16,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from agt_field_test_bringup import profiles, calibration
+from agt_field_test_bringup.navigation_policy import require_navigation_calibration
 from agt_field_test_bringup.fwmini import load_profile, require_mode, robot_description, lio_configs
 from agt_field_test_bringup.livox import validate_mid360s_config
 
@@ -83,14 +84,15 @@ def _configure(context):
     if localization and not Path(value('global_map')).is_file():
         raise RuntimeError('enable_localization requires an existing global_map PCD')
     if navigation:
-        from pathlib import Path as _P
-        import sys
-        sys.path.insert(0,str(workspace/'src/agt_field_test_workbench'))
-        from workbench.safety import report as safety_report
-        nav_map=json.loads((Path(value('map_yaml')).parent/'manifest.json').read_text())
-        safety_report(value('safety_report'),robot,robot_profile['profile_sha256'],nav_map['sha256'],
-                      calibration.digest(bundle) if bundle else __import__('agt_field_test_bringup.fwmini',fromlist=['digest']).digest(profile))
-        if (bundle or profile)['status']!='VERIFIED':raise RuntimeError('VERIFIED mounting calibration required for navigation')
+        formal = require_navigation_calibration(value('navigation_mode'),
+            value('supervised').lower() == 'true', robot, bundle or profile)
+        if formal:
+            import sys
+            sys.path.insert(0,str(workspace/'src/agt_field_test_workbench'))
+            from workbench.safety import report as safety_report
+            nav_map=json.loads((Path(value('map_yaml')).parent/'manifest.json').read_text())
+            safety_report(value('safety_report'),robot,robot_profile['profile_sha256'],nav_map['sha256'],
+                          calibration.digest(bundle) if bundle else __import__('agt_field_test_bringup.fwmini',fromlist=['digest']).digest(profile))
     chassis_nodes=[]
     description_nodes=[]
     if robot == 'bunker':
@@ -240,6 +242,9 @@ def _configure(context):
         for chassis_node in chassis_nodes:
             nodes.append(RegisterEventHandler(OnProcessExit(target_action=chassis_node,on_exit=chassis_exit)))
     if navigation:
+        if value('navigation_mode') == 'field_test':
+            nodes.append(LogInfo(msg='FIELD TEST: using operator-accepted calibration; formal report not required. '
+                'Chassis feedback, command timeout, localization freshness and remote priority remain active.'))
         map_yaml = Path(value('map_yaml')).expanduser().resolve()
         manifest_path = map_yaml.parent / 'manifest.json'
         if map_yaml.name != 'map.yaml' or not manifest_path.is_file():
@@ -259,6 +264,7 @@ def _configure(context):
                 'device_path': value('camera_device_path'),
                 'port_name': value('gimbal_port_name'), 'gui': 'false'}))
         nodes.append(_include('agt_system_bringup', 'navigation.launch.py', {
+            'autostart': value('navigation_autostart'),
             'runtime_params_file':runtime_params,
             'map': str(map_yaml), 'map_id': manifest['id'], 'enable_inspection': 'false'}))
         if value('enable_inspection').lower() == 'true':
@@ -288,6 +294,8 @@ def generate_launch_description():
         DeclareLaunchArgument('robot_profile_file', default_value=''),
         DeclareLaunchArgument('calibration_bundle', default_value=''),
         DeclareLaunchArgument('safety_report', default_value=''),
+        DeclareLaunchArgument('navigation_mode', default_value='formal', choices=['formal', 'field_test']),
+        DeclareLaunchArgument('navigation_autostart', default_value='true'),
         DeclareLaunchArgument('livox_config', default_value=str(
             Path(get_package_share_directory('agt_field_test_bringup')) / 'config/MID360s_config.json')),
         DeclareLaunchArgument('enable_chassis', default_value='false'),

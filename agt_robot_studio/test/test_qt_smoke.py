@@ -116,6 +116,18 @@ class StudioSmoke(unittest.TestCase):
         self.assertIn('无反馈',window.chassis_state_label.text())
         self.assertIn('离线',window.odom_state_label.text())
 
+    def test_navigation_explains_current_stage_and_active_backend(self):
+        window = self.window()
+        window.live_status = {'session': {'task': 'localization', 'global_backend': 'sc_kiss'},
+            'localized': False, 'localization': {'fresh': True, 'local_odom_fresh': True,
+                                                'reason': 'waiting_global_pose'}}
+        window._update_live()
+        self.assertIn('点击“全局重定位”', window.localization_label.text())
+        self.assertIn('sc_kiss', window.localization_label.text())
+        window.live_status['localization']['reason'] = 'global_relocalization:wait_stationary'
+        window._update_live()
+        self.assertIn('等待静止反馈', window.localization_label.text())
+
     def test_generated_map_loads_into_editor_and_navigation_view(self):
         import tempfile
         from pathlib import Path

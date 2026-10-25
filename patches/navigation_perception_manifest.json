@@ -1,0 +1,20 @@
+{
+  "agt_navigation_v3": {
+    "commit": "b3a60487dff973c6326aca2ca2e9db1e78daeaaa",
+    "patch": "patches/navigation_self_masks.patch",
+    "files": {
+      "cleaning/agt_pointcloud_preprocessor/CMakeLists.txt": {
+        "before": "e42d875995653308204a6596348e06b6b32e4a75e424fdd8250602b12c3038e5",
+        "after": "bb5460e1ab3237ec8c71d95bd89c1a3e52c719af338888e9c5e46ec92e6a0bb3"
+      },
+      "cleaning/agt_pointcloud_preprocessor/package.xml": {
+        "before": "89b2a54f224015a07519c0fcfc50ebc1ddf97be8f9da5eb16b74b3924f920041",
+        "after": "389c66a102ea973117fabf9e88295a81ed56a2d5d3d5264fcc91c301a6d55f9c"
+      },
+      "cleaning/agt_pointcloud_preprocessor/src/obstacle_cloud_node.cpp": {
+        "before": "9870d8da316964ee45f2166a87d71461ad251271342d4ea9bee7b22be1125b9d",
+        "after": "8eb270fae19c722b746f7c15609aa6940cde50bbbe19f5e2e7e4bfeee76106bc"
+      }
+    }
+  }
+}

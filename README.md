@@ -45,3 +45,9 @@ bash scripts/run_workbench.sh
 
 三视图实时工作台、C1 采集、组件独立生命周期与地图差异人工审核的实现、测试结果和上车验收顺序见
 [交付记录](docs/field_automation_20261024_delivery.md)。真实硬件验收状态为 `HARDWARE_VERIFIED: NOT_RUN`。
+
+## 命令行与 RViz 现场入口
+
+保留分终端启动：见 [CLI 导航](docs/cli_rviz_field_trial.md)、[多点云台拍照](docs/rviz_photo_tasks.md)、[距离精度测试](docs/accuracy_and_photo_tasks.md)。`./field_photo start` 仅在操作者明确执行时触发队列任务。
+
+[长距离导航阶段快照与测试边界](docs/evidence/long_distance_navigation_20261025/README.md)。依赖保持锁定，现场修复由 patches/ 中带 SHA 校验的补丁重放。

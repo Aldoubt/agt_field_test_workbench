@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QMainWindow, QVBoxLayout, QH
     QFormLayout, QScrollArea)
 from .map_io import occupancy_to_gray, save_nav2_map
 from .workbench_client import ApiWorker, WorkbenchClient
+from .workflow import localization_progress, session_error_detail
 from .tri_views import TriViewWorkbench
 
 DEFAULT_CONFIG = {
@@ -814,6 +815,8 @@ class Studio(QMainWindow):
     def _page_navigation(self):
         l=self._page_shell(scroll=True);l.addWidget(text_label('定位与自主导航','title'))
         c=card(l,'1. 地图与定位后端')
+        hint=text_label('步骤：设备页启动传感器、连接底盘 → 选图启动定位 → 停车并点击全局重定位 → 已定位后启动导航。\n正式导航还要求已验证标定和匹配的实车验收报告。')
+        hint.setWordWrap(True);c.addWidget(hint)
         row=QHBoxLayout();c.addLayout(row);self.nav_map_box=QComboBox();row.addWidget(self.nav_map_box,1)
         self.nav_map_box.activated.connect(self.select_navigation_map)
         self.lio_backend_box=QComboBox()
@@ -1082,7 +1085,9 @@ class Studio(QMainWindow):
         if not ok:
             self.write_log(f'{name}: {value}')
             if name=='session_stop':self.pending_session=None
-            if not name.startswith('refresh_'):QMessageBox.warning(self,'操作未完成',str(value))
+            if not name.startswith('refresh_'):
+                detail=session_error_detail(value) if name.startswith('session_') or name=='goal' else str(value)
+                QMessageBox.warning(self,'操作未完成',detail)
             if name in ('session_sensors','mapping_start'):self.mapping_state.setText('启动失败')
             if name in ('camera_start','camera_stop'):
                 self.camera_status_label.setText('云台操作失败：'+str(value)[:140])
@@ -1412,12 +1417,13 @@ class Studio(QMainWindow):
     def _update_live(self):
         session=self.live_status.get('session')
         localized=bool(self.live_status.get('localized'))
-        self.localization_label.setText('● 已定位' if localized else '● 未定位 / 重定位中')
         self.localization_label.setStyleSheet('color:#65c7a9' if localized else 'color:#e8b178')
-        algorithm=(session or {}).get('global_backend','bbs')
+        algorithm=(session or {}).get('global_backend') or self.global_backend_box.currentData()
         metrics=self.live_status.get('global_relocalization') or {}
-        self.localization_label.setText(('● 已定位' if localized else '● 未定位')+' · '+algorithm+
-            f" · 耗时 {metrics.get('total_elapsed_sec','--')} s · Fitness {metrics.get('fitness','--')} · Overlap {metrics.get('overlap','--')} · "+str(metrics.get('detail',''))[:180])
+        self.localization_label.setText(localization_progress(self.live_status)+' · '+str(algorithm))
+        self.localization_label.setToolTip(
+            f"耗时 {metrics.get('total_elapsed_sec','--')} s · Fitness {metrics.get('fitness','--')} · "
+            f"Overlap {metrics.get('overlap','--')} · "+str(metrics.get('detail','')))
         pose=self.live_status.get('pose')
         self.pose_label.setText(f"base_link：X={pose['x']:.2f}  Y={pose['y']:.2f}  Yaw={math.degrees(pose['yaw']):.1f}°" if pose else 'base_link 当前位置：未知')
         mission=self.live_status.get('mission')

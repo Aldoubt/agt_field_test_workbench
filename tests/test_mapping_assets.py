@@ -3,6 +3,7 @@ import hashlib
 import json
 import tempfile
 from pathlib import Path
+import pytest
 
 from workbench.artifacts import Clouds
 from workbench.maps import Maps, hash_file, asset_summary, relocalization_assets
@@ -87,7 +88,12 @@ def test_build_assets_generates_sc_and_candidate_bbs_from_same_source(tmp_path):
             (output/'global_map_downsampled.pcd').write_bytes(b'downsampled')
         elif command[:4]==['ros2','run','agt_global_relocalization_native','build_relocalization_candidates']:
             output=Path(command[command.index('--output')+1])
+            compatible=Path(command[command.index('--map-dir')+1])
+            assert (compatible/'poses.txt').read_text() == '000000.pcd 0 0 0 1 0 0 0\n'
+            assert (compatible/'patches/000000.pcd').read_bytes() == b'body-frame keyframe'
+            output.mkdir(parents=True)
             (output/'polar_context.db').write_bytes(b'candidate-index')
+            (output/'polar_context.yaml').write_text('entries: 1\n')
         elif command[0]=='python3' and command[1].endswith('build_sc_database.py'):
             output=Path(command[command.index('--output')+1]);output.mkdir(parents=True)
             descriptor=output/'descriptors.npz';descriptor.write_bytes(b'descriptor-fixture')
@@ -109,3 +115,41 @@ def test_build_assets_generates_sc_and_candidate_bbs_from_same_source(tmp_path):
     assert Path(state['sc_database']).is_dir()
     assert any('build_relocalization_candidates' in command for command in calls)
     assert any(command[0]=='python3' and command[1].endswith('build_sc_database.py') for command in calls)
+
+
+@pytest.mark.parametrize('failure', ['interrupted', 'empty_index'])
+def test_candidate_failure_never_publishes_partial_database(tmp_path, failure):
+    folder, pcd = cloud_fixture(tmp_path)
+    keyframes = tmp_path/'keyframes'
+    (keyframes/'patches').mkdir(parents=True)
+    poses = keyframes/'poses_timed.txt'
+    poses.write_text('000000.pcd 1.0 0 0 0 1 0 0 0\n')
+    (keyframes/'patches/000000.pcd').write_bytes(b'original patch')
+    cloud = json.loads((folder/'manifest.json').read_text())
+    cloud['sc_keyframes'] = str(keyframes)
+    (folder/'manifest.json').write_text(json.dumps(cloud))
+    assets = folder/'relocalization'
+    (assets/'voxelmaps_coords').mkdir(parents=True)
+    (assets/'global_map_downsampled.pcd').write_bytes(b'existing voxel asset')
+    source_sha = hash_file(pcd)
+    poses_sha = hash_file(poses)
+    (assets/'asset_status.json').write_text(json.dumps({
+        'source_sha256': source_sha, 'state': 'READY', 'bbs': 'READY'}))
+
+    def failed_builder(command, timeout):
+        assert command[3] == 'build_relocalization_candidates'
+        output = Path(command[command.index('--output')+1])
+        output.mkdir()
+        (output/'polar_context.db').write_bytes(b'incomplete index')
+        if failure == 'interrupted':
+            raise RuntimeError('candidate builder interrupted')
+        (output/'polar_context.yaml').write_text('entries: 0\n')
+
+    result = Clouds(tmp_path, runner=failed_builder).build_assets(folder.name)
+    assert result['bbs'] == 'READY'
+    assert result['polar_context'] == 'FAILED'
+    assert ('interrupted' if failure == 'interrupted' else 'empty index') in result['polar_context_error']
+    assert not (assets/'polar_context.db').exists()
+    assert not (assets/'polar_context.yaml').exists()
+    assert hash_file(pcd) == source_sha and hash_file(poses) == poses_sha
+    assert (assets/'global_map_downsampled.pcd').read_bytes() == b'existing voxel asset'
