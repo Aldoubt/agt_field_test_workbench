@@ -106,6 +106,6 @@ def test_build_assets_generates_sc_and_candidate_bbs_from_same_source(tmp_path):
     assert state['state']=='READY' and state['bbs']=='READY'
     assert state['polar_context']=='READY'
     assert state['scan_context']=='READY'
-    assert Path(state['sc_database']).is_file()
+    assert Path(state['sc_database']).is_dir()
     assert any('build_relocalization_candidates' in command for command in calls)
     assert any(command[0]=='python3' and command[1].endswith('build_sc_database.py') for command in calls)

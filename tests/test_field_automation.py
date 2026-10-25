@@ -125,12 +125,15 @@ def test_diff_artifact_tamper_blocks_preview_and_acceptance(tmp_path):
     with pytest.raises(ValueError,match='report SHA'):maps.set_status(ident,'ACCEPTED','must reject tampered report')
 
 
-def test_grid_geometry_edit_invalidates_old_localization_assets(tmp_path):
+def test_grid_pixel_edit_preserves_localization_assets(tmp_path):
     maps=Maps(tmp_path);base=make_map(maps,tmp_path,'base',[254]*6,'ACCEPTED')
     edited=maps.revise(base['id'],base64.b64encode(bytes([0,254,254,254,254,254])))
-    assert edited['source_pcd'] is None and edited['localization_geometry_valid'] is False
-    with pytest.raises(ValueError,match='matching localization PCD'):
-        maps.set_status(edited['id'],'ACCEPTED','grid changed in synthetic test')
+    assert edited['source_pcd']==base['source_pcd']
+    assert edited['source_pcd_sha256']==base['source_pcd_sha256']
+    assert edited['localization_geometry_valid'] is True
+    assert edited['navigation_grid_edited'] is True
+    accepted=maps.set_status(edited['id'],'ACCEPTED','operator reviewed planner grid edit')
+    assert accepted['status']=='ACCEPTED'
 
 
 class MemoryJobs:
@@ -209,6 +212,12 @@ def test_navigation_reuses_driver_localization_and_transfers_guard(sensors,monke
     checks={k:True for k in ('wiring','physical_estop','remote_takeover','clear_area','supervised')}
     manager.start(dict(robot='bunker',task='manual',checks=checks))
     maps=Maps(manager.root);m=make_map(maps,manager.root,'base',[254]*6,'ACCEPTED')
+    assets=Path(m['source_pcd']).parent/'relocalization'
+    (assets/'voxelmaps_coords').mkdir(parents=True)
+    (assets/'global_map_downsampled.pcd').write_bytes(b'downsampled')
+    (assets/'polar_context.db').write_bytes(b'candidate-index')
+    (assets/'asset_status.json').write_text(json.dumps({
+        'state':'READY','bbs':'READY','source_sha256':m['source_pcd_sha256']}))
     localization=jobs._new('field_session',[],dict(robot='bunker',task='localization'))
     current=dict(manager.current(),task='localization',job_id=localization['id'],map_id=m['id'],
         map_sha256=m['sha256'],localization_pcd_sha256=m['source_pcd_sha256'],
@@ -216,8 +225,8 @@ def test_navigation_reuses_driver_localization_and_transfers_guard(sensors,monke
     write_json(manager.root/'work/current_session.json',current)
     # Scope: lifecycle wiring only. Physical evidence is deliberately mocked here.
     monkeypatch.setattr(session.calibration,'load',lambda *a:dict(status='VERIFIED'))
-    monkeypatch.setattr(session,'report',lambda *a:dict(path='/synthetic/physical-report.json'))
-    job=manager.start(dict(robot='bunker',task='navigation',map_id=m['id'],lio_backend='fastlio2',checks=checks))
+    monkeypatch.setattr(session,'report',lambda *a,**k:dict(path='/synthetic/physical-report.json'))
+    job=manager.start(dict(robot='bunker',task='navigation',map_id=m['id'],global_backend='bbs',lio_backend='fastlio2',checks=checks))
     assert job['kind']=='navigation_component'
     assert 'external_localization:=true' in job['command'] and 'enable_chassis:=false' in job['command']
     assert 'enable_description:=false' in job['command'] and 'enable_camera_gimbal:=false' in job['command']

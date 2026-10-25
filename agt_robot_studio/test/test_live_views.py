@@ -111,9 +111,9 @@ def test_stop_request_bypasses_long_asset_http_request(app):
 def test_two_real_backend_choices_and_sc_database_payload(app):
     window=Studio(DEFAULT_CONFIG,demo=True)
     try:
-        assert [window.global_backend_box.itemData(i) for i in range(window.global_backend_box.count())]==['bbs','sc_kiss']
-        assert window._session_payload('localization','map-1')['global_backend']=='bbs'
-        window.global_backend_box.setCurrentIndex(1);window.sc_database_edit.setText('/data/agri/scan_context')
+        assert [window.global_backend_box.itemData(i) for i in range(window.global_backend_box.count())]==['sc_kiss','bbs']
+        assert window._session_payload('localization','map-1')['global_backend']=='sc_kiss'
+        window.global_backend_box.setCurrentIndex(0);window.sc_database_edit.setText('/data/agri/scan_context')
         payload=window._session_payload('localization','map-1')
         assert payload['global_backend']=='sc_kiss' and payload['sc_database']=='/data/agri/scan_context'
     finally:window.close()
