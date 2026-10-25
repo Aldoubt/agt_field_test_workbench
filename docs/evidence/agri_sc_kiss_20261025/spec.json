@@ -1,0 +1,22 @@
+{
+  "query_frame": "mapping_body",
+  "map": "/workspace/work/agri-ab-final/synthetic_fixture/map.pcd",
+  "database": "/workspace/work/agri-ab-final/synthetic_fixture/scan_context",
+  "lio_config": "/workspace/work/agri-ab-final/synthetic_fixture/lio.yaml",
+  "queries": [
+    {
+      "pcd": "/workspace/work/agri-ab-final/synthetic_fixture/query.pcd",
+      "roll": -0.05,
+      "pitch": 0.08,
+      "truth_kind": "SYNTHETIC_KNOWN_SE3",
+      "truth": {
+        "xyz": [
+          85.0,
+          10.0,
+          0.3
+        ],
+        "yaw": 0.6283185307179586
+      }
+    }
+  ]
+}

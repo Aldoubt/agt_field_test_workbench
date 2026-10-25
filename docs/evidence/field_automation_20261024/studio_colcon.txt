@@ -1,0 +1,48 @@
+Starting >>> agt_robot_studio
+running egg_info
+writing ../../humble-ws/build/agt_robot_studio/agt_robot_studio.egg-info/PKG-INFO
+writing dependency_links to ../../humble-ws/build/agt_robot_studio/agt_robot_studio.egg-info/dependency_links.txt
+writing entry points to ../../humble-ws/build/agt_robot_studio/agt_robot_studio.egg-info/entry_points.txt
+writing requirements to ../../humble-ws/build/agt_robot_studio/agt_robot_studio.egg-info/requires.txt
+writing top-level names to ../../humble-ws/build/agt_robot_studio/agt_robot_studio.egg-info/top_level.txt
+reading manifest file '../../humble-ws/build/agt_robot_studio/agt_robot_studio.egg-info/SOURCES.txt'
+writing manifest file '../../humble-ws/build/agt_robot_studio/agt_robot_studio.egg-info/SOURCES.txt'
+running build
+running build_py
+copying agt_robot_studio/ui.py -> /workspace/work/humble-ws/build/agt_robot_studio/build/lib/agt_robot_studio
+running install
+running install_lib
+copying /workspace/work/humble-ws/build/agt_robot_studio/build/lib/agt_robot_studio/ui.py -> /workspace/work/humble-ws/install/agt_robot_studio/lib/python3.10/site-packages/agt_robot_studio
+byte-compiling /workspace/work/humble-ws/install/agt_robot_studio/lib/python3.10/site-packages/agt_robot_studio/ui.py to ui.cpython-310.pyc
+running install_data
+running install_egg_info
+removing '/workspace/work/humble-ws/install/agt_robot_studio/lib/python3.10/site-packages/agt_robot_studio-0.2.0-py3.10.egg-info' (and everything under it)
+Copying ../../humble-ws/build/agt_robot_studio/agt_robot_studio.egg-info to /workspace/work/humble-ws/install/agt_robot_studio/lib/python3.10/site-packages/agt_robot_studio-0.2.0-py3.10.egg-info
+running install_scripts
+Installing agt_robot_studio script to /workspace/work/humble-ws/install/agt_robot_studio/lib/agt_robot_studio
+writing list of installed files to '/workspace/work/humble-ws/build/agt_robot_studio/install.log'
+Finished <<< agt_robot_studio [0.59s]
+
+Summary: 1 package finished [0.75s]
+Starting >>> agt_robot_studio
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-6.2.5, py-1.10.0, pluggy-0.13.0
+cachedir: /workspace/work/humble-ws/build/agt_robot_studio/.pytest_cache
+rootdir: /workspace/work/agt_field_test_workbench/agt_robot_studio
+plugins: launch-testing-1.0.15, ament-lint-0.12.15, ament-flake8-0.12.15, ament-xmllint-0.12.15, ament-copyright-0.12.15, launch-testing-ros-0.19.14, ament-pep257-0.12.15, colcon-core-0.21.3
+collected 32 items
+
+test/test_core.py ...                                                    [  9%]
+test/test_live_views.py .......                                          [ 31%]
+test/test_motion_boundaries.py ...                                       [ 40%]
+test/test_qt_smoke.py .................                                  [ 93%]
+test/test_studio_flow.py ..                                              [100%]
+
+- generated xml file: /workspace/work/humble-ws/build/agt_robot_studio/pytest.xml -
+============================== 32 passed in 1.29s ==============================
+Finished <<< agt_robot_studio [1.81s]
+
+Summary: 1 package finished [1.98s]
+build/agt_robot_studio/pytest.xml: 32 tests, 0 errors, 0 failures, 0 skipped
+
+Summary: 32 tests, 0 errors, 0 failures, 0 skipped

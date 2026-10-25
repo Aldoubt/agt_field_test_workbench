@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export AGT_FIELD_TEST_WS="$ROOT"
+exec bash "$ROOT/src/agt_field_test_workbench/scripts/field_trial.sh" "$@"

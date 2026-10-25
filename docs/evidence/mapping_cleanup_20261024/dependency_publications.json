@@ -1,0 +1,31 @@
+[
+  {
+    "repository": "https://github.com/Aldoubt/agt-lio-pgo-mapping",
+    "branch": "fix/field-map-cleanup-20261024",
+    "base_commit": "62e80002cf2db12fce8332688dc63f4a94b87f12",
+    "commit": "be2d1c16c1c38f878eec903e3ae5cd3da868f2a7",
+    "files_sha256": {
+      "bringup/agt_mapping_bringup/agt_mapping_bringup/live_launch.py": "64240ebe9b23971f30dabb386688aa7a5a33b92b5d0dc945c6451cbd2d54492b",
+      "bringup/agt_mapping_bringup/agt_mapping_bringup/session_launch.py": "fd7a0625da99d1ee4f30dbc1db5dab98dc1afe7d24bab01756167463aa09e74c",
+      "exporters/agt_pcd2grid_exporter/include/agt_pcd2grid_exporter/TraversabilityGridBuilder.hpp": "c542bb99f97ff23c2fc2fb7a9a4ceb48c0729ee3197f1da7b9b294aa123e600b",
+      "exporters/agt_pcd2grid_exporter/src/TraversabilityGridBuilder.cpp": "7e03314aafdc8d7e5030e5ea72eb344d9298e5bcebeb3bacdcecaf49a8019bfd",
+      "exporters/agt_pcd2grid_exporter/src/main.cpp": "c830cf296bd1065126ac6a484e92309826d77710ea0d7ba026f00693bd55aa05",
+      "exporters/agt_pcd2grid_exporter/test/test_traversability.cpp": "1aa1560c2f309540c65b6ef50d188b49d570e7778134650bab23d466bdd3adb5"
+    },
+    "checkout_preserved": true
+  },
+  {
+    "repository": "https://github.com/Aldoubt/fast-lio2",
+    "branch": "fix/field-mapping-jacobian-20261024",
+    "base_commit": "7f664a66ae7b3b683dddf7f5322c1ea55a3c8141",
+    "commit": "187f8446cce0d91248708e820cef7cb89bc7335f",
+    "files_sha256": {
+      "fastlio2/CMakeLists.txt": "2bafcfbc7fc83d150204fa25fd2f55bddd3f3de34906b7c7136416b4652663c6",
+      "fastlio2/src/lio_node.cpp": "f0ca8af4851152a3134d3a55173ff9ba96fd7693ead6a682fb751485f4210fde",
+      "fastlio2/src/map_builder/lidar_processor.cpp": "ce456bdeeaa8352d2843f5cc3719cde523960fb9006314522ebef77373618cb8",
+      "fastlio2/src/map_builder/point_plane_jacobian.h": "847a02b4dc878843c901bf11cc889663a147e2febd76cb7f3f4be4cf2ce14f02",
+      "fastlio2/test/test_point_plane_jacobian.cpp": "3f7d0ccce24116516c2ab93e08f03f36918c79424776940c8c70f8c509d8e922"
+    },
+    "checkout_preserved": true
+  }
+]

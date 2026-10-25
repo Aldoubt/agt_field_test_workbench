@@ -1,0 +1,20 @@
+{
+  "agt_navigation_v3": {
+    "commit": "b3a60487dff973c6326aca2ca2e9db1e78daeaaa",
+    "patch": "patches/sc_kiss_runtime.patch",
+    "files": {
+      "bringup/agt_system_bringup/launch/localization.launch.py": {
+        "before": "fa8360e4652447d7c29f54d52b4801c8938d978a67f6222ce21e80f2915d1cb3",
+        "after": "accf91a2efdcaa8e659427aacb20087a7f411d3a1213a03f20d3a37a2fae1382"
+      },
+      "navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py": {
+        "before": "bea0b175ca2b10e38c763d1ae14a8e25fe26fc293ec9920b9a3b4535cab3c8fc",
+        "after": "96ac7babe6c8fe3e1b50c0d6f6561f47734b3bad02e44028a0817d2d1bf977fc"
+      },
+      "navigation/localization/agt_global_relocalization/launch/global_relocalization.launch.py": {
+        "before": "024399d8e479b77ccdcdf8c7b0ceb781be3234827d85e3b97057e7795bfa42cd",
+        "after": "0dfc3bc5955c4ce07838dada062aca9d720f69cab4214134166b26bb3881c739"
+      }
+    }
+  }
+}

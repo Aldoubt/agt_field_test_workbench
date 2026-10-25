@@ -43,6 +43,20 @@ def load(path,robot=None):
 def description(p,backend='fastlio2'):
     root=ET.Element('robot',name=p['robot']+'_selected_calibration')
     for link in ('base_footprint','base_link','lidar_link','livox_frame','imu_link'):ET.SubElement(root,'link',name=link)
+    if p['robot']=='bunker':
+        # Reuse the existing CAD visuals without adding joints or replacing the
+        # selected calibration. The CAD datum is a visual origin, not a TF.
+        from ament_index_python.packages import get_package_share_directory
+        share=Path(get_package_share_directory('tracked_chassis_description'))
+        cad=yaml.safe_load((share/'config/field_acceptance.yaml').read_text())['base_link_to_cad']
+        for link,mesh,xyz,rpy,color in (
+                ('base_link','chassis_cad.stl',cad['xyz'],cad['rpy'],'0.72 0.72 0.72 1'),
+                ('lidar_link','mid360_cad.stl',[0,0,0],[0,0,0],'0.12 0.12 0.12 1')):
+            visual=ET.SubElement(root.find(f"link[@name='{link}']"),'visual')
+            ET.SubElement(visual,'origin',xyz=' '.join(map(str,xyz)),rpy=' '.join(map(str,rpy)))
+            geometry=ET.SubElement(visual,'geometry')
+            ET.SubElement(geometry,'mesh',filename='package://tracked_chassis_description/meshes/'+mesh)
+            ET.SubElement(ET.SubElement(visual,'material',name=link+'_visual'),'color',rgba=color)
     def joint(parent,child,xyz,rpy):
         j=ET.SubElement(root,'joint',name=parent+'_to_'+child,type='fixed')
         ET.SubElement(j,'parent',link=parent);ET.SubElement(j,'child',link=child)

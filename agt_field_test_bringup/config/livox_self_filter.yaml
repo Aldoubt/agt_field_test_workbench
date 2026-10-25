@@ -1,0 +1,21 @@
+# Reuse AGT's agt_pointcloud_core RangeFilter + BoxFilter; preserve Livox CustomMsg timing.
+# The box is in base_link coordinates, identical to the pinned mapping profile
+# agt_pointcloud_pipeline/config/profiles/mapping.yaml. Re-measure for MID360S.
+field_livox_self_filter:
+  ros__parameters:
+    input_topic: /field/aligned/lidar
+    output_topic: /field/self_filtered/lidar
+    status_topic: /mapping/self_filter/status
+    target_frame: base_link
+    range_min_m: 0.5
+    range_max_m: 120.0
+    x_min: -0.56
+    x_max: 0.56
+    y_min: -0.44
+    y_max: 0.44
+    z_min: -0.10
+    z_max: 0.45
+    max_removed_fraction: 0.30
+    min_remaining_points: 1000
+    max_end_time_trim_ns: 1000000  # Never shift LIO/IMU scan-end window by >1 ms
+    tf_timeout_sec: 0.03

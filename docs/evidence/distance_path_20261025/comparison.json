@@ -1,0 +1,30 @@
+{
+  "start_xy": [
+    18.32984406903221,
+    -9.19715455823585
+  ],
+  "goal_xy": [
+    23.30688544798263,
+    -9.675755761969489
+  ],
+  "global_costmap_direct_line_cost": 0,
+  "baseline": {
+    "status": 4,
+    "elapsed_sec": 0.1913094619999356,
+    "points": 101,
+    "max_lateral_m": 0.13507968115330285,
+    "length_m": 5.091776407794694
+  },
+  "distance_profile": {
+    "status": 4,
+    "elapsed_sec": 0.06322596700010763,
+    "points": 101,
+    "max_lateral_m": 0.02158980118933564,
+    "length_m": 5.024937885437854
+  },
+  "recorded_lio_lateral_min_max_m": [
+    -0.07994559573409818,
+    0.13171636987809424
+  ],
+  "physical_retest": "NOT_RUN"
+}

@@ -1,0 +1,37 @@
+{
+  "livox_ros_driver2": {
+    "state": "NOT_INSTALLED"
+  },
+  "agt_pointcloud_core": {
+    "state": "NOT_INSTALLED"
+  },
+  "yhs_can_interfaces": {
+    "state": "NOT_INSTALLED"
+  },
+  "bunker_msgs": {
+    "state": "NOT_INSTALLED"
+  },
+  "agt_fastlio_adapter": {
+    "state": "NOT_INSTALLED"
+  },
+  "camera_gimbal_interfaces": {
+    "state": "INSTALLED",
+    "prefix": "/workspace/work/humble-ws/install/camera_gimbal_interfaces"
+  },
+  "pantilt_camera_serial": {
+    "state": "INSTALLED",
+    "prefix": "/workspace/work/humble-ws/install/pantilt_camera_serial"
+  },
+  "camera_gimbal_capability": {
+    "state": "INSTALLED",
+    "prefix": "/workspace/work/humble-ws/install/camera_gimbal_capability"
+  },
+  "agt_robot_studio": {
+    "state": "INSTALLED",
+    "prefix": "/workspace/work/humble-ws/install/agt_robot_studio"
+  },
+  "agt_robot_interfaces": {
+    "state": "INSTALLED",
+    "prefix": "/workspace/work/humble-ws/install/agt_robot_interfaces"
+  }
+}

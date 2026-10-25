@@ -2,10 +2,10 @@
 """Optional isolated Python backend build; main workspace build never depends on it."""
 import hashlib,json,os,shutil,subprocess,sys,tarfile,urllib.request
 from pathlib import Path
-REPO=Path(__file__).resolve().parents[1];ROOT=REPO.parent.parent
+REPO=Path(__file__).resolve().parents[1];ROOT=Path(os.environ.get('AGT_FIELD_TEST_WS',str(REPO.parent.parent)))
 lock=json.loads((REPO/'dependencies/kiss_python_build.json').read_text());work=ROOT/'work/kiss_locked';work.mkdir(parents=True,exist_ok=True)
 def run(cmd,**kw):subprocess.run(list(map(str,cmd)),check=True,**kw)
-source=ROOT/'src/external/kiss_matcher'
+source=(ROOT/'src/external/kiss_matcher').resolve()
 if subprocess.check_output(['git','-c','safe.directory='+str(source),'-C',str(source),'rev-parse','HEAD'],text=True).strip()!=lock['kiss_matcher_sha']:raise SystemExit('unexpected KISS source revision')
 pybind=work/'pybind11'
 if not pybind.exists():

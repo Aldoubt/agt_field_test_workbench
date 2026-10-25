@@ -1,0 +1,86 @@
+Starting >>> agt_sc_kiss
+-- Found ament_cmake: 1.3.14 (/opt/ros/humble/share/ament_cmake/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter Development Development.Module Development.Embed
+-- Found pybind11: /usr/include (found version "2.9.1")
+-- Eigen found (include: /usr/include/eigen3, version: 3.4.0)
+-- OpenNI found (version: 1.5.4.0, include: /usr/include/ni, lib: /usr/lib/libOpenNI.so;libusb::libusb)
+-- OpenNI2 found (version: 2.2.0.33, include: /usr/include/openni2, lib: /usr/lib/x86_64-linux-gnu/libOpenNI2.so;libusb::libusb)
+** WARNING ** io features related to pcap will be disabled
+** WARNING ** io features related to png will be disabled
+-- Eigen found (include: /usr/include/eigen3, version: 3.4.0)
+-- looking for PCL_COMMON
+-- looking for PCL_OCTREE
+-- looking for PCL_IO
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /workspace/work/agri-ws/build/agt_sc_kiss
+[ 33%] Building CXX object CMakeFiles/_scancontext.dir/src/bindings.cpp.o
+[ 66%] Building CXX object CMakeFiles/_scancontext.dir/scancontext/Scancontext.cpp.o
+[ 66%] Built target ament_cmake_python_copy_agt_sc_kiss
+running egg_info
+creating agt_sc_kiss.egg-info
+writing agt_sc_kiss.egg-info/PKG-INFO
+writing dependency_links to agt_sc_kiss.egg-info/dependency_links.txt
+writing top-level names to agt_sc_kiss.egg-info/top_level.txt
+writing manifest file 'agt_sc_kiss.egg-info/SOURCES.txt'
+reading manifest file 'agt_sc_kiss.egg-info/SOURCES.txt'
+writing manifest file 'agt_sc_kiss.egg-info/SOURCES.txt'
+[ 66%] Built target ament_cmake_python_build_agt_sc_kiss_egg
+/workspace/work/agri-ws/build/agt_sc_kiss/scancontext/Scancontext.cpp: In function ‘float xy2theta(const float&, const float&)’:
+/workspace/work/agri-ws/build/agt_sc_kiss/scancontext/Scancontext.cpp:36:1: warning: control reaches end of non-void function [-Wreturn-type]
+   36 | } // xy2theta
+      | ^
+[100%] Linking CXX shared module _scancontext.cpython-310-x86_64-linux-gnu.so
+lto-wrapper: warning: using serial compilation of 3 LTRANS jobs
+[100%] Built target _scancontext
+-- Install configuration: "Release"
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/environment/pythonpath.sh
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/environment/pythonpath.dsv
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss-0.1.0-py3.10.egg-info
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss-0.1.0-py3.10.egg-info/PKG-INFO
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss-0.1.0-py3.10.egg-info/SOURCES.txt
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss-0.1.0-py3.10.egg-info/dependency_links.txt
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss-0.1.0-py3.10.egg-info/top_level.txt
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/localizer.py
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/__init__.py
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/geometry.py
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/runtime.py
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/database.py
+Listing '/workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss'...
+Compiling '/workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/__init__.py'...
+Compiling '/workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/database.py'...
+Compiling '/workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/geometry.py'...
+Compiling '/workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/localizer.py'...
+Compiling '/workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/runtime.py'...
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/local/lib/python3.10/dist-packages/agt_sc_kiss/_scancontext.cpython-310-x86_64-linux-gnu.so
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/lib/agt_sc_kiss/sc_kiss_localizer
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/NOTICE.md
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/ament_index/resource_index/package_run_dependencies/agt_sc_kiss
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/ament_index/resource_index/parent_prefix_path/agt_sc_kiss
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/environment/ament_prefix_path.sh
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/environment/ament_prefix_path.dsv
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/environment/path.sh
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/environment/path.dsv
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/local_setup.bash
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/local_setup.sh
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/local_setup.zsh
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/local_setup.dsv
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/package.dsv
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/ament_index/resource_index/packages/agt_sc_kiss
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/cmake/agt_sc_kissConfig.cmake
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/cmake/agt_sc_kissConfig-version.cmake
+-- Installing: /workspace/work/agri-ws/install/agt_sc_kiss/share/agt_sc_kiss/package.xml
+--- stderr: agt_sc_kiss
+** WARNING ** io features related to pcap will be disabled
+** WARNING ** io features related to png will be disabled
+/workspace/work/agri-ws/build/agt_sc_kiss/scancontext/Scancontext.cpp: In function ‘float xy2theta(const float&, const float&)’:
+/workspace/work/agri-ws/build/agt_sc_kiss/scancontext/Scancontext.cpp:36:1: warning: control reaches end of non-void function [-Wreturn-type]
+   36 | } // xy2theta
+      | ^
+lto-wrapper: warning: using serial compilation of 3 LTRANS jobs
+---
+Finished <<< agt_sc_kiss [13.5s]
+
+Summary: 1 package finished [13.6s]
+  1 package had stderr output: agt_sc_kiss

@@ -25,7 +25,11 @@ def git(path, *args):
 def main():
     import yaml
     manifest = yaml.safe_load((ROOT / '.repos').read_text())['repositories']
-    control_patches = json.loads((Path(__file__).resolve().parents[1] / 'patches/control_manifest.json').read_text())
+    control_patches={}
+    for name in ('control','frontend','map_cleanup','sc_kiss','navigation_perception','photo_mission','map_tracking_support','ugv_protocol_lifetime'):
+        entries=json.loads((Path(__file__).resolve().parents[1]/f'patches/{name}_manifest.json').read_text())
+        for relative,spec in entries.items():
+            control_patches.setdefault(relative,dict(files={}))['files'].update(spec['files'])
     repos = []
     packages = {}
     for relative, spec in manifest.items():
@@ -40,8 +44,12 @@ def main():
             patched = patched or (relative == 'external/kiss_matcher' and
                 {line[3:] for line in changes} == {'COLCON_IGNORE'} and (path/'COLCON_IGNORE').read_bytes() == b'')
             control_spec = control_patches.get(relative, {})
+            # Reviewed patches may add a header or regression test. Git's
+            # default porcelain groups those as untracked directories.
+            control_changes = (set(git(path, 'diff', '--name-only', 'HEAD').splitlines()) |
+                               set(git(path, 'ls-files', '--others', '--exclude-standard').splitlines())) if control_spec else set()
             patched = patched or (bool(control_spec) and
-                {line[3:] for line in changes} == set(control_spec['files']) and
+                control_changes == set(control_spec['files']) and
                 all(hashlib.sha256((path/name).read_bytes()).hexdigest() == hashes['after']
                     for name, hashes in control_spec['files'].items()))
             generated_livox = (relative == 'external/livox_ros_driver2' and

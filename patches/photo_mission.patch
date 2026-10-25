@@ -1,0 +1,199 @@
+diff --git a/navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/mission_runtime.py b/navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/mission_runtime.py
+index 222e65d..2e1fef8 100644
+--- a/navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/mission_runtime.py
++++ b/navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/mission_runtime.py
+@@ -4,6 +4,7 @@ import threading
+ import time
+ import json
+ import math
++from pathlib import Path
+ from collections import deque
+ 
+ import rclpy
+@@ -27,6 +28,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
+ from agt_robot_interfaces.action import ExecuteInspectionMission
+ from agt_robot_interfaces.msg import MissionStatus
+ from camera_gimbal_interfaces.action import AcquireView
++from pantilt_camera_serial.action import MovePantilt
+ 
+ from .mission_schema import load_mission
+ from .record_writer import RecordWriter
+@@ -76,6 +78,10 @@ class MissionRuntime(Node):
+             'goal_response_timeout_sec': 5.0, 'cancel_confirm_timeout_sec': 5.0,
+             'runtime_poll_interval_sec': 0.05,
+             'nav_action': '/navigate_to_pose',
++            'nav_behavior_tree': '',
++            'recenter_after_capture': False,
++            'move_pantilt_action': '/pantilt_camera_serial0/move_pantilt',
++            'gimbal_action_timeout_sec': 12.0, 'gimbal_server_timeout_sec': 3.0,
+             'acquire_view_action': '/camera_gimbal/acquire_view',
+             'navsat_topic': '/ins/navsatfix',
+             'local_odom_topic': '/agt/odometry/local',
+@@ -97,7 +103,12 @@ class MissionRuntime(Node):
+         for name, value in defaults.items():
+             self.declare_parameter(name, value)
+ 
++        nav_tree = str(self.get_parameter('nav_behavior_tree').value)
++        if nav_tree and not Path(nav_tree).is_file():
++            raise ValueError(f'nav_behavior_tree does not exist: {nav_tree}')
++
+         for name in ('nav_action_timeout_sec', 'camera_action_timeout_sec',
++                     'gimbal_action_timeout_sec', 'gimbal_server_timeout_sec',
+                      'goal_response_timeout_sec', 'cancel_confirm_timeout_sec',
+                      'runtime_poll_interval_sec', 'nav_server_timeout_sec',
+                      'camera_server_timeout_sec', 'stationary_timeout_sec',
+@@ -145,6 +156,7 @@ class MissionRuntime(Node):
+ 
+         self.nav_client = ActionClient(self, NavigateToPose, self.get_parameter('nav_action').value, callback_group=self._control_group)
+         self.camera_client = ActionClient(self, AcquireView, self.get_parameter('acquire_view_action').value, callback_group=self._control_group)
++        self.gimbal_client = ActionClient(self, MovePantilt, self.get_parameter('move_pantilt_action').value, callback_group=self._control_group)
+         self.loopback_client = ActionClient(self, ExecuteInspectionMission, self.mission_action, callback_group=self._control_group)
+         self._parent_cancel_client = self.create_client(
+             CancelGoal, self.mission_action + '/_action/cancel_goal', callback_group=self._control_group)
+@@ -170,6 +182,7 @@ class MissionRuntime(Node):
+     def _validate_safety_parameters(self, parameters):
+         positive = {
+             'nav_action_timeout_sec', 'camera_action_timeout_sec',
++            'gimbal_action_timeout_sec', 'gimbal_server_timeout_sec',
+             'goal_response_timeout_sec', 'cancel_confirm_timeout_sec',
+             'runtime_poll_interval_sec', 'nav_server_timeout_sec', 'camera_server_timeout_sec',
+             'stationary_timeout_sec', 'stationary_hold_sec', 'odom_freshness_sec',
+@@ -188,7 +201,7 @@ class MissionRuntime(Node):
+                     return SetParametersResult(successful=False, reason=f'{parameter.name} must be numeric')
+                 if not math.isfinite(value) or value < 0 or (parameter.name in positive and value == 0):
+                     return SetParametersResult(successful=False, reason=f'{parameter.name} has an invalid safety/timing value')
+-            if self._mission_reserved and parameter.name in positive | nonnegative | {'use_sim_time'}:
++            if self._mission_reserved and parameter.name in positive | nonnegative | {'use_sim_time', 'recenter_after_capture'}:
+                 return SetParametersResult(successful=False, reason='safety/timing parameters are frozen during an active mission')
+         return SetParametersResult(successful=True)
+ 
+@@ -427,6 +440,28 @@ class MissionRuntime(Node):
+                         return await self._finish_with_stop(
+                             goal_handle, mission, 'failed', int(capture['error_code']),
+                             f'view {view.tag} failed: {capture.get("message", "")}')
++                if point.views and self.get_parameter('recenter_after_capture').value:
++                    self._current_view_tag = '__recenter__'
++                    if not await self.wait_while_paused(goal_handle, mission, point, index):
++                        return await self.finish_canceled(goal_handle, mission)
++                    stationary, detail = self._motion_is_stationary(time.monotonic_ns())
++                    if not stationary:
++                        return await self._finish_with_stop(
++                            goal_handle, mission, 'failed', 1100, 'before gimbal recenter: ' + detail)
++                    self.publish_status(MissionStatus.CAPTURING, mission.mission_id, point.id, index,
++                                        len(mission.points), 'returning gimbal to center; waiting for feedback',
++                                        goal_handle=goal_handle)
++                    self._writer.event('gimbal_recenter_started', point_id=point.id)
++                    centered, outcome, angles = await self.recenter_gimbal()
++                    self._writer.event('gimbal_recenter_finished', point_id=point.id,
++                                       success=centered, state=outcome.state, angles=angles,
++                                       message=outcome.message)
++                    if self._interrupted(goal_handle) or outcome.state == 'canceled':
++                        return await self.finish_canceled(goal_handle, mission)
++                    if not centered:
++                        return await self._finish_with_stop(
++                            goal_handle, mission, 'failed', 203,
++                            'gimbal recenter not confirmed: ' + outcome.message)
+                 self._completed_points += 1
+             if self._interrupted(goal_handle):
+                 return await self.finish_canceled(goal_handle, mission)
+@@ -473,8 +508,25 @@ class MissionRuntime(Node):
+         pose.pose.orientation.z, pose.pose.orientation.w = qz, qw
+         goal = NavigateToPose.Goal()
+         goal.pose = pose
++        goal.behavior_tree = str(self.get_parameter('nav_behavior_tree').value)
+         return await self._run_action(self.nav_client, goal, 'nav')
+ 
++    async def recenter_gimbal(self):
++        # Move only: no fourth image, and no base yaw goal. The driver confirms
++        # fresh encoder feedback and two stable samples before succeeding.
++        goal = MovePantilt.Goal()
++        goal.heading = goal.roll = goal.pitch = 0.0
++        goal.tolerance, goal.timeout, goal.stable_samples = 3.0, 8.0, 2
++        outcome = await self._run_action(self.gimbal_client, goal, 'gimbal')
++        result = outcome.wrapped_result.result if outcome.wrapped_result is not None else None
++        angles = ([float(result.final_heading), float(result.final_roll), float(result.final_pitch)]
++                  if result is not None else [])
++        centered = bool(outcome.success and result is not None and result.success
++                        and result.result_code == MovePantilt.Result.RESULT_OK
++                        and all(math.isfinite(a) and abs((a + 180.) % 360. - 180.) <= goal.tolerance
++                                for a in angles))
++        return centered, outcome, angles
++
+     async def capture(self, view):
+         goal = AcquireView.Goal()
+         goal.heading, goal.roll, goal.pitch = view.heading, view.roll, view.pitch
+diff --git a/navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/ros_wait.py b/navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/ros_wait.py
+index 1b9a4c8..bf85e2c 100644
+--- a/navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/ros_wait.py
++++ b/navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/ros_wait.py
+@@ -13,8 +13,19 @@ class RosWaiter:
+         self.callback_group = callback_group
+         self.clock = Clock(clock_type=ClockType.STEADY_TIME)
+         self._lock = threading.RLock()
+-        self._pending = set()
++        self._pending = {}
+         self._closed = False
++        # Keep one timer alive for the node's lifetime. Creating/destroying a
++        # timer for each await races Humble's MultiThreadedExecutor wait set.
++        self._timer = node.create_timer(
++            0.01, self._wake_ready, callback_group=callback_group, clock=self.clock)
++
++    def _wake_ready(self):
++        now_ns = self.clock.now().nanoseconds
++        with self._lock:
++            for future, deadline_ns in tuple(self._pending.items()):
++                if not future.done() and now_ns >= deadline_ns:
++                    future.set_result(None)
+ 
+     async def sleep(self, seconds):
+         if seconds <= 0:
+@@ -23,34 +34,18 @@ class RosWaiter:
+         with self._lock:
+             if self._closed:
+                 raise RuntimeError('ROS wait helper is closed')
+-            self._pending.add(future)
+-
+-        def wake():
+-            with self._lock:
+-                if not future.done():
+-                    future.set_result(None)
+-
+-        timer = None
++            self._pending[future] = self.clock.now().nanoseconds + int(seconds * 1e9)
+         try:
+-            timer = self.node.create_timer(
+-                max(0.001, float(seconds)), wake,
+-                callback_group=self.callback_group, clock=self.clock)
+             await future
+         finally:
+             with self._lock:
+-                self._pending.discard(future)
+-            if timer is not None:
+-                try:
+-                    timer.cancel()
+-                    self.node.destroy_timer(timer)
+-                except Exception:
+-                    if not self._closed:
+-                        raise
++                self._pending.pop(future, None)
+ 
+     def close(self):
+         """Release pending sleeps during teardown; caller supplies shutdown policy."""
+         with self._lock:
+             self._closed = True
++            self._timer.cancel()
+             for future in tuple(self._pending):
+                 if not future.done():
+                     future.set_result(None)
+diff --git a/navigation/nav2/agt_navigation_runtime/package.xml b/navigation/nav2/agt_navigation_runtime/package.xml
+index c7cff51..218331b 100644
+--- a/navigation/nav2/agt_navigation_runtime/package.xml
++++ b/navigation/nav2/agt_navigation_runtime/package.xml
+@@ -17,6 +17,7 @@
+   <exec_depend>tf2_ros</exec_depend>
+   <exec_depend>agt_robot_interfaces</exec_depend>
+   <exec_depend>camera_gimbal_interfaces</exec_depend>
++  <exec_depend>pantilt_camera_serial</exec_depend>
+   <exec_depend>python3-yaml</exec_depend>
+   <exec_depend>ament_index_python</exec_depend>
+   <exec_depend>launch</exec_depend>

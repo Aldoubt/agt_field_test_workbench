@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/gisbi-kim/scancontext",
+  "commit": "93672835bb85e9c03fedf0fbaf2d0491df12161e",
+  "license": "CC-BY-NC-SA-4.0",
+  "files": {
+    "Scancontext.cpp": "cc089a0972f6663993b0f1e5399bdfa7a4bc23976b5eca6c356d93368dd42d9a",
+    "Scancontext.h": "1b77e19e0ac799aecac8b4115fdfe141a184038a622e30f6d339ee90d60ef3ee",
+    "nanoflann.hpp": "8f9c744ee5590c6bb72dc355b28eecb2d1be1e41b54886d517c79912ce0db826",
+    "KDTreeVectorOfVectorsAdaptor.h": "d843539e63cfe5af9071c954f72311295f6ca425ea3859c267e32e1c7ae6c6b3",
+    "tictoc.h": "677619225488925b0932a066427921c8e02bc1c47a4fae2085701b273ffe60a1"
+  }
+}

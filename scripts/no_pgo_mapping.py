@@ -15,6 +15,7 @@ REPO=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(REPO))
 from workbench.runtime import ros_call, write_json, check_bag
 from workbench.maps import hash_file
+from workbench.trajectory import inspect_trajectory
 
 finish=False
 cancel=False
@@ -82,11 +83,20 @@ def main():
         if bag and signature(bag.path)!=source_hashes: raise RuntimeError('input bag changed')
         if recorder and check_bag(output/'raw_bag')['state']!='PASS': raise RuntimeError('raw bag incomplete')
         package=output/'map_package'
+        quality=inspect_trajectory(package/'trajectory.csv')
+        write_json(output/'trajectory_quality.json',quality)
+        if quality['state']!='PASS':
+            raise RuntimeError('LIO trajectory rejected before cloud/grid import: '+','.join(quality['reasons']))
+        from ament_index_python.packages import get_package_prefix
+        frontend_binary=Path(get_package_prefix('fastlio2'))/'lib/fastlio2/lio_node'
+        alignment_binary=Path(get_package_prefix('agt_field_test_bringup'))/'lib/agt_field_test_bringup/time_align'
         manifest=dict(backend='FASTLIO_NO_PGO',pgo_enabled=False,frame_id='map',lio_world_frame=config['world_frame'],
             frame_convention='map numeric axes equal initial LIO world; no GNSS alignment assumed',
             input_bag=str(bag.path) if bag else str(output/'raw_bag'),input_sha256=source_hashes or signature(output/'raw_bag'),
             config_sha256=hash_file(output/'fastlio.yaml'),imu_offset_sec=args.imu_offset,lidar_offset_sec=args.lidar_offset,
-            files={p.name:hash_file(p) for p in package.iterdir() if p.is_file()},status='DRAFT')
+            files={p.name:hash_file(p) for p in package.iterdir() if p.is_file()},status='DRAFT',
+            trajectory_quality=quality,frontend_binary_sha256=hash_file(frontend_binary),
+            alignment_binary_sha256=hash_file(alignment_binary))
         write_json(package/'manifest.json',manifest)
         print(json.dumps(manifest),flush=True)
     finally:

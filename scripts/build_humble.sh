@@ -6,7 +6,20 @@ if [[ ! -f /opt/ros/humble/setup.bash ]]; then
   exit 2
 fi
 python3 "$ROOT/src/agt_field_test_workbench/scripts/fetch_locked.py"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \
+  --manifest "$ROOT/src/agt_field_test_workbench/patches/frontend_manifest.json"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \
+  --manifest "$ROOT/src/agt_field_test_workbench/patches/map_cleanup_manifest.json"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_sc_kiss_integration.py"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \
+  --manifest "$ROOT/src/agt_field_test_workbench/patches/navigation_perception_manifest.json"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \
+  --manifest "$ROOT/src/agt_field_test_workbench/patches/photo_mission_manifest.json"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \
+  --manifest "$ROOT/src/agt_field_test_workbench/patches/map_tracking_support_manifest.json"
+python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_control_integration.py" \
+  --manifest "$ROOT/src/agt_field_test_workbench/patches/ugv_protocol_lifetime_manifest.json"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/audit.py" > "$ROOT/reports/dependency_audit.json"
 python3 "$ROOT/src/agt_field_test_workbench/scripts/apply_mapping_calibration.py"
 LIVOX="$ROOT/src/external/livox_ros_driver2"
@@ -66,7 +79,7 @@ set -u
 colcon build --base-paths src --packages-select agt_global_relocalization_native \
   --cmake-args "-DBBS3D_INCLUDE_DIR=$BBS_PREFIX/include" \
   "-DBBS3D_CPU_LIBRARY=$BBS_PREFIX/lib/libcpu_bbs3d.so"
-colcon build --base-paths src --packages-up-to agt_asensing_driver agt_mapping_bringup agt_pcd2grid_exporter agt_field_test_bringup \
+colcon build --base-paths src --packages-up-to agt_asensing_driver agt_mapping_bringup agt_pcd2grid_exporter agt_field_test_bringup agt_dynamic_map_cleaner \
   --packages-ignore ugv_sdk bunker_base
 colcon test --base-paths src --packages-select agt_asensing_driver fwmini_chassis_adapter agt_field_test_bringup agt_pcd2grid_exporter agt_mapping_bringup \
   --packages-ignore ugv_sdk bunker_base

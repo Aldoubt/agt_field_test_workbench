@@ -1,0 +1,47 @@
+{
+  "recorded_at": "2026-10-25T12:53:02.037435+00:00",
+  "operator_report": "换到空旷位置后仍无法全局定位",
+  "session": "20261025T125138Z-81e55b1b",
+  "mode": "nav",
+  "result": "REJECTED",
+  "stage": "GICP refinement after candidate BBS",
+  "backend_return_code": 4,
+  "detail": "small_gicp did not converge after candidate-guided BBS",
+  "elapsed_sec": 14.26246256200011,
+  "query_points": 16220,
+  "raw_points": 48490,
+  "local_odom_hz": 10.0,
+  "local_odom_age_ms": {
+    "p50": 37.02,
+    "p95": 46.54,
+    "max": 73.61
+  },
+  "global_correction_valid": false,
+  "local_odom_fresh": true,
+  "nav2": "unconfigured while waiting_global_pose",
+  "passive_sample": "../current_125140",
+  "sample_provenance": "five current raw frames reconstructed with mapping_body contract; NOT exact backend input",
+  "exact_backend_query_saved": false,
+  "changes_to_live_matching_or_motion": "none",
+  "root_cause": "not yet determined; open scene is operator context, not proven cause",
+  "followup": {
+    "operator_report": "从较空旷的位置向前方树木附近移动后，再次定位成功",
+    "session": "20261025T125344Z-d54b43e1",
+    "result": "SUCCEEDED",
+    "elapsed_sec": 2.064176266000686,
+    "candidate_patch": "003334.pcd",
+    "fitness": 0.199488,
+    "overlap": 0.987252,
+    "current_state": "map_tracking_ok",
+    "global_correction_valid": true,
+    "evidence": "near_trees_status.json",
+    "causality": "position/scene dependence observed; root cause unconfirmed"
+  },
+  "additional_operator_observation": {
+    "report": "保持同一朝向，向后退少量后在特定位置又定位失败",
+    "hypothesis": "操作者怀疑输入点云太少",
+    "measured_distance_m": null,
+    "exact_query_association": null,
+    "assessment": "总点数不能证明；先前失败16220点，树旁成功11989点。需要比较结构与候选/粗匹配。20:57启动底盘崩溃另行归档。"
+  }
+}

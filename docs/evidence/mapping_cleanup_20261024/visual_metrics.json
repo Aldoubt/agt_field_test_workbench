@@ -1,0 +1,12 @@
+{
+  "fixed_height_band_world_z": [
+    -0.8587558329105378,
+    0.7412441670894623
+  ],
+  "detail_center_xy": [
+    -1.5,
+    0.5
+  ],
+  "removed_candidate_near_trajectory_1_5m": 110225,
+  "removed_candidate_count": 347600
+}

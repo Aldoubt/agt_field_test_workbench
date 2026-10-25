@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 
-REPO=Path(__file__).resolve().parents[1];ROOT=REPO.parent.parent
+REPO=Path(__file__).resolve().parents[1];ROOT=Path(os.environ.get('AGT_FIELD_TEST_WS',str(REPO.parent.parent))).expanduser().resolve()
 sys.path.insert(0,str(REPO))
 import rclpy
 from rclpy.node import Node
@@ -24,14 +24,28 @@ from std_srvs.srv import Trigger,SetBool
 from nav_msgs.msg import Odometry,Path as NavPath,OccupancyGrid
 from nav2_msgs.action import NavigateToPose,FollowWaypoints
 from lifecycle_msgs.srv import GetState
-from rclpy.action import ActionClient
+from rclpy.action import ActionClient, get_action_names_and_types
 from tf2_ros import Buffer,TransformListener
-from agt_robot_interfaces.msg import LocalizationStatus
-from bunker_msgs.msg import BunkerStatus
-from agt_asensing_driver.msg import INSStatus
+from agt_robot_interfaces.msg import LocalizationStatus,MissionStatus
+from agt_robot_interfaces.action import ExecuteInspectionMission
+# Some deployments ship the camera-gimbal stack as an additional ROS overlay.
+# A missing action definition must not break ordinary mapping/navigation.
+try:
+    from camera_gimbal_interfaces.msg import CapabilityHealth
+except ImportError:
+    CapabilityHealth = None
+try:
+    from bunker_msgs.msg import BunkerStatus
+except ImportError:
+    BunkerStatus=None
+try:
+    from agt_asensing_driver.msg import INSStatus
+except ImportError:
+    INSStatus=None
 from sensor_msgs.msg import NavSatFix,Imu
 from workbench.routes import Routes,relative,pose
 from workbench.maps import Maps,hash_file
+from workbench.goal_safety import validate_endpoints
 from workbench.gps import prior,load_alignment
 from workbench.runtime import write_json
 
@@ -47,14 +61,26 @@ class Bridge(Node):
         self.deadman=self.create_publisher(Bool,'/agt/hmi/deadman',1)
         self.navigate=ActionClient(self,NavigateToPose,'/navigate_to_pose')
         self.waypoints=ActionClient(self,FollowWaypoints,'/follow_waypoints')
+        self.mission=ActionClient(self,ExecuteInspectionMission,'/agt/mission/execute')
+        self.mission_status={}
         self.states={};self.state_clients={n:self.create_client(GetState,'/'+n+'/get_state') for n in ('controller_server','bt_navigator')}
         def sub(typ,topic,name,qos=10):
             self.create_subscription(typ,topic,lambda m:self.observe(name,m),qos)
+        if CapabilityHealth is not None:sub(CapabilityHealth,'/camera_gimbal/health','camera')
         sub(LocalizationStatus,'/agt/localization/status','localization')
+        sub(String,'/agt/global_relocalization/status','global_relocalization')
+        sub(MissionStatus,'/agt/mission/status','mission')
         sub(Odometry,'/agt/odometry/local','lio');sub(Odometry,'/wheel/odom','wheel')
-        sub(BunkerStatus,'/bunker_status','bunker');sub(String,'/fwmini/control_status','fwmini')
+        if BunkerStatus is not None:sub(BunkerStatus,'/bunker_status','bunker')
+        sub(String,'/fwmini/control_status','fwmini')
         sub(NavPath,'/plan','plan');sub(OccupancyGrid,'/local_costmap/costmap','costmap')
-        sub(INSStatus,'/ins/status','ins');sub(NavSatFix,'/ins/navsatfix','fix');sub(Imu,'/ins/imu','ins_imu',qos_profile_sensor_data)
+        if INSStatus is not None:sub(INSStatus,'/ins/status','ins')
+        sub(NavSatFix,'/ins/navsatfix','fix');sub(Imu,'/ins/imu','ins_imu',qos_profile_sensor_data)
+        sub(Imu,'/livox/imu','sensor_imu',qos_profile_sensor_data)
+        try:
+            from livox_ros_driver2.msg import CustomMsg
+            self.create_subscription(CustomMsg,'/livox/lidar',lambda m:self.observe('sensor_lidar',True),qos_profile_sensor_data,raw=True)
+        except ImportError:pass
         self.create_timer(.02,self.tick);self.create_timer(1.,self.poll_lifecycle)
     def observe(self,name,msg):self.samples[name]=msg;self.times[name]=time.monotonic()
     def current(self):
@@ -63,11 +89,12 @@ class Bridge(Node):
             self.session=json.loads(path.read_text());self.last_session_mtime=path.stat().st_mtime_ns
         if not path.is_file():self.session=None;self.last_session_mtime=None
         if self.session and self.session.get('job_id'):
-            job=ROOT/'runs'/self.session['job_id']/'run.json'
             try:
-                record=json.loads(job.read_text())
-                if record.get('state')!='RUNNING':return None
-                os.kill(record['pid'],0)
+                ids={self.session.get(k) for k in ('job_id','sensor_stack_job_id','chassis_job_id','localization_job_id')} - {None}
+                for ident in ids:
+                    record=json.loads((ROOT/'runs'/ident/'run.json').read_text())
+                    if record.get('state')!='RUNNING':return None
+                    os.kill(record['pid'],0)
             except (OSError,KeyError):return None
         return self.session
     def fresh(self,name,limit=.3):return name in self.times and time.monotonic()-self.times[name]<limit
@@ -79,6 +106,22 @@ class Bridge(Node):
             return (bool(self.fresh('bunker') and b.vehicle_state==0 and b.control_mode==1 and b.error_code==0),'bunker_can_authority_or_fault')
         f=json.loads(self.samples['fwmini'].data) if self.fresh('fwmini') else {}
         return (bool(f.get('state') in ('READY','ACTIVE') and 0<=f.get('feedback_age_sec',-1)<.2 and 0<=f.get('io_feedback_age_sec',-1)<.2),'fwmini_not_READY_or_stale')
+    def chassis_status(self):
+        """Read-only communication health; independent from motion permission."""
+        s=self.current()
+        if not s:return dict(enabled=False,online=False,state='NO_SESSION')
+        name=s['robot'];online=self.fresh(name,.5)
+        result=dict(enabled=s['task'] in ('manual','navigation'),online=online,state='NO_FEEDBACK')
+        if not online:return result
+        if name=='bunker':
+            b=self.samples['bunker']
+            result.update(state=int(b.vehicle_state),control_mode=int(b.control_mode),error_code=int(b.error_code))
+        else:
+            try:f=json.loads(self.samples['fwmini'].data)
+            except (ValueError,TypeError):return dict(result,online=False,state='INVALID_FEEDBACK')
+            result.update(state=str(f.get('state','UNKNOWN')),feedback_age_sec=f.get('feedback_age_sec'),
+                          io_feedback_age_sec=f.get('io_feedback_age_sec'))
+        return result
     def localized(self):
         m=self.samples.get('localization')
         return bool(self.fresh('localization',.5) and m.state==m.STATE_LOCALIZED and m.local_odom_fresh and m.global_correction_valid and self.fresh('lio'))
@@ -118,6 +161,7 @@ class Bridge(Node):
         future=client.call_async(req);future.add_done_callback(lambda _:self.destroy_client(client));return future
     def goal(self,points,route_id=None):
         s=self.check_navigation()
+        validate_endpoints(Maps(ROOT).get(s['map_id']), points, s['profile'])
         if self.goals or self.pending_goal:raise ValueError('cancel the active goal before starting another')
         def stamped(p):
             msg=PoseStamped();msg.header.frame_id='map';msg.header.stamp=self.get_clock().now().to_msg()
@@ -152,6 +196,55 @@ class Bridge(Node):
         else:send()
         self.record('requested',dict(points=points,route_id=route_id,map_id=s['map_id']))
         return dict(state='REQUESTED',points=points)
+    def start_mission(self,route):
+        """Hand a map-bound photo route to V3's existing stop-and-shoot runtime."""
+        s=self.check_navigation()
+        validate_endpoints(Maps(ROOT).get(s['map_id']), route['points'], s['profile'])
+        if any(p.get('photo') for p in route['points']):
+            # Camera/gimbal is a separately supervised component; it is not a
+            # child of the navigation session. Check the actual Action server.
+            if CapabilityHealth is None:
+                raise ValueError('camera_gimbal_interfaces/AcquireView is missing from the ROS environment')
+            actions=dict(get_action_names_and_types(self))
+            if 'camera_gimbal_interfaces/action/AcquireView' not in actions.get('/camera_gimbal/acquire_view',[]):
+                raise ValueError('/camera_gimbal/acquire_view action unavailable; test camera and gimbal before driving')
+            health=self.samples.get('camera')
+            if not (self.fresh('camera',1.) and health.state==health.STATE_READY and health.camera_alive
+                    and health.gimbal_serial_connected and health.gimbal_feedback_alive
+                    and health.move_action_ready and not health.busy):
+                raise ValueError('camera/gimbal health is not READY')
+        if self.goals or self.pending_goal:raise ValueError('cancel the active goal before starting another')
+        if not self.mission.server_is_ready():raise ValueError('inspection mission action unavailable')
+        mission_file=Path(route.get('mission_file',''))
+        if not mission_file.is_file() or mission_file.parent!=Routes(ROOT).directory/route['id']:
+            raise ValueError('immutable route mission file is missing')
+        goal=ExecuteInspectionMission.Goal(mission_file=str(mission_file),resume=False)
+        self.mode.publish(String(data='navigation'))
+        self.pending_goal=True;epoch=self.goal_epoch
+        def send():
+            if epoch!=self.goal_epoch:return
+            try:self.check_navigation()
+            except Exception as exc:self.stop();self.record('mission_rejected',str(exc));return
+            future=self.mission.send_goal_async(goal)
+            future.add_done_callback(accepted)
+        def accepted(future):
+            handle=future.result();self.pending_goal=False
+            if epoch!=self.goal_epoch:
+                if handle.accepted:handle.cancel_goal_async()
+                return
+            if not handle.accepted:self.record('mission_rejected','mission runtime rejected goal');return
+            self.goals.append(handle)
+            handle.get_result_async().add_done_callback(lambda result:self.completed(result.result(),handle))
+        if s['robot']=='fwmini' and json.loads(self.samples['fwmini'].data)['state']=='READY':
+            arm=self.call_service('/fwmini/enable_motion',SetBool,SetBool.Request(data=True))
+            def armed(future):
+                if epoch!=self.goal_epoch:return
+                if future.result() and future.result().success:send()
+                else:self.stop();self.record('mission_rejected','FW-mini enable failed')
+            arm.add_done_callback(armed)
+        else:send()
+        self.record('mission_requested',dict(route_id=route['id'],mission_file=str(mission_file),map_id=s['map_id']))
+        return dict(state='REQUESTED',route_id=route['id'],executor='agt_navigation_runtime/mission_runtime')
     def record(self,event,data):
         row=dict(time=time.time(),event=event,data=data);self.action_events.append(row)
         s=self.current()
@@ -185,7 +278,7 @@ class Bridge(Node):
             self.check_navigation();return self.goal([relative(self.map_pose(),p['distance_m'])])
         if operation=='route':
             self.check_navigation();r=Routes(ROOT).validate(p['route_id'],s['map_id'])
-            if any(point.get('photo') for point in r['points']):raise ValueError('photo route requires configured waypoint camera task executor')
+            if any(point.get('photo') for point in r['points']):return self.start_mission(r)
             return self.goal(r['points'],r['id'])
         if operation=='goal':return self.goal([pose(p['pose'])])
         if operation=='mode':
@@ -234,11 +327,28 @@ class Bridge(Node):
         if self.goals:
             try:self.check_navigation()
             except Exception:self.stop();self.record('cancelled','runtime gate closed')
+    def localization_status(self):
+        """Expose the manager's reason without changing any readiness predicate."""
+        message=self.samples.get('localization')
+        if message is None:return None
+        result={name:getattr(message,name) for name in (
+            'state','reason','local_odom_fresh','local_odom_age_sec','global_correction_valid')}
+        result['fresh']=self.fresh('localization',.5)
+        return result
     def snapshot(self):
-        result=dict(session=self.current(),localized=self.localized(),nav2_states=self.states,feedback_fresh=self.physical(),goal_result=self.goal_result)
+        result=dict(session=self.current(),localized=self.localized(),localization=self.localization_status(),
+                    wheel_odometry_fresh=self.fresh('wheel',.5),nav2_states=self.states,feedback_fresh=self.physical(),
+                    sensors_ready=self.fresh('sensor_imu',1.) and self.fresh('sensor_lidar',1.),
+                    chassis=self.chassis_status(),goal_result=self.goal_result)
+        mission=self.samples.get('mission') if self.fresh('mission',5) else None
+        try:result['global_relocalization']=json.loads(self.samples['global_relocalization'].data) if self.fresh('global_relocalization',60) else None
+        except (ValueError,TypeError):result['global_relocalization']={'state':'INVALID_STATUS'}
+        result['mission']=dict(state=int(mission.state),mission_id=mission.mission_id,point_id=mission.point_id,
+            point_index=int(mission.point_index),point_count=int(mission.point_count),detail=mission.detail,
+            error_code=int(mission.error_code)) if mission else None
         try:result['pose']=self.map_pose()
         except Exception:result['pose']=None
-        path=self.samples.get('plan');result['plan']=[dict(x=p.pose.position.x,y=p.pose.position.y) for p in path.poses] if path and self.fresh('plan',5) else []
+        path=self.samples.get('plan');result['plan']=[dict(x=p.pose.position.x,y=p.pose.position.y) for p in path.poses] if path and path.header.frame_id=='map' and self.fresh('plan',5) else []
         grid=self.samples.get('costmap')
         if grid and grid.info.width*grid.info.height<=1000000:
             result['costmap']=dict(width=grid.info.width,height=grid.info.height,resolution=grid.info.resolution,origin=[grid.info.origin.position.x,grid.info.origin.position.y],frame_id=grid.header.frame_id,data=list(grid.data))

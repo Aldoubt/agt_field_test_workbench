@@ -12,6 +12,9 @@ import re
 import signal
 import zipfile
 import subprocess
+import tempfile
+import shutil
+from yaml import YAMLError
 
 from .maps import Maps
 from .cloud import sample_pcd
@@ -62,7 +65,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/clouds':return self.response(200,CLOUDS.list())
             if self.path == '/api/routes':return self.response(200,ROUTES.list())
             if self.path == '/api/live':
-                try:SESSIONS.bridge();return self.response(200,rpc(ROOT,'status'))
+                # Status polling is read-only; only an explicit session start may
+                # launch the bridge. Otherwise Stop All would immediately undo itself.
+                try:return self.response(200,rpc(ROOT,'status'))
                 except (OSError,ValueError) as exc:return self.response(200,{'state':'ROS_BRIDGE_UNAVAILABLE','reason':str(exc),'session':SESSIONS.current()})
             match=re.fullmatch(r'/api/bundles/(bunker|fwmini)',self.path)
             if match:return self.response(200,BUNDLES.list(match.group(1)))
@@ -72,8 +77,34 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, status())
             if self.path == '/api/jobs':
                 return self.response(200, JOBS.list())
+            if self.path == '/api/components':return self.response(200,SESSIONS.components())
+            if self.path.split('?',1)[0] == '/api/devices/camera':
+                from .devices import camera_status
+                return self.response(200, camera_status(JOBS, probe='probe=1' in self.path))
+            if self.path == '/api/devices/captures':
+                from .devices import list_captures
+                return self.response(200, list_captures(JOBS))
+            if self.path == '/api/devices/captures/export':
+                from .devices import list_captures
+                listing=list_captures(JOBS)
+                if listing.get('state')!='READY':raise ValueError('no capture session to export')
+                root=Path(listing['capture_root']).resolve()
+                with tempfile.TemporaryFile() as buffer:
+                    with zipfile.ZipFile(buffer,'w',compression=zipfile.ZIP_DEFLATED) as archive:
+                        for path in root.rglob('*'):
+                            if (path.is_file() and path.resolve().is_relative_to(root)
+                                    and path.suffix.lower() in ('.png','.jpg','.jpeg','.json','.jsonl','.csv','.yaml')):
+                                archive.write(path,path.relative_to(root).as_posix())
+                    length=buffer.tell();buffer.seek(0)
+                    self.send_response(200);self.send_header('Content-Type','application/zip')
+                    self.send_header('Content-Disposition','attachment; filename="agt_captures.zip"')
+                    self.send_header('Content-Length',str(length));self.end_headers()
+                    shutil.copyfileobj(buffer,self.wfile,length=1024*1024)
+                return
             if self.path == '/api/maps':
                 return self.response(200, MAPS.list())
+            match=re.fullmatch(r'/api/maps/([^/]+)/diff',self.path)
+            if match:return self.response(200,MAPS.diff_preview(match.group(1)))
             if self.path == '/api/templates':
                 return self.response(200, TEMPLATES)
             if self.path == '/api/fwmini/mounts':
@@ -127,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
-        except (ValueError, OSError, KeyError, TypeError) as exc:
+        except (ValueError, OSError, KeyError, TypeError, YAMLError) as exc:
             self.response(400, {'error': str(exc)})
 
     def do_POST(self):
@@ -137,6 +168,18 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('cross-origin mutations are not allowed')
             if self.headers.get('Content-Type','').split(';')[0]!='application/json':raise ValueError('application/json required')
             payload = self.body()
+            if self.path == '/api/devices/camera/start':
+                from .devices import start_camera
+                return self.response(200, start_camera(JOBS, payload))
+            if self.path == '/api/devices/camera/stop':
+                from .devices import stop_camera
+                return self.response(200, stop_camera(JOBS))
+            if self.path == '/api/devices/camera/move':
+                from .devices import start_capture
+                return self.response(200, start_capture(JOBS,payload,save_image=False))
+            if self.path == '/api/devices/camera/capture':
+                from .devices import start_capture
+                return self.response(200, start_capture(JOBS,payload,save_image=True))
             match=re.fullmatch(r'/api/profiles/(bunker|fwmini)',self.path)
             if match:
                 if any(j['kind']=='field_session' and j['state'] in ('RUNNING','ORPHANED') for j in JOBS.list()):raise ValueError('stop the active session before selecting a new profile')
@@ -163,13 +206,17 @@ class Handler(BaseHTTPRequestHandler):
                 cfg=ROOT/'runs'/('ins_'+_new_id())/'driver.yaml';cfg.parent.mkdir(parents=True)
                 cfg.write_text(yaml.safe_dump({'agt_asensing_driver':{'ros__parameters':dict(port=str(port),baudrate=baud,ins_frame_id='ins_link',gnss_frame_id='rtk_antenna_link',use_device_orientation_in_imu=False,rtk_fixed_types=[4])}}))
                 return self.response(200,JOBS._new('ins_observation',['bash',str(REPO/'scripts/ros_exec.sh'),'ros2','run','agt_asensing_driver','asensing_node','--ros-args','-r','__node:=agt_asensing_driver','--params-file',str(cfg)],{'config':str(cfg),'scope':'HARDWARE_OBSERVATION_ONLY'}))
-            if self.path=='/api/clouds/import':return self.response(200,CLOUDS.import_pcd(payload['path'],payload.get('calibration'),payload.get('bag')))
+            if self.path=='/api/clouds/import':return self.response(200,CLOUDS.import_pcd(payload['path'],payload.get('calibration'),payload.get('bag'),payload.get('name','')))
             match=re.fullmatch(r'/api/clouds/([^/]+)/(clean|project)',self.path)
             if match:
-                return self.response(200,CLOUDS.clean(match.group(1),payload['operations']) if match.group(2)=='clean' else CLOUDS.grid(match.group(1),payload.get('projection',{})))
+                return self.response(200,CLOUDS.clean(match.group(1),payload['operations']) if match.group(2)=='clean' else CLOUDS.grid(match.group(1),payload.get('projection',{}),payload.get('name')))
             if self.path=='/api/routes':return self.response(200,ROUTES.save(payload['map_id'],payload['points'],payload.get('name',''),payload.get('parent')))
             if self.path=='/api/session/start':return self.response(200,SESSIONS.start(payload))
             if self.path=='/api/session/stop':return self.response(200,SESSIONS.stop())
+            if self.path=='/api/session/stop_all':return self.response(200,SESSIONS.stop_all())
+            match=re.fullmatch(r'/api/components/(sensors|chassis|guard|localization|navigation)/stop',self.path)
+            if match:return self.response(200,SESSIONS.stop_component(match.group(1)))
+            if self.path=='/api/components/guard/start':return self.response(200,SESSIONS.start_guard())
             match=re.fullmatch(r'/api/control/(distance|route|goal|jog|stop|mode|relocalize)',self.path)
             if match:return self.response(200,rpc(ROOT,match.group(1),payload))
             match=re.fullmatch(r'/api/bundles/(bunker|fwmini)',self.path)
@@ -205,12 +252,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, JOBS.start_mapping(
                     payload.get('bag'), payload.get('robot', 'bunker'),
                     payload.get('calibration'), bool(payload.get('live')),
-                    payload.get('livox_config'), payload.get('mount_profile'),payload.get('backend','fastlio'),payload.get('calibration_bundle')))
+                    payload.get('livox_config'), payload.get('mount_profile'),payload.get('backend','fastlio'),payload.get('calibration_bundle'),payload.get('map_name','')))
             if self.path == '/api/recording/start':
                 return self.response(200, JOBS.start_recorder(
                     payload.get('template'), payload.get('robot', 'bunker'),
                     payload.get('calibration'), payload.get('map_version'), payload.get('label', ''),
-                    payload.get('mount_profile')))
+                    payload.get('mount_profile'), payload.get('topics')))
             if self.path == '/api/fwmini/mounts/verify':
                 source = resolve_profile(ROOT, payload.get('profile'))
                 report = Path(payload['report']).expanduser()
@@ -223,10 +270,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.response(200, {'path': str(target), 'status': 'VERIFIED'})
             match = re.fullmatch(r'/api/jobs/([^/]+)/stop', self.path)
             if match:
+                job=next((j for j in JOBS.list() if j['id']==match.group(1)),None)
+                components={'sensor_stack':'sensors','chassis_component':'chassis','control_guard':'guard',
+                            'field_session':'localization','navigation_component':'navigation'}
+                if job and job['kind'] in components:
+                    return self.response(200,SESSIONS.stop_component(components[job['kind']]))
+                if job and job['kind']=='camera_gimbal':
+                    from .devices import stop_camera
+                    return self.response(200,stop_camera(JOBS))
                 return self.response(200, JOBS.stop(match.group(1)))
+            if self.path == '/api/maps/diff':
+                return self.response(200, MAPS.compare_and_propose(payload['base_id'],payload['candidate_id'],payload.get('alignment')))
             if self.path == '/api/maps/import':
                 return self.response(200, MAPS.import_yaml(payload['yaml_path'],
-                                     payload.get('calibration'), payload.get('source_bag')))
+                                     payload.get('calibration'), payload.get('source_bag'), payload.get('name','')))
             match = re.fullmatch(r'/api/maps/([^/]+)/revise', self.path)
             if match:
                 return self.response(200, MAPS.revise(match.group(1), payload['pixels'],
@@ -272,7 +329,7 @@ class Handler(BaseHTTPRequestHandler):
                 write_json(target, record)
                 return self.response(200, record)
             return self.response(404, {'error': 'not found'})
-        except (ValueError, KeyError, OSError, TypeError, subprocess.CalledProcessError,
+        except (ValueError, KeyError, OSError, TypeError, YAMLError, subprocess.CalledProcessError,
                 subprocess.TimeoutExpired) as exc:
             self.response(400, {'error': str(exc)})
 

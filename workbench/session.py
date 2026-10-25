@@ -3,11 +3,14 @@ import json
 from pathlib import Path
 import shutil
 import socket
-from .runtime import ROOT,REPO,ROS_EXEC,write_json,ros_ready
-from .maps import Maps,_new_id,hash_file
+import time
+import threading
+from .runtime import ROOT,REPO,ROS_EXEC,write_json,ros_ready,ros_call
+from .maps import Maps,_new_id,hash_file,relocalization_assets,scan_context_database
 from .fwmini import candidate_path,resolve_profile,load_profile,digest
 from .safety import setup,report
 from agt_field_test_bringup import profiles,calibration
+from agt_field_test_bringup.livox import validate_mid360s_config
 
 
 def rpc(root,operation,payload=None):
@@ -24,52 +27,359 @@ def rpc(root,operation,payload=None):
     if 'error' in response:raise ValueError(response['error'])
     return response
 
+def localization_matches_navigation_map(current, robot, map_record, backend, sc_database, lio_backend):
+    """A 2D grid revision may reuse localization only when its 3D source is identical."""
+    if not current or current.get('task')!='localization' or current.get('robot')!=robot:
+        return False
+    source_sha=map_record.get('source_pcd_sha256')
+    if not source_sha or current.get('localization_pcd_sha256')!=source_sha:
+        return False
+    if current.get('global_backend','sc_kiss')!=backend:
+        return False
+    if backend=='sc_kiss' and current.get('sc_database')!=sc_database:
+        return False
+    if current.get('lio_backend','batch_lio')!=lio_backend:
+        return False
+    return True
+
+
 class Sessions:
-    def __init__(self,jobs,root=ROOT):self.jobs=jobs;self.root=Path(root)
+    def __init__(self,jobs,root=ROOT):
+        self.jobs=jobs;self.root=Path(root);self.lock=threading.RLock()
+
     def bridge(self):
         if not ros_ready():raise ValueError('ROS Humble runtime unavailable; start the workbench in the deployed Humble workspace')
         try:return rpc(self.root,'ping')
         except (OSError,ValueError):
             if any(j['kind']=='ros_bridge' and j['state']=='RUNNING' for j in self.jobs.list()):raise ValueError('ROS bridge starting; retry shortly')
             self.jobs._new('ros_bridge',['bash',str(ROS_EXEC),'python3',str(REPO/'scripts/ros_bridge.py')],{})
-            raise ValueError('ROS bridge starting; retry shortly')
+            deadline=time.monotonic()+6
+            while time.monotonic()<deadline:
+                try:return rpc(self.root,'ping')
+                except (OSError,ValueError):time.sleep(.1)
+            raise ValueError('ROS bridge did not become ready within 6 seconds')
+
     def current(self):
         path=self.root/'work/current_session.json'
         return json.loads(path.read_text()) if path.is_file() else None
-    def start(self,p):
-        robot=p.get('robot');task=p.get('task','sensors')
-        if robot not in ('bunker','fwmini') or task not in ('sensors','manual','localization','navigation'):raise ValueError('unknown robot/task')
-        if any(j['kind']=='mapping_live' and j['state']=='RUNNING' for j in self.jobs.list()):raise ValueError('finish live mapping before changing runtime; start a manual session before the next live run')
-        active=[j for j in self.jobs.list() if j['kind']=='field_session' and j['state'] in ('RUNNING','ORPHANED')]
-        if active:raise ValueError('stop the current field session before changing robot/configuration')
+
+    def _jobs(self):return self.jobs.list()
+
+    def _find_job(self,kind,states=('RUNNING',)):
+        return next((j for j in self._jobs() if j.get('kind')==kind and j.get('state') in states),None)
+
+    def _sensor_stack(self,robot=None):
+        job=self._find_job('sensor_stack')
+        if not job:return None,None
+        if robot and job.get('robot')!=robot:
+            raise ValueError('sensor stack belongs to '+str(job.get('robot'))+'; stop all components before switching robot')
+        session_id=job.get('session_id')
+        if not session_id:raise ValueError('sensor stack has no immutable session identity; stop and restart it')
+        path=self.root/'runs'/session_id/'session.json'
+        if not path.is_file():raise ValueError('sensor stack session snapshot is missing: '+str(path))
+        snapshot=json.loads(path.read_text());snapshot['job_id']=job['id']
+        return job,snapshot
+
+    def _start_manual_guard(self,sensor):
+        current=self._find_job('control_guard')
+        if current:return current
+        if any(j.get('kind')=='control_guard' and j.get('state')=='ORPHANED' for j in self._jobs()):
+            raise ValueError('manual control guard is ORPHANED; inspect its process log before restarting')
+        try:ros_call(['ros2','pkg','prefix','agt_base_control'],timeout=4)
+        except Exception as exc:raise ValueError('agt_base_control/cmd_vel_guard is not installed in this ROS overlay') from exc
+        import yaml
+        profile=sensor.get('profile') or profiles.load(sensor['profile_snapshot'],sensor['robot'])
+        config=Path(sensor['profile_snapshot']).resolve().parent/'guard_manual.yaml'
+        config.write_text(yaml.safe_dump({'agt_cmd_vel_guard':{'ros__parameters':profiles.guard(profile,False)}},sort_keys=False))
+        return self.jobs._new('control_guard',
+            ['bash',str(ROS_EXEC),'ros2','run','agt_base_control','cmd_vel_guard','--ros-args','--params-file',str(config)],
+            {'robot':sensor['robot'],'mode':'manual','session_id':sensor['id'],
+             'profile_sha256':profile['profile_sha256'],'config_path':str(config),
+             'scope':'INDEPENDENT_MANUAL_CMD_VEL_GUARD'})
+
+    def _stop_kind(self,kind):
+        stopped=[]
+        for job in self._jobs():
+            if job.get('kind')==kind and job.get('state') in ('RUNNING','ORPHANED','STOP_FAILED'):
+                stopped.append(self.jobs.stop(job['id']))
+        return stopped
+
+    def _restore_sensor_or_manual(self):
+        sensor_job,sensor=self._sensor_stack()
+        path=self.root/'work/current_session.json'
+        if not sensor_job:
+            path.unlink(missing_ok=True);return None
+        chassis=self._find_job('chassis_component')
+        snapshot=dict(sensor);snapshot['job_id']=sensor_job['id']
+        if chassis:
+            guard=self._start_manual_guard(sensor)
+            snapshot.update(task='manual',chassis_enabled=True,chassis_job_id=chassis['id'],
+                guard_job_id=guard['id'],sensor_stack_job_id=sensor_job['id'],checks=chassis.get('checks',{}))
+        else:
+            snapshot.update(task='sensors',chassis_enabled=False,sensor_stack_job_id=sensor_job['id'])
+            snapshot.pop('chassis_job_id',None);snapshot.pop('guard_job_id',None)
+        write_json(path,snapshot);return snapshot
+
+    def start_chassis(self,p):
+        robot=p.get('robot')
+        if robot not in ('bunker','fwmini'):raise ValueError('unknown robot')
+        if any(j['kind']=='mapping_live' and j['state']=='RUNNING' for j in self._jobs()):
+            raise ValueError('finish live mapping before changing chassis runtime')
+        active=self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED'))
+        if active:raise ValueError('stop navigation before changing its chassis')
         self.bridge()
-        limits=profiles.load(profiles.selected_path(self.root,robot),robot)
+        sensor_job,sensor=self._sensor_stack(robot)
+        if not sensor_job:raise ValueError('start the matching MID360S/IMU sensor session before connecting the chassis')
+        current=self.current()
+        if current and current.get('task') not in ('sensors','manual','localization'):
+            raise ValueError('stop the active navigation session first')
+        existing=self._find_job('chassis_component')
+        if existing:
+            if existing.get('robot')!=robot:raise ValueError('another robot chassis component is already running')
+            return dict(existing,session_task='manual',guard_job_id=(self._find_job('control_guard') or {}).get('id'))
+        if any(j.get('kind')=='chassis_component' and j.get('state')=='ORPHANED' for j in self._jobs()):
+            raise ValueError('chassis component is ORPHANED; inspect its process log before restarting')
+        checks=setup(p.get('checks'))
+        profile_path=Path(sensor['profile_snapshot']).resolve()
+        calibration_path=Path(sensor['calibration']).resolve()
+        if not profile_path.is_file() or hash_file(profile_path)!=sensor['profile']['profile_sha256']:
+            raise ValueError('sensor session robot profile changed; restart sensors from the selected immutable profile')
+        if not calibration_path.is_file() or hash_file(calibration_path)!=sensor['calibration_snapshot_sha256']:
+            raise ValueError('sensor session calibration snapshot changed; restart sensors before enabling chassis')
+        limits=profiles.load(profile_path,robot)
+        if robot=='bunker':
+            bundle=calibration.load(calibration_path,robot)
+            if calibration.digest(bundle)!=sensor['calibration_sha256']:raise ValueError('sensor and chassis calibration SHA differ')
+            mount=None
+        else:
+            mount=load_profile(calibration_path)
+            if digest(mount)!=sensor['calibration_sha256']:raise ValueError('sensor and chassis mount-profile SHA differ')
+        geometry_file=p.get('geometry_file') or sensor.get('geometry_file')
+        if robot=='fwmini':
+            if not geometry_file or not Path(geometry_file).is_file():
+                raise ValueError('FW-mini chassis requires the measured geometry file')
+            import yaml
+            geometry=yaml.safe_load(Path(geometry_file).read_text())
+            if geometry.get('body',{}).get('measured') is not True or any(
+                abs(float(geometry['body'][key])-float(mount['body'][key]))>1e-6
+                for key in ('length_m','width_m','height_m')):
+                raise ValueError('measured FW-mini geometry must match the selected mount profile')
+        for package in (('agt_bunker_base',) if robot=='bunker' else
+                        ('yhs_can_control','fwmini_chassis_adapter','fwmini_odom_adapter')):
+            try:ros_call(['ros2','pkg','prefix',package],timeout=4)
+            except Exception as exc:raise ValueError('required chassis package is not installed: '+package) from exc
+        args=['robot:='+robot,'robot_profile_file:='+str(profile_path),
+              'enable_chassis:=true','enable_mid360:=false','enable_localization:=false',
+              'enable_navigation:=false','enable_description:=false','enable_guard:=false',
+              'external_chassis:=false','enable_inspection:=false','enable_camera_gimbal:=false']
+        if robot=='bunker':args+=['calibration_bundle:='+str(calibration_path)]
+        else:args+=['fwmini_mount_file:='+str(calibration_path),'fwmini_mode:=sensor_test','supervised:=true',
+                    'fwmini_geometry_file:='+str(Path(geometry_file).resolve())]
+        driver=self.jobs._new('chassis_component',
+            ['bash',str(REPO/'scripts/run_field_test.sh'),*args],
+            {'robot':robot,'task':'manual','session_id':sensor['id'],'profile_sha256':limits['profile_sha256'],
+             'calibration_sha256':sensor['calibration_sha256'],'checks':checks,
+             'sensor_stack_job_id':sensor_job['id'],'scope':'INDEPENDENT_CHASSIS_DRIVER_NO_SENSOR_RESTART'})
+        try:guard=self._start_manual_guard(sensor)
+        except Exception:
+            self.jobs.stop(driver['id']);raise
+        snapshot=dict(sensor,task='manual',job_id=sensor_job['id'],chassis_enabled=True,
+            sensor_stack_job_id=sensor_job['id'],chassis_job_id=driver['id'],guard_job_id=guard['id'],checks=checks)
+        if current and current.get('task')=='localization':
+            snapshot=dict(current,chassis_enabled=True,chassis_job_id=driver['id'],guard_job_id=guard['id'])
+        write_json(self.root/'work/current_session.json',snapshot)
+        return dict(driver,session_task='manual',guard_job_id=guard['id'])
+
+    def stop_chassis(self):
+        current=self.current()
+        if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')) or (current and current.get('task')=='navigation'):
+            raise ValueError('stop navigation before stopping its chassis')
+        try:rpc(self.root,'stop')
+        except (OSError,ValueError):pass
+        stopped=self._stop_kind('control_guard')+self._stop_kind('chassis_component')
+        if current and current.get('task')=='localization':
+            restored=dict(current,chassis_enabled=False)
+            restored.pop('chassis_job_id',None);restored.pop('guard_job_id',None)
+            write_json(self.root/'work/current_session.json',restored)
+        else:restored=self._restore_sensor_or_manual()
+        return {'state':'STOPPED','stopped':stopped,'restored_session':restored}
+
+    def start(self,p):
+        with self.lock:return self._start(p)
+
+    def _start_navigation(self,p):
+        """Reuse localization by immutable 3D source identity; Nav2 binds the selected 2D grid."""
+        robot=p['robot']
+        if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')):
+            raise ValueError('navigation component already owned; stop/recover it first')
+        if not self._find_job('chassis_component'):
+            raise ValueError('start and verify the independent chassis component before navigation')
+        sensor_job,sensor=self._sensor_stack(robot)
+        if not sensor:raise ValueError('matching sensor stack required')
+
+        m=Maps(self.root).get(p.get('map_id',''))
+        Maps(self.root).validate_identity(m)
+        if not m.get('source_pcd') or not m.get('source_pcd_sha256') or m.get('localization_geometry_valid') is False:
+            raise ValueError('navigation map requires a verified source PCD and unchanged localization geometry')
+        if m['status']!='ACCEPTED':
+            raise ValueError('formal navigation requires an ACCEPTED navigation grid')
+        backend=p.get('global_backend','sc_kiss')
+        if backend not in ('bbs','sc_kiss'):raise ValueError('unknown localization backend')
+        if backend=='sc_kiss':
+            from .relocalization import validate_sc_database
+            selected_db=p.get('sc_database') or scan_context_database(m)
+            p=dict(p,global_backend=backend,sc_database=validate_sc_database(selected_db,m))
+        else:
+            assets=relocalization_assets(m)
+            if not assets or not (Path(assets)/'polar_context.db').is_file():
+                raise ValueError('BBS requires same-source Polar Context candidates; refusing slow whole-map fallback')
+            p=dict(p,global_backend=backend)
+
+        profile_source=Path(sensor['profile_snapshot']).resolve()
+        if not profile_source.is_file() or hash_file(profile_source)!=sensor['profile']['profile_sha256']:
+            raise ValueError('sensor session profile changed; restart sensors before navigation')
+        sensor_calibration=Path(sensor['calibration']).resolve()
+        if (not sensor_calibration.is_file() or
+                hash_file(sensor_calibration)!=sensor['calibration_snapshot_sha256']):
+            raise ValueError('sensor session calibration changed; restart sensors before navigation')
+        sensor_calibration_record=(calibration.load(sensor_calibration,robot) if robot=='bunker'
+                                   else load_profile(sensor_calibration))
+        if sensor_calibration_record.get('status')!='VERIFIED':
+            raise ValueError('formal navigation requires VERIFIED calibration')
+        checks=setup(p.get('checks'))
+        compatible=[m.get('source_pgm_sha256')] if m.get('navigation_grid_edited') else []
+        acceptance=report(p.get('safety_report',''),robot,sensor['profile']['profile_sha256'],
+                          m['sha256'],sensor['calibration_sha256'],compatible_map_sha256s=compatible)
+
+        localization=self._find_job('field_session')
+        if not localization:
+            self._start(dict(p,task='localization'))
+            localization=self._find_job('field_session')
+        current=self.current()
+        if not localization_matches_navigation_map(current,robot,m,backend,p.get('sc_database'),
+                                                    p.get('lio_backend','batch_lio')):
+            raise ValueError('running localization does not use this map PCD/backend; stop and restart localization explicitly')
+        if (hash_file(Path(current['profile_snapshot']))!=current['profile']['profile_sha256']
+                or hash_file(Path(current['calibration']))!=current['calibration_snapshot_sha256']
+                or current.get('calibration_sha256')!=sensor['calibration_sha256']):
+            raise ValueError('running localization profile/calibration identity changed')
+
+        ident=_new_id();directory=self.root/'runs'/ident;directory.mkdir(parents=True)
+        args=['robot:='+robot,'robot_profile_file:='+current['profile_snapshot'],
+              'enable_chassis:=false','external_chassis:=true','enable_mid360:=false',
+              'enable_description:=false','enable_guard:=false','enable_localization:=false',
+              'external_localization:=true','enable_navigation:=true','enable_inspection:=true',
+              'enable_camera_gimbal:=false','global_map:='+m['source_pcd'],'map_yaml:='+m['yaml'],
+              'safety_report:='+acceptance['path'],'lio_backend:='+current['lio_backend']]
+        if robot=='bunker':args+=['calibration_bundle:='+current['calibration']]
+        else:
+            mount=directory/'navigation_mount.yaml';runtime_mount=dict(sensor_calibration_record)
+            runtime_mount['validation']=dict(runtime_mount.get('validation',{}),localization='PASS',motion_safety='PASS')
+            mount.write_text(yaml.safe_dump(runtime_mount,sort_keys=False))
+            args+=['fwmini_mount_file:='+str(mount),'fwmini_mode:=autonomous_navigation','supervised:=true']
+        rpc(self.root,'stop')
+        self._stop_kind('control_guard')
+        snapshot=dict(current,id=ident,task='navigation',localization_session=current,
+            localization_job_id=localization['id'],checks=checks,safety_report=acceptance,
+            map_id=m['id'],map_sha256=m['sha256'],map_yaml_sha256=hash_file(Path(m['yaml'])),
+            localization_pcd=m['source_pcd'],localization_pcd_sha256=m['source_pcd_sha256'],
+            global_backend=backend,sc_database=p.get('sc_database',''),lio_backend=current['lio_backend'])
+        write_json(directory/'session.json',snapshot)
+        meta=dict(snapshot);meta['session_id']=meta.pop('id');meta.pop('job_id',None)
+        try:
+            job=self.jobs._new('navigation_component',['bash',str(REPO/'scripts/run_field_test.sh'),*args],meta)
+        except Exception:
+            self._start_manual_guard(sensor)
+            raise
+        write_json(self.root/'work/current_session.json',dict(snapshot,job_id=job['id']))
+        return job
+
+    def _start(self,p):
+        robot=p.get('robot');task=p.get('task','sensors')
+        if robot not in ('bunker','fwmini') or task not in ('sensors','manual','localization','navigation'):
+            raise ValueError('unknown robot/task')
+        if task=='manual':return self.start_chassis(p)
+        if task=='navigation':return self._start_navigation(p)
+        if any(j['kind']=='mapping_live' and j['state']=='RUNNING' for j in self._jobs()):
+            raise ValueError('finish live mapping before changing runtime; start a manual session before the next live run')
+        active=[j for j in self._jobs() if j['kind']=='field_session' and j['state'] in ('RUNNING','ORPHANED')]
+        if active:raise ValueError('stop the current localization/navigation session before changing runtime configuration')
+        self.bridge()
+        sensor_job,sensor=self._sensor_stack()
+        if task=='sensors':
+            if sensor_job:
+                if sensor_job.get('robot')!=robot:raise ValueError('stop the old sensor stack before switching robot')
+                return sensor_job
+            if self._find_job('chassis_component') or any(j.get('kind')=='chassis_component' and j.get('state')=='ORPHANED' for j in self._jobs()):
+                raise ValueError('stop the independent chassis before starting/replacing the sensor stack')
+        else:
+            sensor_job,sensor=self._sensor_stack(robot)
+            if not sensor_job or not sensor:raise ValueError('start the matching independent sensor stack before localization/navigation')
+            current=self.current()
+            if current and current.get('task') not in ('sensors','manual'):
+                raise ValueError('a localization/navigation session is already selected')
+            if current and current.get('robot')!=robot:raise ValueError('sensor session robot differs from requested robot')
+            if task=='navigation' and not self._find_job('chassis_component'):
+                raise ValueError('start and verify the independent chassis component before navigation')
+        if task in ('localization','navigation') and sensor:
+            profile_source=Path(sensor['profile_snapshot']).resolve()
+            if not profile_source.is_file() or hash_file(profile_source)!=sensor['profile']['profile_sha256']:
+                raise ValueError('sensor session profile changed; restart sensors before localization/navigation')
+            limits=profiles.load(profile_source,robot);selected=Path(sensor['calibration']).resolve()
+            if not selected.is_file() or hash_file(selected)!=sensor['calibration_snapshot_sha256']:
+                raise ValueError('sensor session calibration changed; restart sensors before localization/navigation')
+        else:
+            limits=profiles.load(profiles.selected_path(self.root,robot),robot);selected=None
         ident=_new_id();directory=self.root/'runs'/ident;directory.mkdir(parents=True)
         profile=directory/'robot.yaml';shutil.copyfile(limits['profile_path'],profile)
-        checks=setup(p.get('checks')) if task in ('manual','navigation') else {}
-        selected=None;cal_sha=None;bundle=None
-        if robot=='bunker':
+        checks=setup(p.get('checks')) if task=='navigation' else {}
+        bundle=None;mount=None;cal_sha=None
+        if task in ('localization','navigation') and sensor:
+            bundle=calibration.load(selected,robot) if robot=='bunker' else None
+            mount=load_profile(selected) if robot=='fwmini' else None
+            cal_sha=calibration.digest(bundle) if bundle else digest(mount)
+            if cal_sha!=sensor['calibration_sha256']:raise ValueError('selected calibration differs from the running sensor stack')
+            calibration_source=sensor.get('calibration_source',str(selected))
+        elif robot=='bunker':
             selected=Path(p.get('calibration_bundle') or self.root/'calibration/bunker/bunker_calibration_candidate.yaml').resolve()
-            if not selected.is_relative_to((self.root/'calibration/bunker').resolve()):raise ValueError('Bunker calibration must be a workspace version')
-            bundle=calibration.load(selected,robot);cal_sha=calibration.digest(bundle)
+            if not selected.is_relative_to((self.root/'calibration/bunker').resolve()):
+                raise ValueError('Bunker calibration must be a workspace version')
+            bundle=calibration.load(selected,robot);cal_sha=calibration.digest(bundle);calibration_source=str(selected)
         else:
-            selected=resolve_profile(self.root,p.get('mount_profile'));mount=load_profile(selected);cal_sha=digest(mount)
+            selected=resolve_profile(self.root,p.get('mount_profile'));mount=load_profile(selected);cal_sha=digest(mount);calibration_source=str(selected)
         copied=directory/'calibration.yaml';shutil.copyfile(selected,copied)
         map_record=Maps(self.root).get(p['map_id']) if p.get('map_id') else None
-        if task in ('localization','navigation') and (not map_record or not map_record.get('source_pcd')):raise ValueError('map with source PCD required')
+        if task in ('localization','navigation') and (not map_record or not map_record.get('source_pcd')):
+            raise ValueError('map with source PCD required')
+        if map_record:Maps(self.root).validate_identity(map_record)
         acceptance=None
         if task=='navigation':
             if map_record['status']!='ACCEPTED':raise ValueError('formal navigation requires ACCEPTED map')
             if (bundle or mount)['status']!='VERIFIED':raise ValueError('formal navigation requires VERIFIED calibration')
-            acceptance=report(p.get('safety_report',''),robot,limits['profile_sha256'],map_record['sha256'],cal_sha)
-        args=['robot:='+robot,'robot_profile_file:='+str(profile),'enable_chassis:='+str(task in ('manual','navigation')).lower(),
-              'enable_localization:='+str(task in ('localization','navigation')).lower(),'enable_navigation:='+str(task=='navigation').lower(),
-              'enable_mid360:='+str(bool(p.get('enable_sensor',True))).lower()]
-        if p.get('livox_config'):args+=['livox_config:='+str(Path(p['livox_config']).resolve())]
+            compatible=[map_record.get('source_pgm_sha256')] if map_record.get('navigation_grid_edited') else []
+            acceptance=report(p.get('safety_report',''),robot,limits['profile_sha256'],
+                              map_record['sha256'],cal_sha,compatible_map_sha256s=compatible)
+        sensor_enabled=bool(p.get('enable_sensor',True)) if task=='sensors' else False
+        livox_identity=None
+        if sensor_enabled:
+            livox_source=Path(p.get('livox_config') or REPO/'agt_field_test_bringup/config/MID360s_config.json').expanduser().resolve()
+            validate_mid360s_config(livox_source)
+            livox_snapshot=directory/'livox_mid360s.json';shutil.copyfile(livox_source,livox_snapshot)
+            livox_identity=dict(validate_mid360s_config(livox_snapshot),source_config_path=str(livox_source))
+        elif sensor:livox_identity=sensor.get('livox')
+        args=['robot:='+robot,'robot_profile_file:='+str(profile),
+              'enable_chassis:=false','enable_localization:='+str(task in ('localization','navigation')).lower(),
+              'enable_navigation:='+str(task=='navigation').lower(),'enable_mid360:='+str(sensor_enabled).lower(),
+              'enable_description:='+str(task=='sensors').lower(),'enable_guard:=false',
+              'external_chassis:='+str(task=='navigation').lower()]
+        if sensor_enabled:args+=['livox_config:='+str(livox_snapshot)]
         if robot=='bunker':args+=['calibration_bundle:='+str(copied)]
         else:
-            args+=['fwmini_mount_file:='+str(copied),'fwmini_mode:='+('autonomous_navigation' if task=='navigation' else 'supervised_localization' if task=='localization' else 'sensor_test'),'supervised:=true']
-            if p.get('geometry_file'):args+=['fwmini_geometry_file:='+str(Path(p['geometry_file']).resolve())]
+            args+=['fwmini_mount_file:='+str(copied),
+                   'fwmini_mode:='+('autonomous_navigation' if task=='navigation' else 'supervised_localization' if task=='localization' else 'sensor_test'),
+                   'supervised:=true']
+            geometry_file=p.get('geometry_file') or (sensor.get('geometry_file') if sensor else None)
+            if geometry_file:args+=['fwmini_geometry_file:='+str(Path(geometry_file).resolve())]
         if p.get('gps_alignment_file'):args+=['gps_alignment_file:='+str(Path(p['gps_alignment_file']).resolve())]
         if map_record:args+=['global_map:='+map_record['source_pcd'],'map_yaml:='+map_record['yaml']]
         if acceptance:
@@ -79,26 +389,157 @@ class Sessions:
                 runtime_mount=yaml.safe_load(copied.read_text())
                 runtime_mount['validation'].update(localization='PASS',motion_safety='PASS')
                 copied.write_text(yaml.safe_dump(runtime_mount,sort_keys=False))
-        backend=p.get('global_backend','bbs')
-        if backend not in ('bbs','kiss'):raise ValueError('unknown global localization backend')
-        if backend=='kiss':raise ValueError('KISS is an offline experiment; complete its build and benchmark before live integration')
-        args+=['global_backend:='+backend]
+        backend=p.get('global_backend','sc_kiss')
+        if backend not in ('bbs','sc_kiss'):raise ValueError('unknown global localization backend')
+        sc_database=''
+        if task in ('localization','navigation') and backend=='sc_kiss':
+            from .relocalization import validate_sc_database
+            requested_db=p.get('sc_database') or scan_context_database(map_record)
+            sc_database=validate_sc_database(requested_db,map_record)
+            p=dict(p,global_backend=backend,sc_database=sc_database)
+            ros_call(['ros2','pkg','prefix','agt_sc_kiss'],timeout=4)
+            args+=['sc_database:='+sc_database]
+        elif task in ('localization','navigation') and backend=='bbs':
+            assets=relocalization_assets(map_record) if map_record else ''
+            if not assets or not (Path(assets)/'polar_context.db').is_file():
+                raise ValueError('BBS requires same-source Polar Context candidates; refusing slow whole-map fallback')
+        lio_backend=p.get('lio_backend','batch_lio')
+        if lio_backend not in ('batch_lio','fastlio2'):raise ValueError('unknown local odometry backend')
+        args+=['global_backend:='+backend,'lio_backend:='+lio_backend]
+        assets=relocalization_assets(map_record) if map_record else ''
+        if assets:args+=['relocalization_assets:='+assets]
+        if task=='navigation':args+=['enable_inspection:=true','enable_camera_gimbal:=false']
+        else:args+=['enable_inspection:=false','enable_camera_gimbal:=false']
         snapshot=dict(id=ident,robot=robot,task=task,profile=limits,profile_snapshot=str(profile),calibration=str(copied),
-            calibration_sha256=cal_sha,calibration_snapshot_sha256=hash_file(copied),checks=checks,map_id=map_record['id'] if map_record else None,
+            calibration_source=calibration_source,calibration_sha256=cal_sha,
+            calibration_snapshot_sha256=hash_file(copied),geometry_file=p.get('geometry_file') or (sensor.get('geometry_file') if sensor else None),
+            checks=checks,map_id=map_record['id'] if map_record else None,
             map_sha256=map_record['sha256'] if map_record else None,
             map_yaml_sha256=hash_file(map_record['yaml']) if map_record else None,
             localization_pcd=map_record.get('source_pcd') if map_record else None,
-            localization_pcd_sha256=map_record.get('source_pcd_sha256') if map_record else None,safety_report=acceptance)
+            localization_pcd_sha256=map_record.get('source_pcd_sha256') if map_record else None,
+            global_backend=backend,lio_backend=lio_backend,relocalization_assets=assets,livox=livox_identity,
+            sc_database=sc_database,
+            enable_camera_gimbal=False,camera_launch_owner='camera_gimbal_job',
+            sensor_stack_job_id=sensor_job['id'] if sensor_job else None,
+            chassis_job_id=(self._find_job('chassis_component') or {}).get('id'),
+            safety_report=acceptance)
         write_json(directory/'session.json',snapshot)
         job_meta=dict(snapshot);job_meta['session_id']=job_meta.pop('id')
-        job=self.jobs._new('field_session',['bash',str(REPO/'scripts/run_field_test.sh'),*args],job_meta)
+        if task=='navigation':self._stop_kind('control_guard')
+        kind='sensor_stack' if task=='sensors' else 'field_session'
+        try:job=self.jobs._new(kind,['bash',str(REPO/'scripts/run_field_test.sh'),*args],job_meta)
+        except Exception:
+            if task=='navigation' and sensor and self._find_job('chassis_component'):
+                try:self._start_manual_guard(sensor)
+                except Exception:pass
+            raise
         write_json(self.root/'work/current_session.json',dict(snapshot,job_id=job['id']))
         return job
+
     def stop(self):
+        with self.lock:return self._stop()
+
+    def _stop(self):
+        current=self.current()
+        if current and current.get('task')=='navigation' and current.get('localization_session'):
+            try:rpc(self.root,'stop')
+            except (OSError,ValueError):pass
+            stopped=self._stop_kind('navigation_component')
+            write_json(self.root/'work/current_session.json',current['localization_session'])
+            _,sensor=self._sensor_stack()
+            if sensor and self._find_job('chassis_component'):self._start_manual_guard(sensor)
+            return stopped
+        if current and current.get('task')=='manual':return self.stop_chassis()
+        if current and current.get('task')=='sensors' and self._find_job('chassis_component'):
+            raise ValueError('stop the independent chassis first; sensor/TF ownership is still required')
         try:rpc(self.root,'stop')
         except (OSError,ValueError):pass
-        result=[]
-        for job in self.jobs.list():
-            if job['kind']=='field_session' and job['state']=='RUNNING':result.append(self.jobs.stop(job['id']))
-        (self.root/'work/current_session.json').unlink(missing_ok=True)
+        stopped=[]
+        if current and current.get('task') in ('localization','navigation'):
+            stopped.extend(self._stop_kind('field_session'))
+            self._restore_sensor_or_manual()
+            return stopped
+        if current and current.get('task')=='sensors':
+            stopped.extend(self._stop_kind('sensor_stack'))
+            (self.root/'work/current_session.json').unlink(missing_ok=True)
+            return stopped
+        stopped.extend(self._stop_kind('field_session'))
+        return stopped
+
+    def stop_component(self,name):
+        with self.lock:
+            current=self.current() or {}
+            if name=='chassis':return self.stop_chassis()
+            if name=='navigation':
+                if current.get('task')=='navigation':return self._stop()
+                return self._stop_kind('navigation_component')
+            if name=='localization':
+                if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')):
+                    raise ValueError('navigation still uses localization; stop navigation first')
+                stopped=self._stop_kind('field_session');self._restore_sensor_or_manual();return stopped
+            if name=='sensors':
+                if any(self._find_job(k,('RUNNING','ORPHANED','STOP_FAILED')) for k in
+                       ('chassis_component','field_session','navigation_component','mapping_live')):
+                    raise ValueError('sensors still used by chassis/TF, mapping or localization')
+                stopped=self._stop_kind('sensor_stack')
+                (self.root/'work/current_session.json').unlink(missing_ok=True);return stopped
+            if name=='guard':
+                if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')):
+                    raise ValueError('navigation owns its safety guard; stop navigation first')
+                try:rpc(self.root,'stop')
+                except (OSError,ValueError):pass
+                return self._stop_kind('control_guard')
+            raise ValueError('unknown component')
+
+    def start_guard(self):
+        with self.lock:
+            if self._find_job('navigation_component',('RUNNING','ORPHANED','STOP_FAILED')):
+                raise ValueError('navigation already owns the command guard')
+            _,sensor=self._sensor_stack()
+            if not sensor or not self._find_job('chassis_component'):
+                raise ValueError('running sensors and chassis required for the manual guard')
+            self.bridge()
+            rpc(self.root,'stop')
+            guard=self._start_manual_guard(sensor)
+            current=self.current() or sensor
+            write_json(self.root/'work/current_session.json',dict(current,guard_job_id=guard['id']))
+            return guard
+
+    def components(self):
+        result={}
+        try:live=rpc(self.root,'status')
+        except (OSError,ValueError):live={}
+        physical=bool((live.get('feedback_fresh') or [False])[0])
+        observed={'sensors':bool(live.get('sensors_ready')),
+            'chassis':physical,
+            'localization':bool(live.get('localized')),
+            'navigation':physical and bool(live.get('localized')) and all(live.get('nav2_states',{}).get(k)==3 for k in ('controller_server','bt_navigator'))}
+        from .runtime import process_start
+        for name,kind in (('sensors','sensor_stack'),('chassis','chassis_component'),
+                          ('guard','control_guard'),('localization','field_session'),
+                          ('navigation','navigation_component'),('camera','camera_gimbal')):
+            job=next((j for j in self._jobs() if j['kind']==kind),None)
+            result[name]=dict(process_state=job['state'] if job else 'STOPPED',
+                job_id=job['id'] if job else None,readiness='UNVERIFIED',
+                reason=(job or {}).get('reason'),log=(job or {}).get('log'))
+            if job and job['state']=='RUNNING' and name in observed:
+                ready=observed[name]
+                age=time.time()-process_start(job)
+                result[name].update(readiness='READY' if ready else 'STARTUP_TIMEOUT' if age>30 else 'WAITING_FOR_HARDWARE',ready=ready)
+                if not ready:result[name]['reason']='required feedback/localization/Nav2 lifecycle not observed'
+        if result['navigation']['process_state']=='RUNNING':
+            result['guard'].update(process_state='OWNED_BY_NAVIGATION',job_id=result['navigation']['job_id'],
+                readiness='UNVERIFIED',reason='guard shares navigation launch; safety gates remain mandatory')
         return result
+
+    def stop_all(self):
+        with self.lock:return self._stop_all()
+
+    def _stop_all(self):
+        """Stop every process owned by this Workbench, including recorder and bridge."""
+        try:rpc(self.root,'stop')
+        except (OSError,ValueError):pass
+        self.jobs.stop_all()
+        (self.root/'work/current_session.json').unlink(missing_ok=True)
+        return self.jobs.list()

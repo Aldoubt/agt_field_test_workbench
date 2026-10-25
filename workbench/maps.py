@@ -67,12 +67,146 @@ def write_pgm(path, width, height, pixels):
     path.write_bytes(f'P5\n{width} {height}\n255\n'.encode() + pixels)
 
 
+def bake_keepout_pixels(pixels, width, height, polygons):
+    """Bake cell-center polygons into occupied cells; geometry stays in PGM pixels."""
+    raster=bytearray(pixels)
+    if len(raster)!=width*height:raise ValueError('pixel count mismatch')
+    def on_segment(x,y,a,b):
+        cross=(x-a[0])*(b[1]-a[1])-(y-a[1])*(b[0]-a[0])
+        return (abs(cross)<=1e-9 and min(a[0],b[0])-1e-9<=x<=max(a[0],b[0])+1e-9
+                and min(a[1],b[1])-1e-9<=y<=max(a[1],b[1])+1e-9)
+    def inside(x,y,polygon):
+        contained=False;previous=polygon[-1]
+        for current in polygon:
+            if on_segment(x,y,previous,current):return True
+            if (current[1]>y)!=(previous[1]>y):
+                intersection=(previous[0]-current[0])*(y-current[1])/(previous[1]-current[1])+current[0]
+                if x<intersection:contained=not contained
+            previous=current
+        return contained
+    for polygon in polygons:
+        if not polygon:continue
+        xs=[float(p[0]) for p in polygon];ys=[float(p[1]) for p in polygon]
+        x0=max(0,math.ceil(min(xs)));x1=min(width-1,math.floor(max(xs)))
+        y0=max(0,math.ceil(min(ys)));y1=min(height-1,math.floor(max(ys)))
+        for y in range(y0,y1+1):
+            for x in range(x0,x1+1):
+                if inside(float(x),float(y),polygon):raster[y*width+x]=0
+    return bytes(raster)
+
+
 def png(width, height, pixels):
     def chunk(tag, content):
         return struct.pack('>I', len(content)) + tag + content + struct.pack('>I', zlib.crc32(tag + content))
     scanlines = b''.join(b'\0' + pixels[y * width:(y + 1) * width] for y in range(height))
     return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 0, 0, 0, 0))
             + chunk(b'IDAT', zlib.compress(scanlines)) + chunk(b'IEND', b''))
+
+
+def png_rgb(width, height, rgb):
+    """Encode a tightly packed RGB image without optional imaging libraries."""
+    if width < 1 or height < 1 or len(rgb) != width * height * 3:
+        raise ValueError('invalid RGB image dimensions')
+    def chunk(tag, content):
+        return struct.pack('>I', len(content)) + tag + content + struct.pack('>I', zlib.crc32(tag + content))
+    stride = width * 3
+    scanlines = b''.join(b'\0' + rgb[y*stride:(y+1)*stride] for y in range(height))
+    return (b'\x89PNG\r\n\x1a\n' +
+            chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) +
+            chunk(b'IDAT', zlib.compress(scanlines)) + chunk(b'IEND', b''))
+
+
+def _asset_health(record):
+    if record.get('localization_geometry_valid') is False:
+        return None, {}, False, False
+    source=record.get('source_pcd')
+    if not source:return None, {}, False, False
+    directory=Path(source).expanduser().resolve().parent/'relocalization'
+    if not directory.is_dir():return None, {}, False, False
+    status={}
+    status_path=directory/'asset_status.json'
+    if status_path.is_file():
+        try:status=json.loads(status_path.read_text())
+        except (OSError,ValueError):pass
+    mandatory=(directory/'voxelmaps_coords').is_dir() and (directory/'global_map_downsampled.pcd').is_file()
+    fresh=(status.get('state')=='READY' and
+           status.get('source_sha256')==record.get('source_pcd_sha256'))
+    if status_path.exists():
+        return directory,status,mandatory and fresh,False
+    # Legacy path-only metadata cannot prove an asset's source identity.
+    meta_path=directory/'relocalization_assets.yaml'
+    if mandatory and meta_path.is_file():
+        try:
+            meta=yaml.safe_load(meta_path.read_text())
+            if (isinstance(meta,dict) and meta.get('source_map') and
+                Path(meta['source_map']).expanduser().resolve()==Path(source).expanduser().resolve()
+                and meta.get('source_sha256')==record.get('source_pcd_sha256')):
+                return directory,status,True,True
+        except (OSError,ValueError,TypeError):pass
+    return directory,status,False,False
+
+
+def relocalization_assets(record):
+    """Never expose incomplete or stale BBS assets to V3 localization."""
+    directory,status,ready,legacy=_asset_health(record)
+    return str(directory) if ready else ''
+
+
+def scan_context_database(record):
+    """Find a Scan Context DB matching the 3D source and current map-frame geometry."""
+    source=record.get('source_pcd')
+    source_sha=record.get('source_pcd_sha256')
+    if not source or not source_sha:return ''
+    root=Path(source).expanduser().resolve().parent/'relocalization'
+    status={}
+    try:status=json.loads((root/'asset_status.json').read_text())
+    except (OSError,ValueError):pass
+    candidates=[]
+    if status.get('sc_database'):candidates.append(Path(status['sc_database']).expanduser())
+    if root.is_dir():candidates.extend(sorted(root.glob('scancontext_db*/manifest.json'),reverse=True))
+    try:current_meta=yaml.safe_load(Path(record['yaml']).read_text())
+    except (OSError,KeyError,ValueError):return ''
+    for candidate in candidates:
+        directory=candidate.parent if candidate.name=='manifest.json' else candidate
+        try:
+            manifest=json.loads((directory/'manifest.json').read_text())
+            if manifest.get('algorithm')!='scancontext' or manifest.get('map_sha256')!=source_sha:
+                continue
+            if not (directory/'descriptors.npz').is_file():continue
+            built_yaml=Path(manifest['navigation_yaml']).expanduser()
+            if not built_yaml.is_file():continue
+            if manifest.get('navigation_yaml_sha256') and hash_file(built_yaml)!=manifest['navigation_yaml_sha256']:
+                continue
+            built=yaml.safe_load(built_yaml.read_text())
+            if (not math.isclose(float(built['resolution']),float(current_meta['resolution']),rel_tol=0,abs_tol=1e-9)
+                    or len(built.get('origin',[]))!=3 or len(current_meta.get('origin',[]))!=3
+                    or any(not math.isclose(float(a),float(b),rel_tol=0,abs_tol=1e-8)
+                           for a,b in zip(built['origin'],current_meta['origin']))):
+                continue
+            return str(directory.resolve())
+        except (OSError,ValueError,TypeError,KeyError):
+            continue
+    return ''
+
+
+def asset_summary(record):
+    directory,status,ready,legacy=_asset_health(record)
+    polar=(directory is not None and (directory/'polar_context.db').is_file() and ready)
+    sc_db=scan_context_database(record)
+    sc=('已生成' if sc_db else
+        '构建失败：'+str(status.get('scan_context_error','请检查关键帧与 LIO 配置'))[:100]
+        if status.get('scan_context')=='FAILED' else
+        '未生成（需要关键帧与匹配的 LIO 配置）')
+    bbs=('已生成（旧版元数据，同源 SHA）' if legacy else
+         '已生成（同源 SHA）' if ready else
+         '正在构建' if status.get('bbs')=='BUILDING' else
+         '构建失败：'+str(status.get('error','请检查依赖'))[:120] if status.get('bbs')=='FAILED' else
+         '未生成／版本校验失败')
+    polar_label=('已生成（候选子图索引）' if polar else
+        '构建失败：'+str(status.get('polar_context_error','请检查关键帧'))[:100]
+        if status.get('polar_context')=='FAILED' else
+        '未生成（没有可用的关键帧描述子库）')
+    return f'Scan Context：{sc}；AGT Polar Context：{polar_label}；BBS 体素资产：{bbs}'
 
 
 class Maps:
@@ -82,7 +216,9 @@ class Maps:
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def list(self):
-        return [json.loads(p.read_text()) for p in sorted(self.directory.glob('*/manifest.json'), reverse=True)]
+        records=[json.loads(p.read_text()) for p in sorted(self.directory.glob('*/manifest.json'), reverse=True)]
+        return [dict(record,relocalization_assets=relocalization_assets(record),asset_summary=asset_summary(record),
+                     sc_database=scan_context_database(record)) for record in records]
 
     def get(self, map_id):
         if not re.fullmatch(r'[0-9TZ-]{16,24}-[0-9a-f]{8}', map_id):
@@ -92,7 +228,7 @@ class Maps:
             raise ValueError('map version not found')
         return json.loads(path.read_text())
 
-    def import_yaml(self, yaml_path, calibration=None, source_bag=None):
+    def import_yaml(self, yaml_path, calibration=None, source_bag=None, name=''):
         source = Path(yaml_path).expanduser().resolve()
         if not any(source.is_relative_to(self.root / p) for p in ('runs', 'maps')):
             raise ValueError('map import must come from this workspace runs or maps')
@@ -109,10 +245,14 @@ class Maps:
             'source_pcd': str(pcd) if pcd.is_file() else None,
             'source_pcd_sha256': hash_file(pcd) if pcd.is_file() else None,
             'source_bag': source_bag, 'calibration': calibration, 'parent': None,
+            'name': name,
         })
 
     def revise(self, parent, pixels_b64, status='DRAFT', keepout_polygons_px=None):
         original = self.get(parent)
+        self.validate_identity(original)
+        if status=='ACCEPTED' and original.get('review_required'):
+            raise ValueError('diff update requires explicit review of the candidate; use map status review')
         if status not in STATES:
             raise ValueError('invalid map status')
         width, height = original['width'], original['height']
@@ -133,20 +273,262 @@ class Maps:
         meta = yaml.safe_load((self.directory / parent / 'map.yaml').read_text())
         lineage = {k: original.get(k) for k in
                    ('source_yaml', 'source_pgm_sha256', 'source_pcd', 'source_pcd_sha256',
-                    'source_bag', 'source_bag_sha256', 'calibration', 'cloud_id', 'projection')}
+                    'source_bag', 'source_bag_sha256', 'calibration', 'cloud_id', 'projection', 'name')}
         lineage['parent'] = parent
         lineage['keepout_polygons_px'] = polygons
+        pixels=bake_keepout_pixels(pixels,width,height,polygons)
+        _,_,old_pixels=read_pgm(Path(original['pgm']))
+        expected=bake_keepout_pixels(old_pixels,width,height,polygons)
+        grid_edited=pixels!=expected
+
+        # 2D occupancy edits change Nav2's planner grid, not the 3D source PCD,
+        # map frame, or SC/BBS descriptors. Restore only the known legacy
+        # grid-only invalidation when the retained PCD still matches its SHA.
+        source_pcd=lineage.get('source_pcd')
+        source_sha=lineage.get('source_pcd_sha256')
+        restored_legacy=False
+        if (not source_pcd and
+                str(original.get('asset_invalidation_reason','')).startswith('Grid edited independently of PCD')):
+            candidate=original.get('invalidated_source_pcd')
+            candidate_sha=original.get('invalidated_source_pcd_sha256')
+            try:
+                if candidate and candidate_sha and Path(candidate).is_file() and hash_file(candidate)==candidate_sha:
+                    source_pcd=str(Path(candidate).resolve());source_sha=candidate_sha
+                    lineage.update(source_pcd=source_pcd,source_pcd_sha256=source_sha)
+                    restored_legacy=True
+                    for key in ('invalidated_source_pcd','invalidated_source_pcd_sha256','asset_invalidation_reason'):
+                        lineage.pop(key,None)
+            except (OSError,ValueError):
+                pass
+
+        if not lineage.get('source_pgm_sha256'):
+            lineage['source_pgm_sha256']=original.get('source_pgm_sha256') or original['sha256']
+        geometry_valid=bool(source_pcd and source_sha and
+                            (restored_legacy or original.get('localization_geometry_valid') is not False))
+        lineage['localization_geometry_valid']=geometry_valid
+        lineage['navigation_grid_edited']=bool(original.get('navigation_grid_edited',False) or grid_edited)
+        if grid_edited:
+            lineage['navigation_grid_edit_parent_sha256']=original.get('navigation_grid_edit_parent_sha256') or original['sha256']
+            lineage['navigation_grid_edit_parent_id']=original.get('navigation_grid_edit_parent_id') or original['id']
+            lineage['navigation_grid_edit_changed_cells']=sum(a!=b for a,b in zip(pixels,expected))
+        elif original.get('navigation_grid_edit_parent_sha256'):
+            lineage['navigation_grid_edit_parent_sha256']=original['navigation_grid_edit_parent_sha256']
+            lineage['navigation_grid_edit_parent_id']=original.get('navigation_grid_edit_parent_id')
+            lineage['navigation_grid_edit_changed_cells']=original.get('navigation_grid_edit_changed_cells',0)
+
+        if status=='ACCEPTED' and (not geometry_valid or not source_pcd or not source_sha):
+            raise ValueError('cannot accept navigation grid without a verified source PCD and localization geometry')
         return self._save(width, height, pixels, meta, lineage, status)
 
+    def validate_identity(self, record):
+        """Validate persisted grid semantics and hashes before review or comparison."""
+        pgm=Path(record['pgm']);meta_path=Path(record['yaml'])
+        if hash_file(pgm)!=record['sha256']:
+            raise ValueError('PGM missing or SHA-256 changed')
+        if record.get('yaml_sha256') and hash_file(meta_path)!=record['yaml_sha256']:
+            raise ValueError('YAML SHA-256 changed')
+        meta=yaml.safe_load(meta_path.read_text())
+        if (meta.get('resolution')!=record['resolution'] or meta.get('origin')!=record['origin']
+                or (meta_path.parent/meta['image']).resolve()!=pgm.resolve()):
+            raise ValueError('YAML geometry/image identity differs from map manifest')
+        resolution=meta['resolution'];origin=meta['origin']
+        if not math.isfinite(resolution) or resolution<=0 or not all(math.isfinite(v) for v in origin):
+            raise ValueError('invalid map geometry')
+        if meta.get('mode','trinary')!='trinary' or meta.get('negate') not in (0,1):
+            raise ValueError('unsupported occupancy mode/negate')
+        if not 0<=float(meta['free_thresh'])<float(meta['occupied_thresh'])<=1:
+            raise ValueError('invalid occupancy thresholds')
+        width,height,_=read_pgm(pgm)
+        if [width,height]!=[record['width'],record['height']]:
+            raise ValueError('PGM dimensions differ from manifest')
+        if record.get('source_pcd'):
+            if hash_file(Path(record['source_pcd']))!=record.get('source_pcd_sha256'):
+                raise ValueError('source PCD missing or SHA-256 changed')
+        return meta
+
+    def compare_and_propose(self, base_id, candidate_id, alignment=None):
+        """Compare an accepted map with an aligned PCD-backed draft and create an update draft.
+
+        The new map grid remains the candidate's grid and PCD identity. The old accepted
+        map is never modified, and the new version is never auto-accepted. Grid alignment
+        must be exact; this method does not estimate SLAM drift or registration.
+        """
+        import numpy as np
+        base=self.get(base_id);candidate=self.get(candidate_id)
+        if base_id==candidate_id:raise ValueError('base and candidate map versions must differ')
+        if base.get('status')!='ACCEPTED':raise ValueError('base map must be ACCEPTED')
+        if candidate.get('status')!='DRAFT':raise ValueError('candidate map must be DRAFT; review status is immutable workflow state')
+        if base.get('source_pcd_sha256')==candidate.get('source_pcd_sha256'):
+            alignment={'method':'SAME_SOURCE_PCD','evidence':'identical source PCD SHA-256'}
+        elif (base.get('coordinate_reference_id') and
+              base.get('coordinate_reference_id')==candidate.get('coordinate_reference_id')):
+            alignment={'method':'SHARED_COORDINATE_REFERENCE','evidence':base['coordinate_reference_id']}
+        elif not (isinstance(alignment,dict) and alignment.get('method')=='EXTERNAL_ALIGNMENT_REVIEWED'
+                  and alignment.get('base_pcd_sha256')==base.get('source_pcd_sha256')
+                  and alignment.get('candidate_pcd_sha256')==candidate.get('source_pcd_sha256')
+                  and isinstance(alignment.get('evidence'),str) and alignment['evidence'].strip()):
+            raise ValueError('coordinate alignment evidence required for different source PCDs; matching origins alone do not establish registration')
+        for label,record in (('base',base),('candidate',candidate)):
+            if not record.get('source_pcd') or not record.get('source_pcd_sha256'):
+                raise ValueError(label+' map must be linked to a source PCD and SHA-256')
+            source=Path(record['source_pcd']).expanduser().resolve()
+            if not source.is_file() or hash_file(source)!=record['source_pcd_sha256']:
+                raise ValueError(label+' source PCD missing or SHA-256 changed')
+            pgm=Path(record['pgm']).resolve()
+            if not pgm.is_file() or hash_file(pgm)!=record['sha256']:
+                raise ValueError(label+' PGM missing or SHA-256 changed')
+            yaml_path=Path(record['yaml']).resolve()
+            if not yaml_path.is_file():raise ValueError(label+' map YAML missing')
+        base_meta=self.validate_identity(base)
+        candidate_meta=self.validate_identity(candidate)
+        resolution=float(base_meta['resolution']);candidate_resolution=float(candidate_meta['resolution'])
+        if not math.isclose(resolution,candidate_resolution,rel_tol=1e-9,abs_tol=1e-12):
+            raise ValueError('map resolutions differ; automatic diff requires identical resolution')
+        bx,by,byaw=map(float,base_meta['origin'])
+        cx,cy,cyaw=map(float,candidate_meta['origin'])
+        yaw_delta=(cyaw-byaw+math.pi)%(2*math.pi)-math.pi
+        if abs(yaw_delta)>1e-9:
+            raise ValueError('map origin yaw differs; automatic diff will not guess a rotation')
+        dx=cx-bx;dy=cy-by
+        cell_x=(math.cos(byaw)*dx+math.sin(byaw)*dy)/resolution
+        cell_y=(-math.sin(byaw)*dx+math.cos(byaw)*dy)/resolution
+        offset_x=int(round(cell_x));offset_y=int(round(cell_y))
+        if abs(cell_x-offset_x)>1e-6 or abs(cell_y-offset_y)>1e-6:
+            raise ValueError('map origins are not cell-aligned; align maps before comparing')
+        bw,bh,bpixels=read_pgm(Path(base['pgm']))
+        cw,ch,cpixels=read_pgm(Path(candidate['pgm']))
+        def states(width,height,pixels,meta):
+            raw=np.frombuffer(pixels,dtype=np.uint8).reshape((height,width))
+            probability=raw/255. if meta['negate'] else (255.-raw)/255.
+            result=np.full((height,width),-1,dtype=np.int8)
+            result[probability>meta['occupied_thresh']]=100
+            result[probability<meta['free_thresh']]=0
+            return result
+        old=states(bw,bh,bpixels,base_meta);new=states(cw,ch,cpixels,candidate_meta)
+        min_x=min(0,offset_x);max_x=max(bw-1,offset_x+cw-1)
+        min_y=min(0,offset_y);max_y=max(bh-1,offset_y+ch-1)
+        width=max_x-min_x+1;height=max_y-min_y+1
+        if width*height>16_000_000:raise ValueError('aligned map union exceeds safe 16 MP diff limit')
+        old_grid=np.full((height,width),-1,dtype=np.int8)
+        new_grid=np.full((height,width),-1,dtype=np.int8)
+        old_row=max_y-(bh-1);old_col=-min_x
+        new_row=max_y-(offset_y+ch-1);new_col=offset_x-min_x
+        old_grid[old_row:old_row+bh,old_col:old_col+bw]=old
+        new_grid[new_row:new_row+ch,new_col:new_col+cw]=new
+        old_unknown=old_grid<0;new_unknown=new_grid<0
+        new_obstacle=(new_grid==100)&(old_grid==0)
+        cleared=(old_grid==100)&(new_grid==0)
+        newly_observed=old_unknown&(~new_unknown)
+        coverage_lost=(~old_unknown)&new_unknown
+        stable_occupied=(old_grid==100)&(new_grid==100)
+        stable_free=(old_grid==0)&(new_grid==0)
+        changed=(old_grid!=new_grid)&((~old_unknown)|(~new_unknown))
+        rgb=np.zeros((height,width,3),dtype=np.uint8)
+        rgb[:]=[100,108,116] # unknown in both / outside coverage
+        rgb[stable_free]=[235,239,240]
+        rgb[stable_occupied]=[26,36,43]
+        rgb[newly_observed]=[72,177,118]
+        rgb[coverage_lost]=[229,177,68]
+        rgb[cleared]=[55,156,225]
+        rgb[new_obstacle]=[230,75,70]
+        report_id=_new_id()
+        diff_root=self.root/'maps'/'diffs'/report_id
+        diff_root.mkdir(parents=True,exist_ok=False)
+        overlay=diff_root/'overlay.png'
+        overlay.write_bytes(png_rgb(width,height,rgb.tobytes()))
+        # This is a new immutable map version backed by the candidate's exact
+        # PCD and grid. It is not a cell-wise fusion with an unrelated PCD.
+        lineage={k:candidate.get(k) for k in (
+            'source_yaml','source_pgm_sha256','source_pcd','source_pcd_sha256',
+            'source_bag','source_bag_sha256','calibration','cloud_id','projection','name')}
+        lineage.update(parent=base_id,keepout_polygons_px=candidate.get('keepout_polygons_px',[]),
+            update_type='AUTOMATIC_DIFF_DRAFT',base_map_id=base_id,
+            base_map_sha256=base['sha256'],candidate_map_id=candidate_id,
+            candidate_map_sha256=candidate['sha256'],diff_report_id=report_id,
+            diff_overlay=str(overlay),diff_report=str(diff_root/'report.json'),
+            diff_overlay_sha256=hash_file(overlay),
+            review_required=True,automatic_activation=False,localization_geometry_valid=True)
+        update=self._save(cw,ch,cpixels,candidate_meta,lineage,status='DRAFT')
+        report={
+            'id':report_id,'created_at':datetime.now(timezone.utc).isoformat(),
+            'state':'REVIEW_REQUIRED','base_map_id':base_id,'base_map_sha256':base['sha256'],
+            'candidate_map_id':candidate_id,'candidate_map_sha256':candidate['sha256'],
+            'base_yaml_sha256':hash_file(Path(base['yaml'])),
+            'candidate_yaml_sha256':hash_file(Path(candidate['yaml'])),
+            'update_map_id':update['id'],'update_map_status':'DRAFT',
+            'base_pcd_sha256':base['source_pcd_sha256'],
+            'candidate_pcd_sha256':candidate['source_pcd_sha256'],
+            'resolution_m':resolution,'origin_yaw_delta_rad':yaw_delta,
+            'alignment':alignment,'alignment_basis':'verified external common frame; no registration estimated here',
+            'aligned_origin': [bx+math.cos(byaw)*min_x*resolution-math.sin(byaw)*min_y*resolution,
+                               by+math.sin(byaw)*min_x*resolution+math.cos(byaw)*min_y*resolution,byaw],
+            'candidate_offset_cells_xy':[offset_x,offset_y],
+            'aligned_width':width,'aligned_height':height,
+            'counts':{
+                'new_obstacle_cells':int(np.count_nonzero(new_obstacle)),
+                'cleared_obstacle_cells':int(np.count_nonzero(cleared)),
+                'newly_observed_cells':int(np.count_nonzero(newly_observed)),
+                'coverage_lost_cells':int(np.count_nonzero(coverage_lost)),
+                'stable_occupied_cells':int(np.count_nonzero(stable_occupied)),
+                'stable_free_cells':int(np.count_nonzero(stable_free)),
+                'changed_cells':int(np.count_nonzero(changed)),
+                'unknown_both_cells':int(np.count_nonzero(old_unknown&new_unknown)),
+            },
+            'overlay_png':str(overlay),'report_path':str(diff_root/'report.json'),
+            'update_map_path':update['manifest_path'] if 'manifest_path' in update else str(self.directory/update['id']/'manifest.json'),
+            'automatic_activation':False,'navigation_allowed':False,
+            'acceptance_rule':'human_review_required; same candidate PCD remains localization source; rebuild PGM/BBS from this PCD if edited geometry is accepted',
+        }
+        write_json(diff_root/'report.json',report)
+        persisted=self.get(update['id'])
+        persisted['diff_report_sha256']=hash_file(diff_root/'report.json')
+        write_json(self.directory/update['id']/'manifest.json',persisted)
+        update.update(diff_report_sha256=persisted['diff_report_sha256'])
+        return {'report':report,'update_map':update,'overlay_png_b64':base64.b64encode(overlay.read_bytes()).decode('ascii')}
+
     def set_status(self, map_id, status, reason):
-        if status not in STATES or not reason.strip():
+        if status not in STATES or not isinstance(reason,str) or not reason.strip():
             raise ValueError('map status and reason required')
         manifest = self.get(map_id)
+        if status=='ACCEPTED':
+            self.validate_identity(manifest)
+            if (not manifest.get('source_pcd') or not manifest.get('source_pcd_sha256')
+                    or manifest.get('localization_geometry_valid') is False):
+                raise ValueError('cannot accept navigation map without a verified source PCD and localization geometry')
+            if manifest.get('diff_report_id') and not manifest.get('diff_report'):
+                raise ValueError('legacy diff candidate has no bound review report; regenerate comparison before accepting')
+            if manifest.get('diff_report'):
+                if hash_file(Path(manifest['diff_report']))!=manifest.get('diff_report_sha256'):
+                    raise ValueError('diff report SHA-256 changed')
+                if hash_file(Path(manifest['diff_overlay']))!=manifest.get('diff_overlay_sha256'):
+                    raise ValueError('diff overlay SHA-256 changed')
+                report=json.loads(Path(manifest['diff_report']).read_text())
+                base=self.get(report['base_map_id']);candidate=self.get(report['candidate_map_id'])
+                self.validate_identity(base);self.validate_identity(candidate)
+                if (base['status']!='ACCEPTED' or candidate['status']=='REJECTED'
+                        or base['sha256']!=report['base_map_sha256']
+                        or candidate['sha256']!=report['candidate_map_sha256']
+                        or hash_file(Path(base['yaml']))!=report.get('base_yaml_sha256')
+                        or hash_file(Path(candidate['yaml']))!=report.get('candidate_yaml_sha256')):
+                    raise ValueError('base/candidate review identity changed after comparison')
+                if (report['update_map_id']!=map_id or report['candidate_map_sha256']!=manifest['sha256']
+                        or report['candidate_pcd_sha256']!=manifest.get('source_pcd_sha256')):
+                    raise ValueError('diff review provenance changed')
         manifest['status'] = status
         manifest['review_reason'] = reason[:500]
         manifest['reviewed_at'] = datetime.now(timezone.utc).isoformat()
+        manifest['review_required'] = status not in ('ACCEPTED','REJECTED')
         write_json(self.directory / map_id / 'manifest.json', manifest)
         return manifest
+
+    def diff_preview(self,map_id):
+        record=self.get(map_id)
+        if not record.get('diff_report'):raise ValueError('map has no diff review report')
+        report=Path(record['diff_report']);overlay=Path(record['diff_overlay'])
+        if hash_file(report)!=record.get('diff_report_sha256') or hash_file(overlay)!=record.get('diff_overlay_sha256'):
+            raise ValueError('diff review artifact SHA-256 changed')
+        return {'report':json.loads(report.read_text()),'update_map':record,
+                'overlay_png_b64':base64.b64encode(overlay.read_bytes()).decode('ascii')}
 
     def preview(self, map_id):
         manifest = self.get(map_id)
@@ -154,14 +536,19 @@ class Maps:
         return png(manifest['width'], manifest['height'], pixels)
 
     def _save(self, width, height, pixels, meta, lineage, status='DRAFT'):
-        if not isinstance(meta.get('resolution'), (int, float)) or meta['resolution'] <= 0:
+        lineage=dict(lineage)
+        lineage['name']=str(lineage.get('name') or '').strip()[:120]
+        if not isinstance(meta.get('resolution'), (int, float)) or not math.isfinite(meta['resolution']) or meta['resolution'] <= 0:
             raise ValueError('positive map resolution required')
-        if len(meta.get('origin', [])) != 3:
+        if len(meta.get('origin', [])) != 3 or not all(math.isfinite(v) for v in meta['origin']):
             raise ValueError('map origin [x,y,yaw] required')
         map_id = _new_id()
         directory = self.directory / map_id
         directory.mkdir(parents=True, exist_ok=False)
         write_pgm(directory / 'map.pgm', width, height, pixels)
+        pgm_sha=hashlib.sha256((directory/'map.pgm').read_bytes()).hexdigest()
+        if lineage.get('source_pcd') and not lineage.get('source_pgm_sha256'):
+            lineage['source_pgm_sha256']=pgm_sha
         config = {key: meta.get(key) for key in
                   ('resolution', 'origin', 'negate', 'occupied_thresh', 'free_thresh')}
         config['image'] = 'map.pgm'
@@ -174,13 +561,23 @@ class Maps:
             y = (height - point[1] - .5) * resolution
             return [origin_x + math.cos(yaw) * x - math.sin(yaw) * y,
                     origin_y + math.sin(yaw) * x + math.cos(yaw) * y]
-        keepout = {'frame_id': 'map', 'polygons': [[world(p) for p in polygon]
-                                                for polygon in polygons_px]}
+        world_polygons=[[world(p) for p in polygon] for polygon in polygons_px]
+        # Keep the original flat list for existing Workbench readers and expose
+        # the V3 bake_keepout_zones schema as well. Runtime uses the baked PGM.
+        keepout = {'frame_id': 'map', 'polygons': world_polygons,
+                   'zones':[{'id':index+1,'type':'keepout','polygon_m':polygon}
+                            for index,polygon in enumerate(world_polygons)]}
         (directory / 'keepout_zones.yaml').write_text(yaml.safe_dump(keepout, sort_keys=False))
+        bake={'schema_version':1,'zone_count':len(polygons_px),'inflate_cells':0,
+              'baked_into':'map.pgm','coordinates':'cell-center pixels; origin yaw preserved in polygon_m'}
+        (directory / 'keepout_bake.yaml').write_text(yaml.safe_dump(bake,sort_keys=False))
         manifest = {'id': map_id, 'status': status, 'created_at': datetime.now(timezone.utc).isoformat(),
                     'width': width, 'height': height, 'resolution': meta['resolution'],
-                    'origin': meta['origin'], 'sha256': hashlib.sha256((directory / 'map.pgm').read_bytes()).hexdigest(),
+                    'origin': meta['origin'], 'sha256': pgm_sha,
+                    'yaml_sha256':hash_file(directory/'map.yaml'),
                     'yaml': str(directory / 'map.yaml'), 'pgm': str(directory / 'map.pgm'),
-                    'keepout_zones': str(directory / 'keepout_zones.yaml'), **lineage}
+                    'keepout_zones': str(directory / 'keepout_zones.yaml'),
+                    'keepout_bake': str(directory / 'keepout_bake.yaml'), **lineage}
         write_json(directory / 'manifest.json', manifest)
-        return manifest
+        return dict(manifest, asset_summary=asset_summary(manifest),
+                    relocalization_assets=relocalization_assets(manifest))

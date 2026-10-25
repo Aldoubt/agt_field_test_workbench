@@ -114,6 +114,7 @@ def main():
     parser.add_argument('--calibration')
     parser.add_argument('--mount-profile')
     parser.add_argument('--backend',choices=['fastlio','pgo_experiment'],default='fastlio')
+    parser.add_argument('--map-name',default='')
     args = parser.parse_args()
     output = Path(args.output).resolve()
     mapping = ROOT / 'src/agt-lio-pgo-mapping/scripts/run_mid360_mapping.sh'
@@ -142,21 +143,68 @@ def main():
     if args.live and raw_integrity['state'] != 'PASS':
         print(f'Live raw bag incomplete: {raw_integrity}; output preserved', file=sys.stderr)
         return 5
+    def save_stage(stage, **details):
+        write_json(output/'save_status.json',dict(stage=stage,**details))
+    save_stage('PCD_IMPORT')
     package = output / 'map_package'
     if not package.is_dir():
         print(f'Mapping package missing: {package}', file=sys.stderr)
         return 3
     from workbench.artifacts import Clouds
     clouds=Clouds(ROOT)
-    calibration_meta=dict(robot=args.robot,legacy_id=args.calibration,mount=mount_metadata,internal_config=os.environ.get('AGT_FIELD_TEST_FASTLIO_CONFIG'))
-    if calibration_meta['internal_config']:calibration_meta['internal_sha256']=sha256(Path(calibration_meta['internal_config']))
+    default_lio_config=ROOT/'src/agt-lio-pgo-mapping/bringup/agt_mapping_bringup/config/fastlio2_mid360.yaml'
+    internal_config=mount_metadata.get('internal_config') or os.environ.get('AGT_FIELD_TEST_FASTLIO_CONFIG') or str(default_lio_config)
+    calibration_meta=dict(robot=args.robot,legacy_id=args.calibration,mount=mount_metadata,
+                          internal_config=internal_config,source_artifact=str(output))
+    if Path(internal_config).is_file():calibration_meta['internal_sha256']=sha256(Path(internal_config))
     if os.environ.get('FIELD_CALIBRATION_BUNDLE'):
         bundle_path=Path(os.environ['FIELD_CALIBRATION_BUNDLE']);calibration_meta.update(bundle=str(bundle_path),bundle_sha256=sha256(bundle_path))
-    cloud=clouds.import_pcd(package/'map.pcd',calibration=calibration_meta,bag=args.bag or str(output/'raw_bag'))
-    version=clouds.grid(cloud['id'], {})
+    cleanup = None
+    selected_pcd = package/'map.pcd'
+    if args.backend == 'fastlio' and args.robot == 'bunker' and os.environ.get('FIELD_CALIBRATION_BUNDLE'):
+        save_stage('TEMPORAL_CLEANUP')
+        from workbench.map_cleanup import clean_mapping
+        cleanup = clean_mapping(output, ROOT, os.environ['FIELD_CALIBRATION_BUNDLE'])
+        selected_pcd = Path(cleanup['cleaned_pcd'])
+        calibration_meta['sc_keyframes']=str(output/'temporal_cleanup'/'keyframes')
+    # Deliberately candidate-only: first-stage temporal cleanup remains the
+    # default map source. Optional independent clearance evidence must be
+    # reviewed before a later explicit map-version promotion.
+    start_clearance = {'state': 'NOT_REQUESTED'}
+    if cleanup and os.environ.get('AGT_START_CLEARANCE_CANDIDATES','0') == '1':
+        save_stage('START_CLEARANCE')
+        candidate_dir = output/'temporal_cleanup'/'start_clearance_candidate'
+        try:
+            from agt_dynamic_map_cleaner.cli import run as clean_start
+            candidate = clean_start(
+                selected_pcd, output/'temporal_cleanup'/'keyframes', candidate_dir,
+                REPO/'agt_dynamic_map_cleaner'/'config'/'start_clearance.yaml',
+                output/'temporal_cleanup'/'manifest.json')
+            start_clearance = dict(candidate, output=str(candidate_dir))
+        except Exception as error:
+            start_clearance = {'state':'FAILED','error':str(error)[:800],
+                               'original_static_pcd':str(selected_pcd)}
+            # The operator should still be able to inspect the independently
+            # generated first-stage map; do not call this optional run READY.
+            print('Start clearance candidate FAILED: '+str(error),flush=True)
+    cloud=clouds.import_pcd(selected_pcd,calibration=calibration_meta,bag=args.bag or str(output/'raw_bag'),name=args.map_name,
+                            cleanup=cleanup)
+    save_stage('GRID_EXPORT', cloud_id=cloud['id'])
+    version=clouds.grid(cloud['id'], {},build_assets=False)
+    save_stage('RELOCALIZATION_ASSETS', cloud_id=cloud['id'], map_id=version['id'])
+    assets=clouds.build_assets(cloud['id'],map_id=version['id'])
+    result_stage=('COMPLETE' if assets.get('bbs')=='READY' and assets.get('polar_context')=='READY'
+                  and assets.get('scan_context')=='READY' else 'PARTIAL_ASSETS')
+    save_stage(result_stage, cloud_id=cloud['id'], map_id=version['id'],
+               asset_state=assets['state'], asset_error=assets.get('error',''))
     write_json(output / 'field_test_result.json', {'robot': args.robot, 'calibration': args.calibration,
                'source_bag': args.bag or str(output / 'raw_bag'), 'map_version': version['id'],
-               'raw_bag_integrity': raw_integrity, 'mount_profile': mount_metadata, 'status': 'DRAFT'})
+               'raw_bag_integrity': raw_integrity, 'mount_profile': mount_metadata,
+               'relocalization_assets': assets, 'sc_database':assets.get('sc_database'),
+               'status': 'DRAFT',
+               'temporal_cleanup': cleanup or {'state':'NOT_RUN', 'reason':'requires indexed FAST-LIO export and selected Bunker bundle'},
+               'start_clearance_candidate': start_clearance,
+               'save_state': result_stage})
     print('Map Studio version:', version['id'], flush=True)
     return 0
 

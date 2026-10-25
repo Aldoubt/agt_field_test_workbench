@@ -1,5 +1,7 @@
 # 双底盘闭环集成交付
 
+> **2026-10-25 后续更新：** 本文是 10 月 23 日的历史验收快照；其中“KISS 不开放实时默认切换”仅描述当时状态，已被 `feature/agri-sc-kiss-20261025` 的工作台集成更新取代。当前 Qt 默认 SC，尝试从同一建图产物生成 SC 数据库和 BBS 候选索引；二维像素编辑保留同源 3D 定位资产。真实 bag/硬件/定位精度仍未验收。
+
 2026-10-23；Ubuntu 22.04.5 / ROS 2 Humble；同一工作区 `agt_field_test_ws`、集成仓库 `main`。
 
 本轮开始远端/本地 HEAD：`a1a9d7c26d68629cc59b73bcd42d681fb502cefd`，工作树干净；`61b2f930…` 为历史基准。已保留 FW-mini 原候选文件，逐字节与起始提交比对相等。未重置依赖仓库、未新建长期分支。最终唯一候选 SHA 为本次发布提交（`git rev-parse HEAD`）；发布后 `scripts/write_delivery_manifest.py` 生成绑定该 SHA 的工作区报告。

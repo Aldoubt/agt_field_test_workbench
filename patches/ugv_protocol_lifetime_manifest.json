@@ -1,0 +1,16 @@
+{
+  "external/ugv_sdk": {
+    "commit": "f2704eacdc90357078cd93ec60aae08bb4baab35",
+    "patch": "patches/ugv_protocol_lifetime.patch",
+    "files": {
+      "include/ugv_sdk/utilities/protocol_detector.hpp": {
+        "before": "451bc0b674e733c1f1ecf5527025c5302fd63d4e52147e79cdf8ab5ae030f80c",
+        "after": "074335335c5e6aace2d2ea153ced63e705985ea402764f354a3f4f6dabbc36e2"
+      },
+      "src/utilities/protocol_detector.cpp": {
+        "before": "743c642b9b1ffde193864221a5dc023dd83ee40505ceb9e59f9ac9a9ee4ec62a",
+        "after": "7217968297da2183da79dbebcf998188714c2c596aca0d3e4d068944d4fd6916"
+      }
+    }
+  }
+}

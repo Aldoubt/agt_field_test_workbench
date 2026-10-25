@@ -1,0 +1,4 @@
+........................................................................ [ 69%]
+................................                                         [100%]
+- generated xml file: /home/yangxuan/agt_field_test_ws/src/agt_field_test_workbench/docs/evidence/distance_path_20261025/regression.xml -
+104 passed in 40.25s

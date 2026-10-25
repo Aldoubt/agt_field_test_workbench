@@ -1,0 +1,6 @@
+# Commissioning views: level pitch, left / center / right at every waypoint.
+base_settle_time: 0.3
+views:
+  - {tag: left, heading: -30.0, roll: 0.0, pitch: 0.0, tolerance: 3.0, timeout: 8.0, stable_samples: 2, settle_time: 0.2, image_timeout: 2.0, save_image: true, required: true}
+  - {tag: center, heading: 0.0, roll: 0.0, pitch: 0.0, tolerance: 3.0, timeout: 8.0, stable_samples: 2, settle_time: 0.2, image_timeout: 2.0, save_image: true, required: true}
+  - {tag: right, heading: 30.0, roll: 0.0, pitch: 0.0, tolerance: 3.0, timeout: 8.0, stable_samples: 2, settle_time: 0.2, image_timeout: 2.0, save_image: true, required: true}

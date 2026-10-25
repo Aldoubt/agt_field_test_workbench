@@ -1,4 +1,12 @@
 repositories:
+  external/scancontext:
+    type: git
+    url: https://github.com/gisbi-kim/scancontext.git
+    version: 93672835bb85e9c03fedf0fbaf2d0491df12161e
+  Autolabor-C1-ROS2:
+    type: git
+    url: https://github.com/Aldoubt/Autolabor-C1-ROS2.git
+    version: 10d82179dc34ae035b382e9b465e4b8f5d55c0a8
   agt_navigation_v3:
     type: git
     url: https://github.com/Aldoubt/agt_navigation_v3.git

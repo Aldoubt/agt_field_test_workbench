@@ -1,0 +1,12 @@
+{
+  "agt_navigation_v3": {
+    "commit": "b3a60487dff973c6326aca2ca2e9db1e78daeaaa",
+    "patch": "patches/map_tracking_support.patch",
+    "files": {
+      "navigation/localization/agt_map_tracker/agt_map_tracker/map_tracker.py": {
+        "before": "058fae0ecd8f5d88fd7ff9d5d2263588114390fe746f182419642bcd23bb7a09",
+        "after": "93e63e0fe1e6f4eb30e4a84e019f77d9535fcec77d3357117bab64ffb7d82a29"
+      }
+    }
+  }
+}

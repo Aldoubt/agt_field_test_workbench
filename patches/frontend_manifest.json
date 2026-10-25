@@ -1,0 +1,44 @@
+{
+  "external/fast_lio2_mapping": {
+    "commit": "7f664a66ae7b3b683dddf7f5322c1ea55a3c8141",
+    "patch": "patches/fastlio2_measurement_jacobian.patch",
+    "files": {
+      "fastlio2/CMakeLists.txt": {
+        "before": "fe69306e457fd92c7be6640efe063d127f0535aa5384a6c2a14aa6fac4d6351a",
+        "after": "2bafcfbc7fc83d150204fa25fd2f55bddd3f3de34906b7c7136416b4652663c6"
+      },
+      "fastlio2/src/lio_node.cpp": {
+        "before": "8942b97bdf563639c6b39adaf1b3ce0f6c1ba8d24c81947350b3d0e6ba08e6e8",
+        "after": "5dba0a23511f66d37a72864ee0b7b11ceec8092b1b8b6134893c38c272978529"
+      },
+      "fastlio2/src/map_builder/lidar_processor.cpp": {
+        "before": "b475ba78fedcb79fff4405ca3693c69a0ca6bdb968ccfc1b241cd7c992995c8c",
+        "after": "ce456bdeeaa8352d2843f5cc3719cde523960fb9006314522ebef77373618cb8"
+      },
+      "fastlio2/src/map_builder/point_plane_jacobian.h": {
+        "before": null,
+        "after": "847a02b4dc878843c901bf11cc889663a147e2febd76cb7f3f4be4cf2ce14f02"
+      },
+      "fastlio2/test/test_point_plane_jacobian.cpp": {
+        "before": null,
+        "after": "3f7d0ccce24116516c2ab93e08f03f36918c79424776940c8c70f8c509d8e922"
+      },
+      "fastlio2/test/latency_replay.py": {
+        "before": null,
+        "after": "0e16afdb95cd5eabcbeb97db6e4a5eb0b1ba727fe5e905820d06d80bab2726a7"
+      },
+      "fastlio2/test/latency_replay_qos.yaml": {
+        "before": null,
+        "after": "7813859f0ec18b32073986797565c672684b7f67f2bf8dbf457a9d3a70eef7f8"
+      },
+      "fastlio2/test/make_timing_fault_bag.py": {
+        "before": null,
+        "after": "e5463a44a31643acffb1e11c6727dc25939eb048e7448d8498cd58decdb97ff3"
+      },
+      "fastlio2/test/startup_history_replay.py": {
+        "before": null,
+        "after": "ff183a8749324465f8ba621b2e5b04a6d551a49ca43871be742203a4b42e21d7"
+      }
+    }
+  }
+}

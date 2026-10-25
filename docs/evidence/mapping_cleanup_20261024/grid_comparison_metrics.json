@@ -1,0 +1,14 @@
+{
+  "before": {
+    "occupied": 239571,
+    "free": 1409675,
+    "unknown": 3614846
+  },
+  "after": {
+    "occupied": 179055,
+    "free": 1435347,
+    "unknown": 3612050
+  },
+  "shared_grid_before_occupied_cleared": 72482,
+  "shared_grid_before_occupied_retained": 167089
+}

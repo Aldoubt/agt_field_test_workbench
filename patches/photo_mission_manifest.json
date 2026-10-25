@@ -1,0 +1,20 @@
+{
+  "agt_navigation_v3": {
+    "commit": "b3a60487dff973c6326aca2ca2e9db1e78daeaaa",
+    "patch": "patches/photo_mission.patch",
+    "files": {
+      "navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/mission_runtime.py": {
+        "before": "8ad59e8aba9c75b2497010d5ecbba4100ab5e849e06eb7f8753ddfc8edfd5433",
+        "after": "3f7ee0d80743f489971dfd82f38752f20c4f326f75234ff28f6931b961314408"
+      },
+      "navigation/nav2/agt_navigation_runtime/agt_navigation_runtime/ros_wait.py": {
+        "before": "cebaac1ef022763dcf4243dee46db4f22e19cc18af71405960cca56e9a6fc457",
+        "after": "13e25ac65527073695b55b18de45cd437f5ca1ae176bf082cf98a11526cc5be5"
+      },
+      "navigation/nav2/agt_navigation_runtime/package.xml": {
+        "before": "28e9b788c6c38f553b0e8e27acb6f3dd7666fcc17f88d051e736e8566ae9ed85",
+        "after": "2868eafdf6deeae266a9a72c48018e0696e5135568002b88cd31a8a61dfdf97e"
+      }
+    }
+  }
+}

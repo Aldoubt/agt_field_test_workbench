@@ -1,0 +1,69 @@
+Starting >>> agt_field_test_bringup
+[0.369s] WARNING:colcon.colcon_core.shell:The following packages are in the workspace but haven't been built:
+- agt_robot_interfaces
+They are being used from the following locations instead:
+- /workspace/work/humble-ws/install/agt_robot_interfaces
+To suppress this warning ignore these packages in the workspace:
+--packages-ignore agt_robot_interfaces
+[0.369s] ERROR:colcon.colcon_cmake.task.cmake.build:Failed to find the following files:
+- /workspace/work/agri-ws/install/agt_livox_tools/share/agt_livox_tools/package.sh
+- /workspace/work/agri-ws/install/agt_map_converter/share/agt_map_converter/package.sh
+- /workspace/work/agri-ws/install/agt_nav2_bringup/share/agt_nav2_bringup/package.sh
+- /workspace/work/agri-ws/install/agt_navigation_interfaces/share/agt_navigation_interfaces/package.sh
+- /workspace/work/agri-ws/install/agt_pointcloud_preprocessor/share/agt_pointcloud_preprocessor/package.sh
+- /workspace/work/agri-ws/install/agt_rviz_route_tools/share/agt_rviz_route_tools/package.sh
+- /workspace/work/agri-ws/install/agt_sim_odometry_adapter/share/agt_sim_odometry_adapter/package.sh
+- /workspace/work/agri-ws/install/fwmini_description/share/fwmini_description/package.sh
+- /workspace/work/agri-ws/install/fwmini_interfaces/share/fwmini_interfaces/package.sh
+- /workspace/work/agri-ws/install/fwmini_perception/share/fwmini_perception/package.sh
+- /workspace/work/agri-ws/install/ros2_livox_simulation/share/ros2_livox_simulation/package.sh
+- /workspace/work/agri-ws/install/yhs_can_interfaces/share/yhs_can_interfaces/package.sh
+- /workspace/work/agri-ws/install/agt_base_control/share/agt_base_control/package.sh
+- /workspace/work/agri-ws/install/agt_capability_camera/share/agt_capability_camera/package.sh
+- /workspace/work/agri-ws/install/agt_demo_task/share/agt_demo_task/package.sh
+- /workspace/work/agri-ws/install/agt_gazebo_sim/share/agt_gazebo_sim/package.sh
+- /workspace/work/agri-ws/install/agt_map_manager/share/agt_map_manager/package.sh
+- /workspace/work/agri-ws/install/agt_map_tracker/share/agt_map_tracker/package.sh
+- /workspace/work/agri-ws/install/agt_rtk_manager/share/agt_rtk_manager/package.sh
+- /workspace/work/agri-ws/install/apriltag_detector_adapter/share/apriltag_detector_adapter/package.sh
+- /workspace/work/agri-ws/install/fwmini_odom_adapter/share/fwmini_odom_adapter/package.sh
+- /workspace/work/agri-ws/install/yhs_can_control/share/yhs_can_control/package.sh
+- /workspace/work/agri-ws/install/agt_fastlio_adapter/share/agt_fastlio_adapter/package.sh
+- /workspace/work/agri-ws/install/agt_rviz_patrol/share/agt_rviz_patrol/package.sh
+- /workspace/work/agri-ws/install/fwmini_chassis_adapter/share/fwmini_chassis_adapter/package.sh
+- /workspace/work/agri-ws/install/agt_navigation_runtime/share/agt_navigation_runtime/package.sh
+- /workspace/work/agri-ws/install/tag_follow_controller/share/tag_follow_controller/package.sh
+- /workspace/work/agri-ws/install/fwmini_bringup/share/fwmini_bringup/package.sh
+Check that the following packages have been built:
+- agt_livox_tools
+- agt_map_converter
+- agt_nav2_bringup
+- agt_navigation_interfaces
+- agt_pointcloud_preprocessor
+- agt_rviz_route_tools
+- agt_sim_odometry_adapter
+- fwmini_description
+- fwmini_interfaces
+- fwmini_perception
+- ros2_livox_simulation
+- yhs_can_interfaces
+- agt_base_control
+- agt_capability_camera
+- agt_demo_task
+- agt_gazebo_sim
+- agt_map_manager
+- agt_map_tracker
+- agt_rtk_manager
+- apriltag_detector_adapter
+- fwmini_odom_adapter
+- yhs_can_control
+- agt_fastlio_adapter
+- agt_rviz_patrol
+- fwmini_chassis_adapter
+- agt_navigation_runtime
+- tag_follow_controller
+- fwmini_bringup
+Failed   <<< agt_field_test_bringup [0.01s, exited with code 1]
+
+Summary: 0 packages finished [0.33s]
+  1 package failed: agt_field_test_bringup
