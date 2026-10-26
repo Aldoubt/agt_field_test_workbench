@@ -6,6 +6,7 @@ import socket
 import time
 import threading
 from .runtime import ROOT,REPO,ROS_EXEC,write_json,ros_ready,ros_call
+from .control_error import ControlError
 from .maps import Maps,_new_id,hash_file,relocalization_assets,scan_context_database
 from .fwmini import candidate_path,resolve_profile,load_profile,digest
 from .safety import setup,report
@@ -24,7 +25,10 @@ def rpc(root,operation,payload=None):
             chunks.append(data)
             if b'\n' in data:break
     response=json.loads(b''.join(chunks))
-    if 'error' in response:raise ValueError(response['error'])
+    if 'error' in response:
+        raise ControlError(response['error'], response.get('action'),
+                           outcome_unknown=response.get('outcome_unknown', False),
+                           request_id=response.get('request_id'))
     return response
 
 def localization_matches_navigation_map(current, robot, map_record, backend, sc_database, lio_backend):

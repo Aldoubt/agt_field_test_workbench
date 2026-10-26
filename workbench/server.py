@@ -331,7 +331,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.response(404, {'error': 'not found'})
         except (ValueError, KeyError, OSError, TypeError, YAMLError, subprocess.CalledProcessError,
                 subprocess.TimeoutExpired) as exc:
-            self.response(400, {'error': str(exc)})
+            self.response(400, exc.as_response() if hasattr(exc, 'as_response') else {'error': str(exc)})
 
 
 def main():

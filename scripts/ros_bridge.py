@@ -5,6 +5,7 @@ import math
 import os
 from pathlib import Path
 import queue
+import re
 import signal
 import socketserver
 import sys
@@ -48,11 +49,15 @@ from workbench.maps import Maps,hash_file
 from workbench.goal_safety import validate_endpoints
 from workbench.gps import prior,load_alignment
 from workbench.runtime import write_json
+from workbench.action_status import ActionLedger
+from workbench.control_error import ControlError
 
 class Bridge(Node):
     def __init__(self):
         super().__init__('field_workbench_bridge');self.inbox=queue.Queue();self.session=None;self.last_session_mtime=None
         self.samples={};self.times={};self.file_identities={};self.goals=[];self.action_events=[];self.goal_result=None;self.goal_epoch=0;self.pending_goal=False
+        self.actions=ActionLedger();self.pending_action_id=None;self.sent_action_ids=set()
+        self.goal_actions={};self.action_handles={};self.stop_waiters={};self.cancelled_request_ids=set()
         self.jog_until=0.;self.jog_target=Twist();self.enable_future=None;self.closed_leases=set();self.lease=None;self.lease_seq=-1
         self.buffer=Buffer();self.listener=TransformListener(self.buffer,self)
         self.map_observation=self.create_publisher(PoseStamped,'/field/map_pose',10)
@@ -159,44 +164,127 @@ class Bridge(Node):
         client=self.create_client(typ,name)
         if not client.service_is_ready():self.destroy_client(client);raise ValueError('service unavailable: '+name)
         future=client.call_async(req);future.add_done_callback(lambda _:self.destroy_client(client));return future
-    def goal(self,points,route_id=None):
+    def action_receipt(self,action_id,**legacy):
+        action=self.actions.get(action_id)
+        return dict(legacy,action_id=action['action_id'],request_id=action['request_id'],
+                    bridge_id=action['bridge_id'],seq=action['seq'],terminal=action['terminal'],action=action)
+    def _finish_action(self,action_id,state,reason='',result=None,handle=None):
+        action=self.actions.update(action_id,state,reason,outcome_unknown=False)
+        self.sent_action_ids.discard(action_id)
+        self.action_handles.pop(action_id,None)
+        if self.pending_action_id==action_id:
+            self.pending_goal=False;self.pending_action_id=None
+        if handle in self.goals:self.goals.remove(handle)
+        if handle is not None:self.goal_actions.pop(id(handle),None)
+        self.goal_result=dict(action_id=action_id,request_id=action['request_id'],
+            bridge_id=action['bridge_id'],seq=action['seq'],state=action['state'],
+            status=getattr(result,'status',None),result=str(getattr(result,'result',reason)),action=action)
+        self.record('action_'+state.lower(),self.goal_result)
+        self._finish_stops()
+    def _finish_stops(self):
+        for stop_id,targets in list(self.stop_waiters.items()):
+            if all(self.actions.get(target)['terminal'] for target in targets):
+                self.actions.update(stop_id,'DISPATCHED',
+                    'zero command sent and earlier action requests resolved; stationary feedback not verified',
+                    target_action_ids=sorted(targets))
+                self.stop_waiters.pop(stop_id,None)
+    def _cancel_handle(self,handle,action_id):
+        try:
+            future=handle.cancel_goal_async()
+            def cancelled(result):
+                try:
+                    response=result.result()
+                    if getattr(response,'return_code',0)!=0:
+                        self.actions.update(action_id,'CANCEL_REQUESTED',
+                            'action server rejected cancellation; waiting for final result')
+                except Exception as exc:
+                    self.actions.update(action_id,'CANCEL_REQUESTED',
+                        'cancellation response unavailable: '+str(exc))
+            future.add_done_callback(cancelled)
+        except Exception as exc:
+            self.actions.update(action_id,'CANCEL_REQUESTED','could not send cancellation: '+str(exc))
+    def _submit_action(self,client,goal,session,action_id,with_feedback=False):
+        self.mode.publish(String(data='navigation'))
+        self.pending_goal=True;self.pending_action_id=action_id;epoch=self.goal_epoch
+        def reject(reason):
+            self._finish_action(action_id,'REJECTED',reason)
+            if epoch==self.goal_epoch:self.stop(reason=reason)
+        def unknown(reason):
+            self.actions.update(action_id,'CANCEL_REQUESTED',reason,outcome_unknown=True)
+            self.stop(reason=reason)
+        def result_ready(future,handle):
+            try:self.completed(future.result(),handle,action_id)
+            except Exception as exc:
+                # Loss of the result does not establish that the robot stopped.
+                # Keep this action unresolved; do not allow another motion goal.
+                unknown('action result unavailable; outcome unknown: '+str(exc))
+        def accepted(future):
+            try:handle=future.result()
+            except Exception as exc:
+                unknown('action acceptance unavailable; outcome unknown: '+str(exc));return
+            if epoch==self.goal_epoch and self.pending_action_id==action_id:
+                self.pending_goal=False;self.pending_action_id=None
+            if not handle.accepted:
+                self._finish_action(action_id,'CANCELED' if epoch!=self.goal_epoch else 'REJECTED',
+                    'action request invalidated by stop' if epoch!=self.goal_epoch else 'action server rejected goal')
+                return
+            self.goal_actions[id(handle)]=action_id
+            self.action_handles[action_id]=handle
+            if epoch==self.goal_epoch:
+                self.goals.append(handle)
+                self.actions.update(action_id,'ACCEPTED','action server accepted; execution not yet complete')
+            try:handle.get_result_async().add_done_callback(lambda f:result_ready(f,handle))
+            except Exception as exc:
+                unknown('could not observe action result; outcome unknown: '+str(exc));return
+            if epoch!=self.goal_epoch:self._cancel_handle(handle,action_id)
+        def feedback(event):
+            if epoch==self.goal_epoch:
+                self.actions.update(action_id,'RUNNING','action feedback received',feedback=str(event.feedback)[:2000])
+                self.record('feedback',dict(action_id=action_id,feedback=str(event.feedback)))
+        def send():
+            if epoch!=self.goal_epoch:return
+            try:
+                self.check_navigation()  # Revalidate immediately before sending.
+            except Exception as exc:
+                reject(str(exc));return
+            # Once send starts, an exception cannot prove the server did not
+            # receive the goal. Preserve its unresolved identity and motion lock.
+            self.sent_action_ids.add(action_id)
+            self.actions.update(action_id,'REQUESTED','sending action request',phase='SENDING')
+            try:
+                kwargs={'feedback_callback':feedback} if with_feedback else {}
+                future=client.send_goal_async(goal,**kwargs)
+                self.actions.update(action_id,'REQUESTED','waiting for action server acceptance',phase='SENT')
+                future.add_done_callback(accepted)
+            except Exception as exc:
+                unknown('action send response unavailable; outcome unknown: '+str(exc))
+        if session['robot']=='fwmini' and json.loads(self.samples['fwmini'].data)['state']=='READY':
+            self.actions.update(action_id,'REQUESTED','waiting for FW-mini enable response',phase='ARMING')
+            arm=self.call_service('/fwmini/enable_motion',SetBool,SetBool.Request(data=True))
+            def armed(future):
+                if epoch!=self.goal_epoch:return
+                try:
+                    response=future.result()
+                    if response and response.success:send()
+                    else:reject('FW-mini enable failed')
+                except Exception as exc:reject('FW-mini enable failed: '+str(exc))
+            arm.add_done_callback(armed)
+        else:send()
+    def goal(self,points,route_id=None,action_id=None):
         s=self.check_navigation()
         validate_endpoints(Maps(ROOT).get(s['map_id']), points, s['profile'])
-        if self.goals or self.pending_goal:raise ValueError('cancel the active goal before starting another')
+        if self.goals or self.pending_goal or self.actions.busy_except(action_id):
+            raise ValueError('cancel the active goal and wait for its result before starting another')
         def stamped(p):
             msg=PoseStamped();msg.header.frame_id='map';msg.header.stamp=self.get_clock().now().to_msg()
             msg.pose.position.x=float(p['x']);msg.pose.position.y=float(p['y']);msg.pose.orientation.z=math.sin(p['yaw']/2);msg.pose.orientation.w=math.cos(p['yaw']/2);return msg
         if len(points)==1:client=self.navigate;goal=NavigateToPose.Goal(pose=stamped(points[0]))
         else:client=self.waypoints;goal=FollowWaypoints.Goal(poses=[stamped(p) for p in points])
         if not client.server_is_ready():raise ValueError('Nav2 action unavailable')
-        self.mode.publish(String(data='navigation'))
-        self.pending_goal=True;epoch=self.goal_epoch
-        def send():
-            if epoch!=self.goal_epoch:return
-            try:self.check_navigation()
-            except Exception as exc:self.stop();self.record('rejected',str(exc));return
-            f=client.send_goal_async(goal,feedback_callback=lambda event:self.record('feedback',str(event.feedback)))
-            f.add_done_callback(accepted)
-        def accepted(future):
-            handle=future.result()
-            self.pending_goal=False
-            if epoch!=self.goal_epoch:
-                if handle.accepted:handle.cancel_goal_async()
-                return
-            if not handle.accepted:self.record('rejected','Nav2 rejected goal');return
-            self.goals.append(handle)
-            handle.get_result_async().add_done_callback(lambda result:self.completed(result.result(),handle))
-        if s['robot']=='fwmini' and json.loads(self.samples['fwmini'].data)['state']=='READY':
-            arm=self.call_service('/fwmini/enable_motion',SetBool,SetBool.Request(data=True))
-            def armed(future):
-                if epoch!=self.goal_epoch:return
-                if future.result() and future.result().success:send()
-                else:self.stop();self.record('rejected','FW-mini enable failed')
-            arm.add_done_callback(armed)
-        else:send()
-        self.record('requested',dict(points=points,route_id=route_id,map_id=s['map_id']))
+        self._submit_action(client,goal,s,action_id,with_feedback=True)
+        self.record('requested',dict(action_id=action_id,points=points,route_id=route_id,map_id=s['map_id']))
         return dict(state='REQUESTED',points=points)
-    def start_mission(self,route):
+    def start_mission(self,route,action_id=None):
         """Hand a map-bound photo route to V3's existing stop-and-shoot runtime."""
         s=self.check_navigation()
         validate_endpoints(Maps(ROOT).get(s['map_id']), route['points'], s['profile'])
@@ -213,74 +301,113 @@ class Bridge(Node):
                     and health.gimbal_serial_connected and health.gimbal_feedback_alive
                     and health.move_action_ready and not health.busy):
                 raise ValueError('camera/gimbal health is not READY')
-        if self.goals or self.pending_goal:raise ValueError('cancel the active goal before starting another')
+        if self.goals or self.pending_goal or self.actions.busy_except(action_id):
+            raise ValueError('cancel the active goal and wait for its result before starting another')
         if not self.mission.server_is_ready():raise ValueError('inspection mission action unavailable')
         mission_file=Path(route.get('mission_file',''))
         if not mission_file.is_file() or mission_file.parent!=Routes(ROOT).directory/route['id']:
             raise ValueError('immutable route mission file is missing')
         goal=ExecuteInspectionMission.Goal(mission_file=str(mission_file),resume=False)
-        self.mode.publish(String(data='navigation'))
-        self.pending_goal=True;epoch=self.goal_epoch
-        def send():
-            if epoch!=self.goal_epoch:return
-            try:self.check_navigation()
-            except Exception as exc:self.stop();self.record('mission_rejected',str(exc));return
-            future=self.mission.send_goal_async(goal)
-            future.add_done_callback(accepted)
-        def accepted(future):
-            handle=future.result();self.pending_goal=False
-            if epoch!=self.goal_epoch:
-                if handle.accepted:handle.cancel_goal_async()
-                return
-            if not handle.accepted:self.record('mission_rejected','mission runtime rejected goal');return
-            self.goals.append(handle)
-            handle.get_result_async().add_done_callback(lambda result:self.completed(result.result(),handle))
-        if s['robot']=='fwmini' and json.loads(self.samples['fwmini'].data)['state']=='READY':
-            arm=self.call_service('/fwmini/enable_motion',SetBool,SetBool.Request(data=True))
-            def armed(future):
-                if epoch!=self.goal_epoch:return
-                if future.result() and future.result().success:send()
-                else:self.stop();self.record('mission_rejected','FW-mini enable failed')
-            arm.add_done_callback(armed)
-        else:send()
-        self.record('mission_requested',dict(route_id=route['id'],mission_file=str(mission_file),map_id=s['map_id']))
+        self._submit_action(self.mission,goal,s,action_id)
+        self.record('mission_requested',dict(action_id=action_id,route_id=route['id'],mission_file=str(mission_file),map_id=s['map_id']))
         return dict(state='REQUESTED',route_id=route['id'],executor='agt_navigation_runtime/mission_runtime')
     def record(self,event,data):
         row=dict(time=time.time(),event=event,data=data);self.action_events.append(row)
         s=self.current()
         if s:
-            with (ROOT/'runs'/s['id']/'actions.jsonl').open('a') as stream:stream.write(json.dumps(row)+'\n')
-    def completed(self,result,handle):
-        self.goal_result=dict(status=result.status,result=str(result.result));self.record('result',self.goal_result)
-        if handle in self.goals:self.goals.remove(handle)
-    def stop(self):
+            try:
+                with (ROOT/'runs'/s['id']/'actions.jsonl').open('a') as stream:stream.write(json.dumps(row)+'\n')
+            except OSError as exc:self.get_logger().warning('action log unavailable: '+str(exc))
+    def completed(self,result,handle,action_id=None):
+        action_id=action_id or self.goal_actions.get(id(handle))
+        if action_id is None:return
+        state={4:'SUCCEEDED',5:'CANCELED',6:'FAILED'}.get(result.status,'FAILED')
+        detail=str(getattr(result,'result',''))
+        payload=getattr(result,'result',None)
+        if state=='SUCCEEDED' and (getattr(payload,'success',True) is False or
+                                   bool(getattr(payload,'missed_waypoints',[])) or
+                                   getattr(payload,'error_code',0)!=0):
+            state='FAILED'
+        self._finish_action(action_id,state,detail[:2000],result=result,handle=handle)
+    def stop(self,action_id=None,target_request_id=None,reason='operator requested stop'):
         self.goal_epoch+=1;self.pending_goal=False;self.enable_future=None
         if self.lease:self.closed_leases.add(self.lease)
         self.jog_until=0.;self.cmd.publish(Twist());self.deadman.publish(Bool(data=False))
-        for g in self.goals:g.cancel_goal_async()
+        correlation_warning=''
+        if target_request_id is not None:
+            if isinstance(target_request_id,str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}',target_request_id):
+                self.cancelled_request_ids.add(target_request_id)
+            else:
+                correlation_warning='invalid target_request_id ignored; stop was still dispatched'
+                target_request_id=None
+        targets=set(self.sent_action_ids)
+        if self.pending_action_id:targets.add(self.pending_action_id)
+        targets.update(self.goal_actions.get(id(handle)) for handle in self.goals)
+        targets.discard(None)
+        if action_id:
+            self.actions.update(action_id,'STOP_REQUESTED',reason,target_action_ids=sorted(targets),
+                                target_request_id=target_request_id,correlation_warning=correlation_warning)
+            self.stop_waiters[action_id]=targets
+        for target in targets:
+            if target in self.sent_action_ids:
+                self.actions.update(target,'CANCEL_REQUESTED',reason)
+            else:self._finish_action(target,'CANCELED',reason+'; unsent request invalidated')
+        self.pending_action_id=None
+        for target in targets:
+            handle=self.action_handles.get(target)
+            if handle:self._cancel_handle(handle,target)
         self.goals=[]
         s=self.current()
         if s and s['robot']=='fwmini':
             try:self.call_service('/fwmini/enable_motion',SetBool,SetBool.Request(data=False))
             except ValueError:pass
+        self._finish_stops()
         return dict(state='STOP_REQUESTED')
     def dispatch(self,operation,p):
+        if operation not in ('goal','route','distance','stop'):
+            return self._dispatch(operation,p)
+        action,is_new=self.actions.begin(operation,p)
+        action_id=action['action_id']
+        if not is_new:
+            if action['state'] in ('REJECTED','FAILED'):
+                raise ControlError(action['reason'],action)
+            if action.get('outcome_unknown'):
+                raise ControlError(action['reason'],action,outcome_unknown=True,request_id=action['request_id'])
+            return self.action_receipt(action_id,state=action['state'],duplicate=True)
+        try:
+            if operation!='stop' and action['request_id'] in self.cancelled_request_ids:
+                raise ValueError('request was canceled by an earlier stop before dispatch')
+            result=self._dispatch(operation,p,action_id)
+        except Exception as exc:
+            self._finish_action(action_id,'REJECTED',str(exc))
+            raise ControlError(str(exc),self.actions.get(action_id)) from exc
+        action=self.actions.get(action_id)
+        if action['state'] in ('REJECTED','FAILED'):
+            raise ControlError(action['reason'],action)
+        if action.get('outcome_unknown'):
+            raise ControlError(action['reason'],action,outcome_unknown=True,request_id=action['request_id'])
+        return self.action_receipt(action_id,**result)
+    def reject_queued_action(self,operation,p,reason):
+        action,is_new=self.actions.begin(operation,p)
+        if is_new:self._finish_action(action['action_id'],'REJECTED',reason)
+        raise ControlError(reason,self.actions.get(action['action_id']))
+    def _dispatch(self,operation,p,action_id=None):
         s=self.current()
         if operation=='ping':return dict(ready=True)
         if operation=='stop':
             if p.get('lease'):self.closed_leases.add(p['lease'])
             if self.lease:self.closed_leases.add(self.lease)
-            return self.stop()
+            return self.stop(action_id,p.get('target_request_id'))
         if operation=='status':return self.snapshot()
         if operation not in ('ping','status','stop') and (not s or p.get('robot')!=s['robot']):raise ValueError('selected robot differs from active session')
         if operation in ('distance','route','goal') and p.get('map_id')!=s['map_id']:raise ValueError('selected map differs from active session')
         if operation=='distance':
-            self.check_navigation();return self.goal([relative(self.map_pose(),p['distance_m'])])
+            self.check_navigation();return self.goal([relative(self.map_pose(),p['distance_m'])],action_id=action_id)
         if operation=='route':
             self.check_navigation();r=Routes(ROOT).validate(p['route_id'],s['map_id'])
-            if any(point.get('photo') for point in r['points']):return self.start_mission(r)
-            return self.goal(r['points'],r['id'])
-        if operation=='goal':return self.goal([pose(p['pose'])])
+            if any(point.get('photo') for point in r['points']):return self.start_mission(r,action_id)
+            return self.goal(r['points'],r['id'],action_id)
+        if operation=='goal':return self.goal([pose(p['pose'])],action_id=action_id)
         if operation=='mode':
             if not s or s['robot']!='fwmini' or p.get('mode') not in ('four_wheel_steer','lateral'):raise ValueError('FW-mini mode must be four_wheel_steer or lateral')
             self.stop();self.call_service('/fwmini/select_'+p['mode'],Trigger,Trigger.Request());return dict(state='SWITCH_REQUESTED')
@@ -316,9 +443,11 @@ class Bridge(Node):
         for _ in range(min(self.inbox.qsize(),20)):
             op,p,reply,received=self.inbox.get()
             try:
-                if op not in ('stop','status','ping') and time.monotonic()-received>(.18 if op=='jog' else 2.):raise ValueError('queued operation expired')
+                if op not in ('stop','status','ping') and time.monotonic()-received>(.18 if op=='jog' else 2.):
+                    if op in ('goal','route','distance'):self.reject_queued_action(op,p,'queued operation expired')
+                    raise ValueError('queued operation expired')
                 reply.put(self.dispatch(op,p))
-            except Exception as exc:reply.put({'error':str(exc)})
+            except Exception as exc:reply.put(exc.as_response() if isinstance(exc,ControlError) else {'error':str(exc)})
         if self.jog_until:
             ok,_=self.physical()
             if time.monotonic()>=self.jog_until or not ok:self.stop();self.enable_future=None
@@ -326,7 +455,7 @@ class Bridge(Node):
                 self.deadman.publish(Bool(data=True));self.cmd.publish(self.jog_target)
         if self.goals:
             try:self.check_navigation()
-            except Exception:self.stop();self.record('cancelled','runtime gate closed')
+            except Exception as exc:self.stop(reason='runtime gate closed: '+str(exc));self.record('cancelled','runtime gate closed')
     def localization_status(self):
         """Expose the manager's reason without changing any readiness predicate."""
         message=self.samples.get('localization')
@@ -340,7 +469,8 @@ class Bridge(Node):
                     wheel_odometry_fresh=self.fresh('wheel',.5),nav2_states=self.states,feedback_fresh=self.physical(),
                     sensors_ready=self.fresh('sensor_imu',1.) and self.fresh('sensor_lidar',1.),
                     chassis=self.chassis_status(),goal_result=self.goal_result,
-                    navigation_activity=dict(pending=self.pending_goal,active=bool(self.goals)))
+                    navigation_activity=dict(pending=self.pending_goal,active=bool(self.goals),busy=self.actions.busy),
+                    action_status=self.actions.snapshot())
         mission=self.samples.get('mission') if self.fresh('mission',5) else None
         try:result['global_relocalization']=json.loads(self.samples['global_relocalization'].data) if self.fresh('global_relocalization',60) else None
         except (ValueError,TypeError):result['global_relocalization']={'state':'INVALID_STATUS'}
@@ -381,6 +511,11 @@ class Handler(socketserver.StreamRequestHandler):
         try:
             request=json.loads(self.rfile.readline(1000000));reply=queue.Queue(1)
             self.server.node.inbox.put((request['operation'],request.get('payload',{}),reply,time.monotonic()));value=reply.get(timeout=6)
+        except queue.Empty:
+            request_id=request.get('payload',{}).get('request_id')
+            action=self.server.node.actions.for_request(request_id)
+            value=ControlError('ROS bridge reply timed out; command outcome is unknown',action,
+                               outcome_unknown=True,request_id=request_id).as_response()
         except Exception as e:value={'error':str(e)}
         self.wfile.write((json.dumps(value)+'\n').encode())
 
