@@ -159,8 +159,12 @@ class StudioSmoke(unittest.TestCase):
         import time
         window.live_seen=time.monotonic()
         window.live_status.update(session={'robot':'bunker','task':'navigation','map_id':'map-1'},localized=True,
-                                  feedback_fresh=[True,''],nav2_states={'controller_server':3,'bt_navigator':3})
+                                  feedback_fresh=[True,''],nav2_states={'controller_server':3,'bt_navigator':3},
+                                  action_status={'bridge_id':'bridge-1','recent':[]})
         window.submit_goal()
+        completed={'request_id':calls[0][3]['request_id'],'action_id':'goal-1','bridge_id':'bridge-1',
+                   'state':'SUCCEEDED','terminal':True,'seq':3}
+        window._on_api('refresh_live',True,dict(window.live_status,action_status={'bridge_id':'bridge-1','recent':[completed]}))
         window.move_distance(1)
         window.relocalize()
         self.assertEqual(calls[0][2], '/api/control/goal')
@@ -217,7 +221,8 @@ class StudioSmoke(unittest.TestCase):
         import time
         window.live_seen=time.monotonic()
         window.live_status.update(session={'robot':'bunker','task':'navigation','map_id':'map-1'},localized=True,
-                                  feedback_fresh=[True,''],nav2_states={'controller_server':3,'bt_navigator':3})
+                                  feedback_fresh=[True,''],nav2_states={'controller_server':3,'bt_navigator':3},
+                                  action_status={'bridge_id':'bridge-1','recent':[]})
         window.run_route()
         self.assertEqual(calls[-1][2],'/api/control/route')
         self.assertEqual(calls[-1][3]['route_id'],'route-1')

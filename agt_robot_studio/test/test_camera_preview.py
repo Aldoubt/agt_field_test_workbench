@@ -179,3 +179,42 @@ def test_worker_reports_gimbal_source_age_and_expires_angles(app, monkeypatch):
         assert states[-1]['gimbal_age_s'] == pytest.approx(1.8)
     finally:
         worker.shutdown()
+
+
+def test_palette_keeps_stale_mask_and_rejects_invalid_source_age(app):
+    view = CameraPreview()
+    try:
+        frame = decode_image(message(bytes(16)), received=100.)
+        view.set_frame(frame)
+        view.set_palette({'background': '#f5f6f1', 'text': '#213123', 'overlay': '#ffffff',
+                          'good': '#294e1a', 'warn': '#9b392a'})
+        assert view.canvas.colors['background'].name() == '#f5f6f1'
+        assert 0 < view.canvas.colors['overlay'].alpha() < 255
+        view.refresh_staleness(now=103.)
+        assert view.preview_state == 'STALE'
+        assert '#9b392a' in view.status_label.styleSheet()
+        assert not view.grab().isNull()
+        view.set_frame(dict(frame, source_age_s=float('nan')))
+        assert view.frame is frame
+        assert '源时间龄无效' in view.status_label.text()
+    finally:
+        view.close()
+
+
+def test_camera_source_age_counts_decoder_queue_delay_once(app, monkeypatch):
+    clock = [200.4]
+    monkeypatch.setattr('agt_robot_studio.ros_worker.time.monotonic', lambda: clock[0])
+    worker = RosWorker({'camera_image_topic': '/custom/image'})
+    worker._ros_node = NS(get_clock=lambda: NS(now=lambda: NS(nanoseconds=1_000_800_000_000)))
+    try:
+        worker._decode_image(message(bytes(16), sec=1000), received=200.)
+        frame = worker.frames.take()['camera']
+        assert frame['source_age_s'] == pytest.approx(.4)
+        clock[0] = 200.5
+        snapshot = worker._state_snapshot(clock[0])
+        assert snapshot['camera_image_age_s'] == pytest.approx(.9)
+        assert snapshot['camera_source']['stamp_sec'] == 1000.
+        assert snapshot['camera_source']['topic'] == '/custom/image'
+        assert snapshot['camera_source']['width'] == 2
+    finally:
+        worker.shutdown()

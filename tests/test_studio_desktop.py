@@ -102,6 +102,12 @@ else:
         self.assertIn('Environment check passed', result.stdout)
         self.assertFalse(self.output.exists())
 
+    def test_theme_selection_is_passed_to_installed_demo(self):
+        result=self.run_script(LAUNCH,'--workspace',self.workspace,'--demo','--theme','industrial',env=self.launch_env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(self.output.read_text())['args'][-3:],['--demo','--theme','industrial'])
+        self.assertEqual(self.run_script(LAUNCH,'--theme','invalid').returncode,2)
+
     def test_missing_environment_has_actionable_failure_and_no_ros_run(self):
         result = self.run_script(LAUNCH, '--workspace', self.workspace,
                                  env=dict(self.launch_env, AGT_STUDIO_ROS_SETUP=str(self.root / 'missing')))

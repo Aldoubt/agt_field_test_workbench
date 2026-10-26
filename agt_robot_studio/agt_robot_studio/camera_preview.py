@@ -59,11 +59,13 @@ class _ImageCanvas(QWidget):
         super().__init__(parent)
         self.image = None
         self.overlay = '等待相机图像'
+        self.colors = {'background': QColor('#172226'), 'text': QColor('#f4f6ef'),
+                       'overlay': QColor(12, 20, 22, 145)}
         self.setMinimumSize(180, 120)
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor('#172226'))
+        painter.fillRect(self.rect(), self.colors['background'])
         if self.image is not None and not self.image.isNull():
             size = self.image.size()
             size.scale(self.size(), Qt.KeepAspectRatio)
@@ -73,8 +75,8 @@ class _ImageCanvas(QWidget):
             painter.drawImage(target, self.image)
         if self.overlay:
             if self.image is not None:
-                painter.fillRect(self.rect(), QColor(12, 20, 22, 145))
-            painter.setPen(QColor('#f4f6ef'))
+                painter.fillRect(self.rect(), self.colors['overlay'])
+            painter.setPen(self.colors['text'])
             painter.drawText(self.rect().adjusted(12, 8, -12, -8),
                              Qt.AlignCenter | Qt.TextWordWrap, self.overlay)
         painter.end()
@@ -90,6 +92,7 @@ class CameraPreview(QWidget):
         self.connected = None
         self.error = None
         self.preview_state = 'WAITING'
+        self.status_colors = {'good': '#24664e', 'warn': '#8c4b24'}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -107,6 +110,25 @@ class CameraPreview(QWidget):
         self.timer.timeout.connect(self.refresh_staleness)
         self.timer.start(250)
 
+    def set_palette(self, colors):
+        """Apply canvas colors without coupling the preview to a UI stylesheet.
+
+        Keys: background, text, overlay; optional good/warn status text colors.
+        QColor values retain alpha; opaque overlay colors use a translucent mask.
+        """
+        for key in self.canvas.colors:
+            if key not in colors:
+                continue
+            color = QColor(colors[key])
+            if color.isValid():
+                if key == 'overlay' and color.alpha() == 255:
+                    color.setAlpha(145)
+                self.canvas.colors[key] = color
+        for key in self.status_colors:
+            if key in colors and QColor(colors[key]).isValid():
+                self.status_colors[key] = QColor(colors[key]).name()
+        self.refresh_staleness()
+
     def set_frame(self, payload):
         if not isinstance(payload, dict) or not isinstance(payload.get('image'), QImage):
             self.set_error('预览帧格式无效')
@@ -114,6 +136,10 @@ class CameraPreview(QWidget):
         received = payload.get('received')
         if payload['image'].isNull() or not isinstance(received, (int, float)) or not math.isfinite(received):
             self.set_error('预览帧为空或时间无效')
+            return
+        source_age = payload.get('source_age_s', 0.)
+        if not isinstance(source_age, (int, float)) or not math.isfinite(source_age) or source_age < 0:
+            self.set_error('预览帧源时间龄无效')
             return
         self.frame = payload
         self.canvas.image = payload['image']
@@ -140,10 +166,14 @@ class CameraPreview(QWidget):
             self.preview_state = 'DISCONNECTED'
             self.canvas.overlay = '显示适配器未连接' + ('\n保留最后有效画面' if self.frame else '')
             text = '图像未连接；请检查 ROS 显示适配器'
+            if age is not None:
+                text += f' · 最后有效帧 {age:.1f} 秒前'
         elif self.error:
             self.preview_state = 'ERROR'
             self.canvas.overlay = '图像异常' + ('\n保留最后有效画面' if self.frame else '')
             text = self.error
+            if age is not None:
+                text += f' · 最后有效帧 {age:.1f} 秒前'
         elif self.frame is None:
             self.preview_state = 'WAITING'
             self.canvas.overlay = '等待相机图像\n' + self.topic
@@ -157,5 +187,5 @@ class CameraPreview(QWidget):
             self.canvas.overlay = ''
             text = f'实时图像 · 距最后有效帧 {age:.1f} 秒'
         self.status_label.setText(text)
-        self.status_label.setStyleSheet('color:#24664e' if self.preview_state == 'LIVE' else 'color:#8c4b24')
+        self.status_label.setStyleSheet('color:'+self.status_colors['good' if self.preview_state == 'LIVE' else 'warn'])
         self.canvas.update()

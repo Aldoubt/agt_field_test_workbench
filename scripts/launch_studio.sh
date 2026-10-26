@@ -11,13 +11,14 @@ STUDIO_ARGS=()
 
 usage() {
     cat <<'EOF'
-Usage: launch_studio.sh [--workspace DIRECTORY] [--check] [--desktop] [--demo] [--config FILE]
+Usage: launch_studio.sh [--workspace DIRECTORY] [--check] [--desktop] [--demo] [--theme NAME] [--config FILE]
 
 Launch the installed AGT Robot Studio using ROS 2 Humble and this workspace.
   --workspace DIRECTORY  Colcon workspace containing install/setup.bash.
   --check                Check environment and package imports without starting the GUI.
   --desktop              Save launcher output and show graphical startup errors if available.
   --demo                 Open the application's offline demo; no robot connection.
+  --theme NAME           field, industrial, or daylight; appearance only.
   --config FILE          Pass an existing configuration file to the application.
 
 AGT_FIELD_TEST_WS selects the default workspace. AGT_STUDIO_ROS_SETUP can select
@@ -47,6 +48,10 @@ while (($#)); do
         --check) STUDIO_CHECK=true; shift ;;
         --desktop) STUDIO_DESKTOP=true; shift ;;
         --demo) STUDIO_ARGS+=("$1"); shift ;;
+        --theme)
+            (($# >= 2)) || fail '--theme needs field, industrial, or daylight'
+            case "$2" in field|industrial|daylight) STUDIO_ARGS+=("$1" "$2"); shift 2 ;;
+                *) fail '主题必须为 field、industrial 或 daylight' ;; esac ;;
         --config)
             (($# >= 2)) || fail '--config needs a file'
             [[ -f "$2" ]] || fail "配置文件不存在：$2"

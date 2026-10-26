@@ -35,6 +35,7 @@ def studio(app, monkeypatch):
         'localized': True, 'chassis': {'enabled': True, 'online': True, 'state': 0},
         'feedback_fresh': [True, ''],
         'nav2_states': {'controller_server': 3, 'bt_navigator': 3},
+        'action_status': {'bridge_id':'bridge-1','recent':[]},
     }
     window.live_seen = clock[0]
     try:
@@ -204,8 +205,10 @@ def test_goal_selection_is_draft_and_repeated_submit_is_bounded(studio):
     window.submit_goal()
     window.submit_goal()
     assert len(calls) == 1
-    assert calls[0][:4] == ('goal', 'POST', '/api/control/goal', {
-        'robot': 'bunker', 'map_id': 'map-1', 'pose': {'x': 3., 'y': 4., 'yaw': .2}})
+    assert calls[0][:3] == ('goal', 'POST', '/api/control/goal')
+    assert {key:calls[0][3][key] for key in ('robot','map_id','pose')} == {
+        'robot': 'bunker', 'map_id': 'map-1', 'pose': {'x': 3., 'y': 4., 'yaw': .2}}
+    assert calls[0][3].get('request_id')
     assert not window.submit_goal_btn.isEnabled()
     window._on_api('goal', True, {'accepted': True})
     assert window.draft_goal is None

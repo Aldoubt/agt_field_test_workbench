@@ -63,6 +63,7 @@ class OperatorRouteIntegration(unittest.TestCase):
             'localized': True,
             'nav2_states': {'controller_server': 3, 'bt_navigator': 3},
             'feedback_fresh': [True, ''],
+            'action_status': {'bridge_id':'bridge-1','recent':[]},
         }
         self.window.live_seen = time.monotonic()
         self.window.target_mode_box.setCurrentIndex(
@@ -156,6 +157,10 @@ class OperatorRouteIntegration(unittest.TestCase):
         completed = deepcopy(self.window.live_status)
         completed['navigation_activity'] = {'pending': False, 'active': False}
         completed['mission'] = {'state': 6, 'point_count': 1, 'point_index': 1}
+        request_id=self.api.requests('/api/control/route')[-1][3]['request_id']
+        completed['action_status']={'bridge_id':'bridge-1','recent':[
+            {'request_id':request_id,'action_id':'route-1','bridge_id':'bridge-1',
+             'state':'SUCCEEDED','terminal':True,'seq':3}]}
         self.window._on_api('refresh_live', True, completed)
         self.window.waypoint_editor.heading_spin.setValue(-30.)
         self.window._update_operator_gate()

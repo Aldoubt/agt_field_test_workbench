@@ -4,6 +4,7 @@ import time
 from PyQt5.QtCore import Qt, QPointF, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter, QPen, QPolygonF
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel
+from .operator_style import canvas_palette
 
 
 class ProjectionView(QWidget):
@@ -11,6 +12,7 @@ class ProjectionView(QWidget):
     def __init__(self, projection):
         super().__init__()
         self.projection = projection
+        self.colors = canvas_palette('field')
         self.snapshot = None
         self.pose = None
         self.pose_stale = True
@@ -30,6 +32,9 @@ class ProjectionView(QWidget):
             self.center = [float(c[0]), float(c[1 if self.projection == 'top' else 2])]
         if self.follow:self.center_robot()
         self.update()
+
+    def set_palette(self, colors):
+        self.colors = dict(colors); self.update()
 
     def set_robot(self, pose):
         self.pose_stale = pose is None
@@ -73,15 +78,15 @@ class ProjectionView(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         try:
-            p.fillRect(self.rect(), QColor('#0c151c'))
+            p.fillRect(self.rect(), QColor(self.colors['background']))
             if not self.snapshot:
-                p.setPen(QColor('#98adb8'))
+                p.setPen(QColor(self.colors['muted']))
                 p.drawText(self.rect(), Qt.AlignCenter, '等待有效点云 / TF')
                 return
             s = self.snapshot
             plane = s['projections'][self.projection]
             fac = self.factor()
-            colors = ['#496b77', '#36bb9f', '#9ddbd3', '#e9c48d', '#c9e4f0']
+            colors = self.colors['point_bins']
             for k, color in enumerate(colors):
                 points = plane[s['bins'] == k]
                 screen = (points-self.center)*[fac, -fac] + [self.width()/2, self.height()/2]
@@ -91,14 +96,14 @@ class ProjectionView(QWidget):
             if pose and pose['frame_id'] == s['frame_id']:
                 x = self.width()/2+(pose['x']-self.center[0])*fac
                 y = self.height()/2-(pose['y' if self.projection == 'top' else 'z']-self.center[1])*fac
-                p.setPen(QPen(QColor('#e5b144' if self.pose_stale else '#ff697e'), 3)); p.drawEllipse(QPointF(x, y), 6, 6)
+                p.setPen(QPen(QColor(self.colors['robot_stale' if self.pose_stale else 'robot']), 3)); p.drawEllipse(QPointF(x, y), 6, 6)
                 if self.projection == 'top':
                     p.drawLine(QPointF(x, y), QPointF(x+22*math.cos(pose['yaw']), y-22*math.sin(pose['yaw'])))
-            p.setPen(QColor('#b5c5ce'))
+            p.setPen(QColor(self.colors['text']))
             age = time.monotonic()-s['received']
             p.drawText(10, 22, s['frame_id']+' · '+('数据过期，保留最后有效画面' if age > 3 else s['source']))
         except Exception:
-            p.setPen(QColor('#ff959c')); p.drawText(10, 45, '本视图绘制失败，等待下一帧')
+            p.setPen(QColor(self.colors['error'])); p.drawText(10, 45, '本视图绘制失败，等待下一帧')
         finally:
             p.end()
 
