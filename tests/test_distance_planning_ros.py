@@ -15,7 +15,7 @@ pytestmark=pytest.mark.skipif(
 
 
 @pytest.fixture
-def planner(tmp_path):
+def planner(tmp_path, request):
     import rclpy
     from rclpy.qos import QoSProfile,DurabilityPolicy
     from rclpy.action import ActionClient
@@ -42,7 +42,9 @@ def planner(tmp_path):
     msg.info.width=500;msg.info.height=240;msg.info.origin.position.x=-5.;msg.info.origin.position.y=-5.
     msg.info.origin.orientation.w=1.
     grid=np.zeros((240,500),dtype=np.int8)
-    start=np.array([.329844069,-.197154558]);yaw=-.0958670173
+    case_parameters = getattr(request, 'param', {})
+    start=np.array(case_parameters.get('start', [.329844069,-.197154558]))
+    yaw=case_parameters.get('yaw', -.0958670173)
     def set_map(case):
         grid[:]=0
         if case in ('obstacle','unknown'):
@@ -143,3 +145,19 @@ def test_exact_goal_never_accepts_a_nearby_free_cell(planner, case):
     status, xy, *_ = planner(5., case=case)
     assert status != 4
     assert len(xy) == 0
+
+
+@pytest.mark.parametrize('planner', [dict(
+    start=[.340968200378086, -.20925805805468],
+    yaw=-.10146856675230191)], indirect=True)
+def test_exact_endpoint_does_not_create_a_reverse_cusp(planner):
+    # Field 2026-10-27 19:24: the native cell center overshot the requested
+    # goal; appending it produced a reverse cusp and 119 direction switches.
+    status, xy, _, _, start, end = planner(5.)
+    assert status == 4
+    assert np.linalg.norm(xy[-1]-end) < 1e-8
+    segments = np.diff(xy, axis=0)
+    joins = np.sum(segments[:-1]*segments[1:], axis=1)
+    assert np.all(joins >= -1e-10), 'exact endpoint introduces an artificial reverse cusp'
+    direction = (end-start)/5.
+    assert np.all(segments[-4:]@direction >= -1e-8)

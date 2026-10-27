@@ -1,5 +1,5 @@
-// Preserve Smac2D search/smoothing, then connect its grid-center endpoint to
-// the requested sub-cell goal. Used only by fixed-distance accuracy trials.
+// Preserve Smac2D search/smoothing and replace the terminal grid cell with
+// a collision-checked sub-cell endpoint without creating a reverse cusp.
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -31,13 +31,28 @@ public:
     if (path.poses.empty()) {return path;}
     auto * map = costmap_ros_->getCostmap();
     std::unique_lock<nav2_costmap_2d::Costmap2D::mutex_t> lock(*map->getMutex());
+    const auto native_end = path.poses.back().pose.position;
+    if (std::hypot(goal.pose.position.x - native_end.x, goal.pose.position.y - native_end.y) >
+      _tolerance + std::sqrt(2.0) * map->getResolution())
+    {
+      throw nav2_core::PlannerException("Exact goal is too far from the Smac endpoint");
+    }
+    // Appending the exact goal after an overshooting grid center creates a
+    // negative segment dot product. RPP interprets that as a reversal cusp.
+    // Replace that center, trimming further only if the new join still reverses.
+    if (path.poses.size() > 1U) {path.poses.pop_back();}
+    while (path.poses.size() > 1U) {
+      const auto & anchor = path.poses.back().pose.position;
+      const auto & previous = path.poses[path.poses.size() - 2U].pose.position;
+      const double dot = (anchor.x - previous.x) * (goal.pose.position.x - anchor.x) +
+        (anchor.y - previous.y) * (goal.pose.position.y - anchor.y);
+      if (dot > 0.0) {break;}
+      path.poses.pop_back();
+    }
     const auto last = path.poses.back().pose;
     const double dx = goal.pose.position.x - last.position.x;
     const double dy = goal.pose.position.y - last.position.y;
     const double distance = std::hypot(dx, dy);
-    if (distance > _tolerance + std::sqrt(2.0) * map->getResolution()) {
-      throw nav2_core::PlannerException("Exact goal is too far from the Smac endpoint");
-    }
     nav2_costmap_2d::FootprintCollisionChecker<nav2_costmap_2d::Costmap2D *> checker(map);
     const auto footprint = costmap_ros_->getRobotFootprint();
     const double yaw = tf2::getYaw(goal.pose.orientation);

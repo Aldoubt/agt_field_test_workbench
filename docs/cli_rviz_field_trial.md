@@ -188,3 +188,5 @@ SC 返回 SCAN_CONTEXT_NO_CANDIDATE 表示描述子检索没有满足阈值的�
 距离测试使用 `./field_start distance`，就绪后另开终端 `./field_trial record`，再执行 `./field_distance run 5`（或7、10）。每次run抓取当前起点和朝向，单目标、无自动返程。普通 `./field_start nav` 使用普通导航参数，不能替代距离精度入口。
 
 提交前会读取实际Nav2参数，核对2cm容差、精确终点规划器和距离平滑设置；不匹配会拒绝提交并提示重启distance入口。2cm是估计位姿的到点判定半径，不保证物理测距误差。停滞/取消的任务不得计入成功精度样本；出现固定偏短应对照目标、路径末端、指令速度和实测轮速定位原因，不直接给目标加补偿距离。
+
+2026-10-27 19:24距离包发现：精确终点补点可能在栅格中心越过目标后形成反向折点，RPP允许倒车时持续正负切换。ExactGoalPlanner现替换末端格点并检查新连接方向，完整保留末段碰撞检查。需重新编译agt_field_test_bringup并重启旧会话；本工作区已编译。详见 [末端摆动报告](evidence/distance_endpoint_oscillation_20261027_1924/README.md)。
