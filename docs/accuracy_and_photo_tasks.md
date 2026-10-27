@@ -38,15 +38,14 @@ ros2 service call /agt/task/cancel std_srvs/srv/Trigger '{}'
 
 ## 1. 5/7/10 米精度测试
 
-选择可容纳 10 米测试线和返程的场地，在地上标好起点和车体参考点。车头对准测试方向，停稳后记录一次 home：
+选择可容纳 10 米测试线和返程的场地，在地上标好起点和车体参考点。车头对准测试方向，停稳后生成本批任务（自动读取当前有效定位作为起点）：
 
 ```bash
-python3 src/agt_field_test_workbench/scripts/field_tasks.py teach home
 python3 src/agt_field_test_workbench/scripts/field_tasks.py accuracy \
   --trials 5 --output missions/accuracy_5710
 ```
 
-记录文件默认是 `config/field_test_points.yaml`。已有 home 不会被覆盖；新一批测试可在子命令前用 `--points config/另一份点位.yaml`，后续生成时使用同一个文件。不同地图使用不同文件；已存在的任务输出也不会被覆盖。
+accuracy 不读取旧点位本中的 home，也不使用 --points；它从当前地图定位读取一次起点，保存到输出目录的 `start_pose.yaml`。同一批所有距离和返程都复用此起点。每次 accuracy 默认创建唯一新目录，生成成功后自动选为当前批次，run/home 默认使用该批次。也可用 --output 自定义新目录，或用 --directory 显式执行历史批次。未选批次不会回退到旧 missions/distance；已有任务输出不会被覆盖。
 
 生成内容：
 
@@ -162,3 +161,27 @@ ros2 run agt_navigation_runtime validate_records /实际返回的任务记录目
 ```
 
 这不要求 RTK，也不要求毫米级标定。多点相机实测通过后，再按图像用途调整分辨率、曝光和视角。
+
+## 单测 5 m 的误差诊断记录
+
+停稳、车头对准测试线后，创建一个新的批次目录：
+
+```bash
+./field_distance accuracy --distances 5 --trials 5 --output missions/accuracy_5m_batch1
+```
+
+另一个终端在发车前启动 `./field_trial record`，回程停稳后再用 Ctrl+C 结束录包。它会打印 `bags/field_trial_...` 输出路径；录包命令本身不会下发行车任务。每轮按 `run 5 --directory missions/accuracy_5m_batch1`、停稳尺量、`home --directory missions/accuracy_5m_batch1` 的顺序执行。
+
+录包入口包含以下诊断链路（未发布的话题不会产生数据）：
+
+| 目的 | 话题 |
+| --- | --- |
+| 定位与全局修正 | `/tf`、`/tf_static`、`/agt/odometry/local`、`/fastlio2/lio_odom`、`/agt/odometry/adapter_status`、`/agt/localization/status`、`/agt/localization/metrics`、`/agt/map_tracking/pose`、`/agt/map_tracking/status` |
+| 指令到实际运动 | `/cmd_vel_nav`、`/cmd_vel`、`/mux/cmd_vel`、`/wheel/odom`、`/bunker_status` |
+| 规划与避障 | `/map`、`/plan`、`/local_plan`、`/lookahead_point`、局部及全局 costmap/costmap_updates、`/local_costmap/published_footprint` |
+| 任务阶段与恢复 | `/agt/mission/status`、`/agt/task/status`、navigate_to_pose / follow_path / backup 的 `_action/feedback` 和 `_action/status`、`/rosout`、`/parameter_events` |
+| 定位复盘原始输入 | `/livox/lidar`、`/livox/imu` |
+
+同时保留批次目录（尤其是 `start_pose.yaml`、任务 YAML 和填写后的 `physical_measurements.csv`）、`data/captures/missions/` 对应任务记录、`runs/` 对应启动配置及日志。bag 的 action feedback/status 不含完整原始目标请求，不能替代任务 YAML；parameter_events 也不能替代启动参数快照。
+
+2 cm 是定位坐标内的到点门限。每轮独立记录车体同一参考点的纵向、横向、朝向误差和停车后位姿变化，并注明尺量时间、试次和 bag。先比较 map 与 odom 变化区分全局修正与局部漂移，再比较规划路径、控制指令、平滑后指令、guard 输出和实测速度，定位跟踪偏差、限幅延迟、打滑或制动距离。车轮里程计和 LIO 都不是独立精度真值。

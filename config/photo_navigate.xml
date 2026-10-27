@@ -13,7 +13,7 @@
           <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
         </Fallback>
       </RateController>
-      <FollowPath path="{path}" controller_id="FollowPath" goal_checker_id="photo_goal_checker"/>
+      <FollowPath path="{path}" controller_id="PhotoFollowPath" goal_checker_id="photo_goal_checker"/>
     </PipelineSequence>
   </BehaviorTree>
 </root>

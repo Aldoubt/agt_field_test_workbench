@@ -1,0 +1,5 @@
+<library path="agt_exact_goal_planner">
+  <class name="agt_field_test_bringup/ExactGoalPlanner" type="agt_field_test_bringup::ExactGoalPlanner" base_class_type="nav2_core::GlobalPlanner">
+    <description>Smac2D with a collision-checked connection to the exact distance goal.</description>
+  </class>
+</library>

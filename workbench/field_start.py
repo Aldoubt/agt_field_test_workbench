@@ -41,7 +41,7 @@ def make_mode_plan(args):
         params = Path(get_package_share_directory('agt_navigation_runtime'))/'config/runtime.yaml'
         components.append(('runtime', ['ros2', 'run', 'agt_navigation_runtime', 'mission_runtime',
             '--ros-args', '--params-file', str(params), '-p', 'nav_behavior_tree:=""',
-            '-p', 'recenter_after_capture:=false', '-p', 'record_root:='+str(ROOT/'data/captures/missions')]))
+            '-p', 'wait_for_bunker_control:=true', '-p', 'recenter_after_capture:=false', '-p', 'record_root:='+str(ROOT/'data/captures/missions')]))
     if not args.no_rviz:
         script = 'field_photo.sh' if args.mode == 'photo' else 'field_trial.sh'
         components.append(('rviz', ['bash', str(REPO/'scripts'/script), 'rviz']))
