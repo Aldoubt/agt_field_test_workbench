@@ -153,14 +153,23 @@ def test_accuracy_invalid_localization_leaves_no_batch(tmp_path, monkeypatch):
     assert not output.exists()
 
 
-def test_default_run_requires_selected_batch_never_falls_back_to_old_directory(tmp_path, monkeypatch):
-    monkeypatch.setattr(tasks, 'ROOT', tmp_path)
-    (tmp_path/'missions/distance').mkdir(parents=True)
+def test_default_run_uses_current_pose_not_old_batch(tmp_path, monkeypatch):
+    mock_live_pose(tmp_path, monkeypatch)
     submitted = []
     monkeypatch.setattr(tasks, 'execute_distance', submitted.append)
-    with pytest.raises(ValueError, match='不会自动使用旧'):
-        tasks.main(['run', '5'])
-    assert not submitted
+    (tmp_path/'work').mkdir()
+    (tmp_path/'work/active_distance_batch.json').write_text('{"directory":"/old/batch"}')
+    for distance, x, yaw in [(5, 100., 0.), (7, 200., math.pi/2), (10, 300., math.pi)]:
+        monkeypatch.setattr(tasks, 'read_pose', lambda map_id, x=x, yaw=yaw:
+                            dict(x=x, y=2., yaw=yaw, frame_id='map'))
+        tasks.main(['run', str(distance)])
+        doc = yaml.safe_load(submitted[-1].read_text())
+        assert len(doc['points']) == 1
+        target = doc['points'][0]['pose']
+        assert target['x'] == pytest.approx(x + distance*math.cos(yaw))
+        assert target['y'] == pytest.approx(2. + distance*math.sin(yaw))
+        assert not doc['points'][0]['views']
+    assert len(set(submitted)) == 3
 
 
 def test_generation_selects_latest_batch_for_run_and_home(tmp_path, monkeypatch):
@@ -170,7 +179,7 @@ def test_generation_selects_latest_batch_for_run_and_home(tmp_path, monkeypatch)
     for _ in range(2):
         tasks.main(['accuracy', '--distances', '5'])
         selected = Path(tasks.json.loads((tmp_path/'work/active_distance_batch.json').read_text())['directory'])
-        tasks.main(['run', '5'])
+        tasks.main(['run', '5', '--directory', str(selected)])
         tasks.main(['home'])
         assert submitted[-2:] == [selected/'accuracy_5m.yaml', selected/'return_home.yaml']
     assert submitted[0].parent != submitted[2].parent

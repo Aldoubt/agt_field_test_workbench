@@ -54,12 +54,12 @@ Bunker 现场导航的局部障碍层使用预处理后的点云标记、原始�
 ./field_distance accuracy --distances 5 7 10 --trials 5
 ```
 
-accuracy 读取当前停车位姿作为本批固定起点，不读取旧点位本，默认创建唯一的 `missions/distance_<时间>_<标识>/` 目录，生成 5m/7m/10m、独立 `return_home.yaml` 和空白实测 CSV。生成成功后自动选为当前批次；run/home 默认使用该批次，未选批次时会报错，不会回退到旧 `missions/distance`。同时保存 `start_pose.yaml` 起点快照，不发送目标。5/8/12 米同样支持：把 `--distances` 换成 `5 8 12`。
+accuracy 读取当前停车位姿作为本批固定起点，不读取旧点位本，默认创建唯一的 `missions/distance_<时间>_<标识>/` 目录，生成 5m/7m/10m、独立 `return_home.yaml` 和空白实测 CSV。生成成功后自动选为当前批次；固定批次执行必须为 run 指定 --directory；不指定时 run 从当前位置出发。同时保存 `start_pose.yaml` 起点快照，不发送目标。5/8/12 米同样支持：把 `--distances` 换成 `5 8 12`。
 
 显式执行一轮、独立尺量、再返程：
 
 ```bash
-./field_distance run 5
+./field_distance run 5 --directory missions/固定批次目录
 # 任务结束并停稳后进行独立尺量，填写 CSV；人员离开后再返程：
 ./field_distance home
 ```
@@ -76,17 +76,30 @@ accuracy 读取当前停车位姿作为本批固定起点，不读取旧点位�
 ./field_distance home --directory missions/distance_batch2
 ```
 
-已有同一地图、同一起点的距离任务时，重新启动后直接 `./field_distance run 5`，不必再次生成文件；若本批起点改变，必须重新执行 accuracy 生成新批次（默认自动创建新目录）。若任务刚下发组合入口就报参数响应超时并退出，目标会随清理取消；先解决启动失败并等最终就绪，再重试任务。本次故障证据见 [启动响应超时回归](evidence/startup_response_fix_20261025/README.md)。
+已有同一地图、同一起点的距离任务时，重新启动后用 `./field_distance run 5 --directory missions/固定批次目录`，不必再次生成文件；若本批起点改变，必须重新执行 accuracy 生成新批次（默认自动创建新目录）。若任务刚下发组合入口就报参数响应超时并退出，目标会随清理取消；先解决启动失败并等最终就绪，再重试任务。本次故障证据见 [启动响应超时回归](evidence/startup_response_fix_20261025/README.md)。
 
 目前 run/home 按 `config/field_trial.yaml` 中地图校验任务；使用组合入口 `--map-id` 覆盖时，也应让该配置对应同一地图后再生成距离任务。`run/home` 拒绝带相机视图的任务、失效定位和正在使用拍照行为树的执行器。取消距离任务用 `./field_distance cancel`，它请求父任务取消；等待最终结果和停稳，不能把 Trigger 的提交响应当成停车完成。
 
-## 导航模式
+## 导航模式：当前位置向前测试
 
 ```bash
 ./field_start nav
 ```
 
-该模式没有相机、巡检执行器或拍照队列。显示导航就绪后，在 RViz 用普通导航工具发目标。原来的 `./field_trial status --seconds 5`、`record`、`cancel` 继续可用。
+等待就绪后，另开终端即可执行：
+
+```bash
+./field_distance run 5
+# 上一条完成、车辆停稳后，根据需要再选一条：
+./field_distance run 7
+./field_distance run 10
+```
+
+每次 run 都读取当时的 map -> base_link 位姿，以当前车头方向计算目标，只执行这一个目标。无需 teach、accuracy、home 或指定目录；不会先去旧起点，也不会自动返程。连续执行 5、7、10 表示分别从每次执行时的位置出发，不是同一起点的三个固定目标。请停车后下发；等待遥控器释放期间不要重新挪动车辆，因为目标在命令提交时已经确定。
+
+该模式启动任务执行器，不启动相机或拍照队列；仍可使用 RViz 普通导航目标，但不要与距离任务同时下发。Nav2 保留避障规划，因此这里是前方目标距离，不是强制沿直线撞过障碍，也不是累计路程。普通 nav 模式使用导航到点容差；需要原 2 cm 精度配置时仍可启动 `./field_start distance`，同样支持上述 run 指令。
+
+一键录包保持：独立终端先运行 `./field_trial record`，发车测试完停稳后 Ctrl+C 结束。目标和起点自动保存到 `missions/forward_<时间>_<标识>/`。取消距离任务使用 `./field_distance cancel`，等待任务结束并停稳。
 
 ## 导航加云台相机模式
 

@@ -156,6 +156,27 @@ def execute_distance(path):
                      'agt_robot_interfaces/action/ExecuteInspectionMission',goal,'--feedback'])
 
 
+def run_from_current_pose(distance):
+    """One target relative to this invocation's pose; never visits an old home."""
+    from workbench.mode_state import require_mode_ready
+    require_mode_ready(ROOT)
+    config = yaml.safe_load((ROOT/'config/field_trial.yaml').read_text())
+    start = read_pose(config['map_id'])
+    target = dict(x=start['x'] + distance * math.cos(start['yaw']),
+                  y=start['y'] + distance * math.sin(start['yaw']),
+                  yaw=start['yaw'], frame_id='map')
+    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    directory = ROOT/'missions'/f'forward_{stamp}_{uuid.uuid4().hex[:8]}'
+    mission = dict(version=1, mission_id=directory.name, map_id=config['map_id'],
+                   points=[point('FORWARD', target)])
+    save_new(directory/'start_pose.yaml', dict(map_id=config['map_id'], pose=start, distance_m=distance))
+    save_new(directory/'mission.yaml', mission)
+    print(f'从当前位姿向前 {distance:g} m：起点 ({start["x"]:.3f}, {start["y"]:.3f})，'
+          f'目标 ({target["x"]:.3f}, {target["y"]:.3f})；到点结束，不自动返程。', flush=True)
+    print(f'诊断任务文件：{directory.resolve()}', flush=True)
+    return execute_distance(directory/'mission.yaml')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--points', type=Path, default=ROOT/'config/field_test_points.yaml')
@@ -172,9 +193,9 @@ def main(argv=None):
     photos = sub.add_parser('photos', help='generate a multi-point AcquireView mission')
     photos.add_argument('ids', nargs='+')
     photos.add_argument('--output', type=Path, required=True)
-    run = sub.add_parser('run', help='explicitly execute one prepared distance mission')
+    run = sub.add_parser('run', help='navigate forward from the current pose; no preparation required')
     run.add_argument('distance', type=finite)
-    run.add_argument('--directory',type=Path,help='prepared batch; defaults to the last successfully generated batch')
+    run.add_argument('--directory',type=Path,help='explicitly use a legacy fixed-anchor batch instead of the current pose')
     home = sub.add_parser('home', help='explicitly execute the prepared return-home mission')
     home.add_argument('--directory',type=Path,help='prepared batch; defaults to the last successfully generated batch')
     sub.add_parser('cancel',help='request parent mission cancellation')
@@ -184,6 +205,8 @@ def main(argv=None):
     if args.command in ('run','home'):
         if args.command == 'run' and args.distance <= 0:
             raise ValueError('distance must be positive')
+        if args.command == 'run' and args.directory is None:
+            return run_from_current_pose(args.distance)
         filename = ('return_home.yaml' if args.command == 'home' else
                     'accuracy_'+str(float(args.distance)).removesuffix('.0')+'m.yaml')
         directory = args.directory
@@ -254,7 +277,7 @@ def main(argv=None):
         temporary = active.with_suffix('.tmp')
         temporary.write_text(json.dumps(dict(directory=str(args.output.resolve())), ensure_ascii=False))
         temporary.replace(active)
-        print('已设为当前批次；后续 run/home 无需再指定 --directory。')
+        print('已保存固定起点批次；执行本批任务请使用 run/home --directory 指定此目录。')
         print(f'本批起点（当前位姿）：x={home["x"]:.3f}, y={home["y"]:.3f}, yaw={home["yaw"]:.3f} rad')
         print(f'任务目录：{args.output.resolve()}')
         print('本批所有轮次复用此起点；run 先到 HOME_START，再到距离终点；home 返回本批起点。')

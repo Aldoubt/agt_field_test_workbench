@@ -1,5 +1,7 @@
 # 5/7/10 米精度测试与多点云台拍照
 
+简单向前测试：`./field_start nav` 就绪后，执行 `./field_distance run 5`（或 7、10），每次按当前位姿生成一个前方目标，到点结束。无需本页的固定批次准备步骤。独立终端 `./field_trial record` 保留一键录包。下文 accuracy 用于需要共用起终点的固定批次测试。
+
 这是两个独立任务。精度测试固定同一起点、同一组终点，各测 5 次；多点拍照按记录的地点和云台角度顺序执行。复用 `agt_navigation_runtime/mission_runtime`，不再启动一套底盘、定位或 Nav2。
 
 如果直接在地图上选多个点，使用新增的 [RViz 多点拍照入口](rviz_photo_tasks.md)，无需逐点把车辆开过去记录。
@@ -45,7 +47,7 @@ python3 src/agt_field_test_workbench/scripts/field_tasks.py accuracy \
   --trials 5 --output missions/accuracy_5710
 ```
 
-accuracy 不读取旧点位本中的 home，也不使用 --points；它从当前地图定位读取一次起点，保存到输出目录的 `start_pose.yaml`。同一批所有距离和返程都复用此起点。每次 accuracy 默认创建唯一新目录，生成成功后自动选为当前批次，run/home 默认使用该批次。也可用 --output 自定义新目录，或用 --directory 显式执行历史批次。未选批次不会回退到旧 missions/distance；已有任务输出不会被覆盖。
+accuracy 不读取旧点位本中的 home，也不使用 --points；它从当前地图定位读取一次起点，保存到输出目录的 `start_pose.yaml`。同一批所有距离和返程都复用此起点。每次 accuracy 默认创建唯一新目录，生成成功后自动选为当前批次，固定批次的 run 必须用 --directory 指定；不带 --directory 的 run 每次从当前位置出发。也可用 --output 自定义新目录，或用 --directory 显式执行历史批次。未选批次不会回退到旧 missions/distance；已有任务输出不会被覆盖。
 
 生成内容：
 
