@@ -1,0 +1,95 @@
+{
+  "rtk_bag": "work/rtk_trials/20261027_200633_rtk_distance/bag/bag_0.db3",
+  "rtk_quality": {
+    "raw_position_types": [
+      16.0
+    ],
+    "rtk_fixed_count": 0,
+    "median_E_N_std": [
+      0.46301308274269104,
+      0.458406001329422
+    ]
+  },
+  "comparisons": [
+    {
+      "start": [
+        1793102835,
+        1793102840
+      ],
+      "end": [
+        1793102864,
+        1793102870
+      ],
+      "rtk_n_e_displacement_m": [
+        0.6555270854376347,
+        0.5403654847025042
+      ],
+      "rtk_horizontal_m": 0.8495355300398756,
+      "rtk_window_std_n_e_m": [
+        [
+          0.005560584131037649,
+          0.004716875618143421
+        ],
+        [
+          0.005435785057668058,
+          0.01911208838190194
+        ]
+      ],
+      "lio_map_horizontal_m": 4.910672776539009,
+      "lio_odom_horizontal_m": 4.897121441019229,
+      "wheel_odom_horizontal_m": 4.777540558405396,
+      "wheel_integrated_forward_m": 4.777984550359097,
+      "nav_integrated_forward_m": 5.211224753785635,
+      "guard_integrated_forward_m": 4.862990453392964
+    },
+    {
+      "start": [
+        1793102830,
+        1793102835
+      ],
+      "end": [
+        1793102864,
+        1793102870
+      ],
+      "rtk_n_e_displacement_m": [
+        0.6665922429517944,
+        0.5364145370058425
+      ],
+      "rtk_horizontal_m": 0.8556201107236181,
+      "rtk_window_std_n_e_m": [
+        [
+          0.005563124095793382,
+          0.0027768529559408497
+        ],
+        [
+          0.005435785057668058,
+          0.01911208838190194
+        ]
+      ],
+      "lio_map_horizontal_m": 4.909773588367257,
+      "lio_odom_horizontal_m": 4.897409031641693,
+      "wheel_odom_horizontal_m": 4.777540558405396,
+      "wheel_integrated_forward_m": 4.777984550359097,
+      "nav_integrated_forward_m": 5.211224753785635,
+      "guard_integrated_forward_m": 4.862990453392964
+    }
+  ],
+  "velocity_direction_switches": 0,
+  "raw_angular_abs_max": 0.11326913321851304,
+  "min_goal_distance": 0.07941346906510487,
+  "plan_geometry": [
+    {
+      "t": 1793102840.8828073,
+      "topic": "/plan",
+      "frame": "map",
+      "end_yaw": -0.08798523784588926,
+      "metrics": {
+        "endpoint_error": 0.0,
+        "max_lateral": 0.021868467455062615,
+        "length": 5.010384848954551,
+        "end_yaw_error_deg": 0.0
+      }
+    }
+  ],
+  "negative_adjacent_segment_dots": 0
+}
