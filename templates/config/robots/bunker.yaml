@@ -2,7 +2,9 @@ robot: bunker
 status: BASELINE_REQUIRES_FIELD_CHECK
 body_frame: base_link
 odom_frame: odom
-footprint_m: [[0.42, 0.33], [0.42, -0.33], [-0.42, -0.33], [-0.42, 0.33]]
+# Operator-confirmed body length/width 1.20 x 0.95 m (2026-10-27).
+# Retains centered base_link assumption; origin offset requires measurement.
+footprint_m: [[0.60, 0.475], [0.60, -0.475], [-0.60, -0.475], [-0.60, 0.475]]
 forward_mps: 0.40
 reverse_mps: 0.15
 angular_radps: 0.50
