@@ -45,5 +45,10 @@
   <depend>agt_pointcloud_core</depend>
   <depend>libpcl-all-dev</depend>
   <depend>yaml-cpp</depend>
+  <depend>nav2_smac_planner</depend>
+  <depend>nav2_core</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>pluginlib</depend>
+  <depend>tf2_geometry_msgs</depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

@@ -59,7 +59,8 @@ def command_plan(args):
         return ['ros2', 'run', 'agt_navigation_runtime', 'mission_runtime', '--ros-args',
                 '--params-file', str(params), '-p', 'record_root:='+str(ROOT/'data/captures/missions'),
                 '-p', 'nav_behavior_tree:='+str(REPO/'config/photo_navigate.xml'),
-                '-p', 'recenter_after_capture:=true']
+                '-p', 'recenter_after_capture:=true', '-p', 'stationary_timeout_sec:=15.0',
+                '-p', 'wait_for_bunker_control:=true', '-p', 'wheel_stop_gate:=true']
     if args.command == 'queue':
         map_id = args.map_id or yaml.safe_load((ROOT/'config/field_trial.yaml').read_text())['map_id']
         return ['ros2', 'run', 'agt_rviz_patrol', 'rviz_patrol', '--ros-args',

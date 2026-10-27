@@ -85,6 +85,7 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
     # Never plan through unobserved space just to get a shorter Smac path.
     params('planner_server')['GridBased']['allow_unknown'] = False
     if planning_profile == 'distance':
+        params('planner_server')['GridBased']['plugin'] = 'agt_field_test_bringup/ExactGoalPlanner'
         # Equal-cost 8-neighbor choices left 13.5 cm bends on the captured
         # clear 5 m route. The default data term pins those bends in place.
         # Relax it only for distance trials; keep native costmap-aware
@@ -94,6 +95,17 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
     # Selected explicitly by the photo BT. Ordinary/accuracy navigation keeps
     # the original checker as the first (default) entry.
     controller = params('controller_server')
+    if planning_profile == 'distance':
+        # Fixed-anchor accuracy trials use a 2 cm planar arrival radius.
+        # Preserve yaw tolerance and the ordinary/photo arrival policies.
+        controller['general_goal_checker']['xy_goal_tolerance'] = 0.02
+        # RPP forbids combining reversing with rotate-to-heading. A return
+        # target behind the chassis can now be tracked with negative velocity.
+        controller['FollowPath'].update(allow_reversing=True, use_rotate_to_heading=False)
+        # End stalled precision trials instead of spending a minute recovering.
+        controller['progress_checker'].update(required_movement_radius=0.01,
+                                              required_movement_angle=0.05,
+                                              movement_time_allowance=5.0)
     if 'photo_goal_checker' not in controller['goal_checker_plugins']:
         controller['goal_checker_plugins'].append('photo_goal_checker')
     controller['photo_goal_checker'] = {
@@ -101,6 +113,11 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
         'stateful': True, 'xy_goal_tolerance': 0.35,
         'yaw_goal_tolerance': math.pi,
     }
+    # Photo routes use continuous forward steering instead of repeated
+    # rotate-to-path alignment. Position-only arrival needs no final base yaw.
+    controller['controller_plugins'].append('PhotoFollowPath')
+    controller['PhotoFollowPath'] = copy.deepcopy(controller['FollowPath'])
+    controller['PhotoFollowPath'].update(use_rotate_to_heading=False, allow_reversing=False)
     # Humble refuses an empty checker ID when multiple checkers are loaded.
     # Preserve ordinary navigation's checker explicitly in both default BTs.
     from ament_index_python.packages import get_package_share_directory
@@ -111,6 +128,26 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
         ('default_nav_through_poses_bt_xml', 'navigate_through_poses_w_replanning_and_recovery.xml'),
     ):
         bt = ET.parse(bt_dir/filename)
+        if planning_profile == 'distance' and key == 'default_nav_to_pose_bt_xml':
+            # A failed precision attempt must stop, not spin/back up and retry.
+            # Keep collision checks and invalid-path replanning in FollowPath.
+            bt = ET.ElementTree(ET.fromstring("""
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <PipelineSequence name="DistanceNavigateWithReplanning">
+      <RateController hz="1.0">
+        <Fallback>
+          <ReactiveSequence>
+            <Inverter><GlobalUpdatedGoal/></Inverter>
+            <IsPathValid path="{path}"/>
+          </ReactiveSequence>
+          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+        </Fallback>
+      </RateController>
+      <FollowPath path="{path}" controller_id="FollowPath" goal_checker_id="general_goal_checker"/>
+    </PipelineSequence>
+  </BehaviorTree>
+</root>"""))
         for follow in bt.iter('FollowPath'):
             follow.set('goal_checker_id', controller['goal_checker_plugins'][0])
         destination = Path(output).with_name(Path(output).stem+'_'+key+'.xml')
@@ -160,6 +197,8 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
         controller['FollowPath'].update(cost_scaling_dist=.60,inflation_cost_scaling_factor=3.0)
     if p['navigation_self_mask_boxes']:
         params('agt_pointcloud_preprocessor')['self_filter']['extra_boxes'] = p['navigation_self_mask_boxes']
+    controller['PhotoFollowPath'] = copy.deepcopy(controller['FollowPath'])
+    controller['PhotoFollowPath'].update(use_rotate_to_heading=False, allow_reversing=False)
     Path(output).write_text(yaml.safe_dump(tree,sort_keys=False))
     return str(output)
 
