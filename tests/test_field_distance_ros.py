@@ -12,7 +12,8 @@ pytestmark=pytest.mark.skipif(
     reason='requires isolated ROS domain 183 on localhost')
 
 
-@pytest.mark.parametrize('case',['precision','photo_runtime','stale_localization','starting','ready'])
+@pytest.mark.parametrize('case',['precision','photo_runtime','stale_localization','starting','ready',
+                                      'normal_navigation','wrong_planner','wrong_smoothing'])
 def test_distance_execution_needs_ready_precision_runtime(tmp_path,monkeypatch,case):
     import rclpy
     from rclpy.context import Context
@@ -48,6 +49,18 @@ def test_distance_execution_needs_ready_precision_runtime(tmp_path,monkeypatch,c
         response.values=[Parameter('nav_behavior_tree',value='photo.xml' if case=='photo_runtime' else '').get_parameter_value()]
         return response
     peer.create_service(GetParameters,'/mission_runtime/get_parameters',parameters)
+    def controller_parameters(request, response):
+        assert request.names == ['general_goal_checker.xy_goal_tolerance']
+        response.values = [Parameter(request.names[0], value=.08 if case == 'normal_navigation' else .02).get_parameter_value()]
+        return response
+    def planner_parameters(request, response):
+        assert request.names == ['GridBased.plugin', 'GridBased.smoother.w_data']
+        plugin = 'nav2_smac_planner/SmacPlanner2D' if case == 'wrong_planner' else 'agt_field_test_bringup/ExactGoalPlanner'
+        response.values = [Parameter(request.names[0], value=plugin).get_parameter_value(),
+                           Parameter(request.names[1], value=.2 if case == 'wrong_smoothing' else 0.).get_parameter_value()]
+        return response
+    peer.create_service(GetParameters,'/controller_server/get_parameters',controller_parameters)
+    peer.create_service(GetParameters,'/planner_server/get_parameters',planner_parameters)
     executor=SingleThreadedExecutor(context=ctx);executor.add_node(peer)
     spin=threading.Thread(target=executor.spin,daemon=True);spin.start()
     try:

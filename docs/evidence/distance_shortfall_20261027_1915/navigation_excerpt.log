@@ -1,0 +1,7 @@
+[planner_server-10] [INFO] [1793099683.427057142] [planner_server]: Created global planner plugin GridBased of type nav2_smac_planner/SmacPlanner2D
+[bt_navigator-12] [INFO] [1793099719.581006131] [bt_navigator]: Begin navigating from current location (19.34, -9.20) to (24.31, -9.76)
+[controller_server-8] [ERROR] [1793099751.981918945] [controller_server]: Failed to make progress
+[controller_server-8] [ERROR] [1793099767.022364547] [controller_server]: Failed to make progress
+[controller_server-8] [ERROR] [1793099782.066361039] [controller_server]: Failed to make progress
+[controller_server-8] [INFO] [1793099782.981775616] [controller_server]: Goal was canceled. Stopping the robot.
+[bt_navigator-12] [INFO] [1793099782.982215196] [bt_navigator]: Goal canceled

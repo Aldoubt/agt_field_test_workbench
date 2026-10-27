@@ -365,7 +365,7 @@ def main(argv=None):
             write_json(directory/'session.json',dict(plan=plan,state='READY',owned=session.owned))
             publish_mode_state(ROOT,args.mode,plan['map_id'],'READY')
             print('导航已激活。'+({'photo':'在 RViz 排队后执行 ./field_photo start。',
-                  'distance':'使用 ./field_distance teach home、accuracy、run；不会自动发车。',
+                  'distance':'使用 ./field_distance run 5（或 7、10）从当前位姿向前测试；不会自动发车。',
                   'nav':'可在 RViz 手动指定导航目标。'}[args.mode]),flush=True)
             while True:
                 probe.health_check()
