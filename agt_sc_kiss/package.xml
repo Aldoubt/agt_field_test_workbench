@@ -9,5 +9,6 @@
   <exec_depend>python3-numpy</exec_depend><exec_depend>python3-scipy</exec_depend><exec_depend>python3-yaml</exec_depend>
   <exec_depend>ament_index_python</exec_depend><exec_depend>rclpy</exec_depend><exec_depend>tf2_ros</exec_depend><exec_depend>ros2run</exec_depend>
   <exec_depend>agt_global_relocalization_native</exec_depend><exec_depend>agt_batch_lio_adapter</exec_depend>
+  <exec_depend>agt_field_test_bringup</exec_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

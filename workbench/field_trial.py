@@ -19,7 +19,7 @@ from .relocalization import validate_sc_database
 from .runtime import REPO, ROOT, TEMPLATES
 
 
-def make_plan(root, config_path, map_id=None, global_backend=None, planning_profile='navigation'):
+def make_plan(root, config_path, map_id=None, global_backend=None, planning_profile='navigation', query_self_filter_config=None):
     """Validate selected inputs without starting ROS nodes or changing acceptance."""
     root = Path(root).resolve()
     if planning_profile not in ('navigation','distance'):
@@ -41,16 +41,22 @@ def make_plan(root, config_path, map_id=None, global_backend=None, planning_prof
     profile = profiles.load(profile_path, 'bunker')
     livox_path = resolve(cfg['livox_config'])
     validate_mid360s_config(livox_path)
+    from .query_filters import describe_query_filter, validate_sc_query_filter, validate_bbs_query_filter
+    mask_value=(query_self_filter_config if query_self_filter_config is not None else
+                cfg.get('query_self_filter_config',selected_map.get('query_self_filter_config','')))
+    query_filter=describe_query_filter(mask_value,root)
     backend = global_backend or cfg.get('global_backend', 'sc_kiss')
     if backend == 'sc_kiss':
         database = validate_sc_database(resolve(cfg['sc_database']) if cfg.get('sc_database')
                                         else scan_context_database(selected_map), selected_map)
+        validate_sc_query_filter(database,query_filter)
         backend_args = ['sc_database:='+database]
         strategy = 'Scan Context → KISS → GICP'
     elif backend == 'bbs':
         assets = relocalization_assets(selected_map)
         if not assets:
             raise ValueError('BBS assets missing or not associated with selected PCD; build matching assets first')
+        validate_bbs_query_filter(assets,query_filter)
         backend_args = ['relocalization_assets:='+assets]
         strategy = ('Polar Context → candidate 3D-BBS → GICP' if (Path(assets)/'polar_context.db').is_file()
                     else 'whole-map 3D-BBS → GICP (no Polar Context candidates)')
@@ -65,6 +71,10 @@ def make_plan(root, config_path, map_id=None, global_backend=None, planning_prof
             'global_map:='+selected_map['source_pcd'], 'map_yaml:='+selected_map['yaml'],
             'robot_profile_file:='+str(profile_path), 'calibration_bundle:='+str(cal_path),
             'livox_config:='+str(livox_path)]
+    inputs=dict(calibration_bundle=str(cal_path),robot_profile_file=str(profile_path),livox_config=str(livox_path))
+    if query_filter['query_self_filter_config']:
+        args+=['query_self_filter_config:='+query_filter['query_self_filter_config']]
+        inputs['query_self_filter_config']=query_filter['query_self_filter_config']
     return dict(mode='field_test', global_backend=backend, relocalization_strategy=strategy,
         planning_profile=planning_profile,
         map_id=selected_map['id'], map_name=selected_map.get('name'),
@@ -75,8 +85,7 @@ def make_plan(root, config_path, map_id=None, global_backend=None, planning_prof
         calibration_acceptance=cfg.get('calibration_acceptance', 'operator-selected calibration for supervised field test'),
         limits=dict(forward_mps=profile['forward_mps'], reverse_mps=profile['reverse_mps'],
                     angular_radps=profile['angular_radps']),
-        launch_args=args, inputs=dict(calibration_bundle=str(cal_path),
-            robot_profile_file=str(profile_path), livox_config=str(livox_path)))
+        launch_args=args, inputs=inputs, **query_filter)
 
 
 def snapshot_plan(root, plan):
@@ -90,12 +99,14 @@ def snapshot_plan(root, plan):
         shutil.copyfile(source, target)
         expected = plan[{'calibration_bundle': 'calibration_file_sha256',
                          'robot_profile_file': 'profile_sha256',
-                         'livox_config': 'livox_config_sha256'}[key]]
+                         'livox_config': 'livox_config_sha256',
+                         'query_self_filter_config':'query_self_filter_sha256'}[key]]
         if hash_file(target) != expected:
             raise ValueError('configuration changed during startup: '+source)
         prefix = key+':='
         frozen['launch_args'] = [prefix+str(target) if item.startswith(prefix) else item
                                  for item in frozen['launch_args']]
+        if key=='query_self_filter_config':frozen[key]=str(target)
     (directory/'session.json').write_text(json.dumps(frozen, ensure_ascii=False, indent=2)+'\n')
     return directory, frozen
 
@@ -362,6 +373,7 @@ def main(argv=None):
     parser.add_argument('--config', type=Path, default=ROOT/'config/field_trial.yaml')
     parser.add_argument('--map-id', help='显式覆盖配置中的地图版本')
     parser.add_argument('--global-backend', choices=('sc_kiss', 'bbs'), help='启动时显式选择全局匹配后端')
+    parser.add_argument('--query-self-filter-config',default=None,help='显式定位查询车体过滤 JSON；空字符串用于无过滤对照')
     parser.add_argument('--planning-profile', choices=('navigation','distance'), default='navigation',
                         help='distance 用于空地距离测试的路径平滑配置')
     parser.add_argument('--hold-system-clock', action='store_true',
@@ -374,6 +386,8 @@ def main(argv=None):
         parser.error('--hold-system-clock applies to start only')
     if args.global_backend and args.command not in ('check', 'start'):
         parser.error('--global-backend applies to check/start; restart the session to change backends')
+    if args.query_self_filter_config is not None and args.command not in ('check','start'):
+        parser.error('--query-self-filter-config applies to check/start; restart localization to change it')
     if args.seconds <= 0 or not math.isfinite(args.seconds):
         parser.error('--seconds must be finite and positive')
     if args.timeout_sec is not None:
@@ -390,7 +404,7 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get('polar_context') == 'READY' else 1
     elif args.command in ('start', 'check'):
-        plan = make_plan(ROOT, args.config, args.map_id, args.global_backend,args.planning_profile)
+        plan = make_plan(ROOT, args.config, args.map_id, args.global_backend,args.planning_profile,args.query_self_filter_config)
         command = ['bash', str(REPO/'scripts/run_field_test.sh'), *plan['launch_args']]
         if args.command == 'check' or args.dry_run:
             if args.hold_system_clock:

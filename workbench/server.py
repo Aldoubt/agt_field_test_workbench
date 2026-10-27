@@ -72,7 +72,11 @@ class Handler(BaseHTTPRequestHandler):
             match=re.fullmatch(r'/api/bundles/(bunker|fwmini)',self.path)
             if match:return self.response(200,BUNDLES.list(match.group(1)))
             match=re.fullmatch(r'/api/clouds/([^/]+)/preview',self.path)
-            if match:return self.response(200,sample_pcd(CLOUDS.get(match.group(1))['pcd']))
+            if match:
+                cloud=CLOUDS.get(match.group(1))
+                preview=sample_pcd(cloud['pcd'])
+                return self.response(200,dict(preview,cloud_id=cloud['id'],cloud_sha256=cloud['sha256'],
+                    keyframe_cleanup=cloud.get('keyframe_cleanup',{'state':'NOT_REQUIRED'})))
             if self.path == '/api/status':
                 return self.response(200, status())
             if self.path == '/api/jobs':
@@ -209,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.path=='/api/clouds/import':return self.response(200,CLOUDS.import_pcd(payload['path'],payload.get('calibration'),payload.get('bag'),payload.get('name','')))
             match=re.fullmatch(r'/api/clouds/([^/]+)/(clean|project)',self.path)
             if match:
-                return self.response(200,CLOUDS.clean(match.group(1),payload['operations']) if match.group(2)=='clean' else CLOUDS.grid(match.group(1),payload.get('projection',{}),payload.get('name')))
+                return self.response(200,CLOUDS.clean(match.group(1),payload['operations'],payload.get('query_self_filter_config')) if match.group(2)=='clean' else CLOUDS.grid(match.group(1),payload.get('projection',{}),payload.get('name')))
             if self.path=='/api/routes':return self.response(200,ROUTES.save(payload['map_id'],payload['points'],payload.get('name',''),payload.get('parent')))
             if self.path=='/api/session/start':return self.response(200,SESSIONS.start(payload))
             if self.path=='/api/session/stop':return self.response(200,SESSIONS.stop())

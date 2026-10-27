@@ -32,7 +32,7 @@ DEFAULT_CONFIG = {
     'auto_start_workbench':True, 'calibration_bundle':'', 'mount_profile':'',
     'geometry_file':'', 'livox_config':'', 'safety_report':'', 'session_checks':{},
     'record_template':'full_field_test', 'record_topics':[],
-    'global_backend':'sc_kiss', 'global_backend_default_version':1, 'sc_database':'', 'lio_backend':'fastlio2', 'mapping_backend':'fastlio',
+    'global_backend':'sc_kiss', 'global_backend_default_version':1, 'sc_database':'', 'query_self_filter_config':'', 'lio_backend':'fastlio2', 'mapping_backend':'fastlio',
     'save_mapping_data':True, 'enable_camera_gimbal':True,
     'camera_device_path':'/dev/video0',
     'gimbal_port_name':'/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0',
@@ -452,6 +452,9 @@ class Studio(QMainWindow):
         super().__init__();self.cfg=dict(cfg);self.demo=demo;self.worker=None;self.api=None;self.control_api=None
         self.glim=None;self.bag=None;self.rviz=None;self.editor=None;self.backend=None
         self.current_run=None;self.current_map_id=None;self.maps_by_id={};self.clouds_by_id={}
+        self.pending_cloud_id=None;self.pending_map_cloud=None
+        self.cloud_preview_request=None;self.displayed_cloud_identity=None
+        self.query_filter_source_identity=None;self.query_filter_override=False
         self.current_map_name=str(cfg.get('map_name') or '').strip()[:120]
         self.mapping_save_data=bool(cfg.get('save_mapping_data',True))
         self.live_status={};self.live_in_flight=False;self.pending_session=None
@@ -951,6 +954,14 @@ class Studio(QMainWindow):
         self.sc_database_edit=QLineEdit(str(self.cfg.get('sc_database','')))
         self.sc_database_edit.setPlaceholderText('留空：自动使用所选地图生成的 SC 数据库；也可指定含 manifest.json 的目录')
         research.addWidget(self.sc_database_edit)
+        research.addWidget(text_label('重定位查询车体过滤配置（可选 JSON）'))
+        self.query_self_filter_edit=QLineEdit(str(self.cfg.get('query_self_filter_config','')))
+        self.query_self_filter_edit.setPlaceholderText('未启用车体过滤；选择地图或点云后自动显示该版本冻结的 JSON')
+        self.query_self_filter_edit.textEdited.connect(self._query_filter_user_edited)
+        research.addWidget(self.query_self_filter_edit)
+        self.query_filter_source_label=text_label('选择地图或点云会载入该版本的冻结配置；随后可手动填写另一份已核验的 JSON。')
+        research.addWidget(self.query_filter_source_label)
+        research.addWidget(text_label('配置随点云清理版本和定位会话冻结，用于查询点云及描述子的同源预处理。修改后重新生成资产并重启定位；不修改 LIO 原始输入或障碍层配置。'))
         assets=card(body,'重定位资产与后端选择')
         assets.addWidget(text_label('默认 Scan Context → KISS-Matcher → small_gicp：数据库绑定同源三维 PCD、预处理/LIO 标定与地图坐标几何；二维 PGM 像素编辑不会使描述子失效。SC 数据库缺失或身份不匹配时明确拒绝，不静默退回慢速 BBS。'))
         assets.addWidget(text_label('备用 3D-BBS + GICP：优先使用同源 Polar Context 候选子图与 voxelmaps_coords；工作台要求候选索引，缺失时拒绝启动，避免整图 BBS 超时。地图生成会尝试同时构建 SC 描述子和 BBS 候选资产。'))
@@ -1011,7 +1022,7 @@ class Studio(QMainWindow):
         elif name in ('cloud_import','cloud_clean'):timeout=600
         elif name in ('map_revise','map_diff','map_review'):timeout=120
         elif name=='component_stop':timeout=60
-        elif name=='cloud_preview':timeout=30
+        elif name=='cloud_preview' or name.startswith('cloud_preview:'):timeout=30
         elif name in ('record_stop','session_stop') or name.startswith(('session_','device_')):timeout=30
         if name=='session_sensors':self.pending_mapping_start=True
         control=method=='POST' and path.startswith(('/api/control/','/api/session/','/api/components/','/api/mapping/'))
@@ -1064,6 +1075,14 @@ class Studio(QMainWindow):
         combo.blockSignals(False)
 
     def _on_api(self,name,ok,value):
+        if name.startswith('cloud_preview:'):
+            _,cloud_id,cloud_sha=name.split(':',2)
+            identity=(cloud_id,cloud_sha)
+            selected=self.clouds_by_id.get(self.cloud_box.currentData(),{})
+            if (identity!=self.cloud_preview_request or
+                    identity!=(self.cloud_box.currentData(),str(selected.get('sha256') or ''))):
+                return
+            name='cloud_preview'
         if name=='refresh_components':
             self.components_in_flight=False
             self.component_status_label.setText(' · '.join(f"{name}: {state['process_state']}/{state['readiness']}" for name,state in value.items()) if ok else '组件状态读取失败：'+str(value))
@@ -1106,6 +1125,7 @@ class Studio(QMainWindow):
                 self.mapping_state.setText('保存请求失败；建图任务仍在运行')
                 self.mapping_save_status.setText('保存请求失败：'+str(value)[:160])
             if name=='cloud_clean':self.cloud_clean_btn.setEnabled(True)
+            if name=='cloud_preview':self.cloud_info.setText('当前点云预览读取失败；请重试。\n'+str(value)[:200])
             return
         if name=='profile_get':
             value=next((p for p in value if p.get('robot')=='bunker'),None)
@@ -1147,10 +1167,25 @@ class Studio(QMainWindow):
                 if selected:self._load_map(selected)
             return
         if name=='refresh_clouds':
-            selected=getattr(self,'pending_cloud_id',None) or self.cloud_box.currentData()
+            pending=self.pending_cloud_id
+            selected=pending or self.cloud_box.currentData()
             self.clouds_by_id={c['id']:c for c in value}
             self._fill_combo(self.cloud_box,value,selected)
+            if pending and pending not in self.clouds_by_id:
+                self.cloud_box.blockSignals(True);self.cloud_box.setCurrentIndex(-1);self.cloud_box.blockSignals(False)
+                self._clear_cloud_preview('新版本尚未出现在点云列表中，请刷新后继续：'+pending)
+                return
             self.pending_cloud_id=None
+            if pending:
+                self.pending_map_cloud=None
+            elif self.pending_map_cloud:
+                self._select_map_cloud(self.pending_map_cloud)
+                return
+            if selected and self.cloud_box.findData(selected)<0:
+                self.cloud_box.setCurrentIndex(-1)
+            record=self.clouds_by_id.get(self.cloud_box.currentData(),{})
+            identity=(self.cloud_box.currentData(),str(record.get('sha256') or ''))
+            if pending or identity!=self.displayed_cloud_identity:self.preview_cloud()
             return
         if name=='refresh_routes':
             self.routes_by_id={r['id']:r for r in value}
@@ -1304,15 +1339,28 @@ class Studio(QMainWindow):
             self.recorder_id=None;self._update_recording();self.refresh_jobs();return
         if name=='cloud_import':
             self.pending_cloud_id=value['id']
+            self._clear_cloud_preview('PCD 已导入，正在加载新版本：'+value['id'])
             self.write_log('三维 PCD 已登记：'+value['id']);self.refresh_library();return
         if name=='cloud_preview':
-            self.clean_view.set_cloud({'xyz':value.get('points',[]),'source':'已选地图 · 采样预览'})
-            self.cloud_info.setText(f"三维预览：{value.get('sampled_points',0)} / {value.get('total_points',0)} 点；全量删除只按 XYZ 边界执行")
+            selected=self.clouds_by_id.get(self.cloud_box.currentData(),{})
+            identity=(value.get('cloud_id'),value.get('cloud_sha256'))
+            if (identity!=self.cloud_preview_request or
+                    identity!=(self.cloud_box.currentData(),str(selected.get('sha256') or ''))):
+                if not value.get('cloud_id') or not value.get('cloud_sha256'):
+                    self.cloud_info.setText('预览缺少点云版本标识，请更新并重启 Workbench 后重试；当前未显示旧预览。')
+                return
+            self.displayed_cloud_identity=identity
+            points=value.get('points',[])
+            self.clean_view.set_cloud({'xyz':points if points else np.empty((0,3)),
+                'source':str(selected.get('name') or identity[0])+' · 采样预览'})
+            self.cloud_info.setText(self._cloud_description(selected)+
+                f"\n预览 {value.get('sampled_points',0)} / {value.get('total_points',0)} 点；删除作用于全量 PCD。")
             return
         if name=='cloud_clean':
             self.cloud_clean_btn.setEnabled(True)
             self.pending_cloud_id=value['id']
-            self.write_log('全量 PCD 清洗完成，新版本：'+value['id']+'；请重新生成二维地图')
+            self._clear_cloud_preview('清理已完成，正在加载新版本：'+value['id']+'\n'+self._keyframe_cleanup_text(value))
+            self.write_log('全量 PCD 清洗完成，新版本：'+value['id']+'；请重新生成二维地图。'+self._keyframe_cleanup_text(value))
             self.refresh_library()
             return
         if name=='cloud_project':
@@ -1510,6 +1558,7 @@ class Studio(QMainWindow):
             p['checks']={k:v.isChecked() for k,v in self.motion_checks.items()}
         if task in ('localization','navigation'):
             p['global_backend']=self.global_backend_box.currentData()
+            p['query_self_filter_config']=self._query_self_filter_config()
             if p['global_backend']=='sc_kiss':
                 value=self.sc_database_edit.text().strip()
                 record=self.maps_by_id.get(map_id,{}) if map_id else {}
@@ -1573,7 +1622,10 @@ class Studio(QMainWindow):
                  and (self.global_backend_box.currentData()!='sc_kiss' or
                       session.get('sc_database')==self._session_payload(task,map_id).get('sc_database'))))
             if (session.get('task')==task and session.get('map_id')==map_id
-                    and session.get('robot')==self._robot() and same_backend):
+                    and session.get('robot')==self._robot() and same_backend
+                    and not (task in ('localization','navigation') and
+                        (self._query_self_filter_config() or session.get('query_self_filter_config')
+                         or session.get('query_self_filter_sha256')))):
                 self.write_log('所需现场会话已经在运行');return
         self._api(name,'POST','/api/session/start',self._session_payload(task,map_id))
 
@@ -1692,6 +1744,7 @@ class Studio(QMainWindow):
                 gimbal_port_name=self.gimbal_port_edit.text().strip(),
                 global_backend=self.global_backend_box.currentData(),
                 sc_database=self.sc_database_edit.text().strip(),
+                query_self_filter_config=self._query_self_filter_config(),
                 lio_backend=self.lio_backend_box.currentData(),
                 mapping_backend=self.mapping_backend_box.currentData(),
                 save_mapping_data=self.save_mapping_box.isChecked(),
@@ -1829,15 +1882,94 @@ class Studio(QMainWindow):
         path,_=QFileDialog.getOpenFileName(self,'导入建图三维 PCD',str(self.current_run or Path.home()),'PCD (*.pcd)',options=QFileDialog.DontUseNativeDialog)
         if not path:return
         calibration={'robot':self._robot(),'glim_config_path':self.cfg.get('glim_config_path')}
+        query_filter=self._query_self_filter_config()
+        if query_filter:calibration['query_self_filter_config']=query_filter
         bag=str(self.current_run/'raw_bag') if self.current_run else None
         name=self.map_name_edit.text().strip()[:120] or self.current_map_name
         self._api('cloud_import','POST','/api/clouds/import',{'path':path,'calibration':calibration,'bag':bag,'name':name})
 
+    def _query_self_filter_config(self):
+        value=self.query_self_filter_edit.text().strip()
+        return str(Path(value).expanduser().resolve()) if value else ''
+
+    def _query_filter_user_edited(self,*_):
+        self.query_filter_override=True
+        self.query_filter_source_label.setText('当前为手动覆盖配置；启动定位时会核对描述子预处理，配置不同需重新生成资产。')
+
+    def _bind_query_filter(self,record):
+        source=record.get('pcd') or record.get('source_pcd')
+        sha=record.get('sha256') if record.get('pcd') else record.get('source_pcd_sha256')
+        identity=(str(Path(source).expanduser().resolve()) if source else '',str(sha or ''))
+        if identity!=self.query_filter_source_identity or not self.query_filter_override:
+            self.query_filter_source_identity=identity;self.query_filter_override=False
+            frozen=str(record.get('query_self_filter_config') or '')
+            self.query_self_filter_edit.setText(frozen)
+            self.query_filter_source_label.setText(
+                '当前地图/点云的冻结配置 · SHA256 '+str(record.get('query_self_filter_sha256') or '未记录')[:16]
+                if frozen else '当前地图/点云未启用查询车体过滤；留空会保持该行为。')
+
+    @staticmethod
+    def _keyframe_cleanup_text(record):
+        report=record.get('keyframe_cleanup') or {}
+        state=report.get('state')
+        labels={'APPLIED':'关键帧已同步清理，定位资产需使用该版本',
+                'UNAVAILABLE':'无可用关键帧，仅完成几何地图清理',
+                'FAILED':'关键帧同步失败，仅保留几何地图候选',
+                'UNSUPPORTED':'关键帧格式不支持同步，仅保留几何地图候选',
+                'NOT_REQUIRED':'本次无需关键帧变更'}
+        text=labels.get(state,'未记录关键帧清理状态，尚不能确认描述子输入已同步')
+        reason=str(report.get('reason') or '')[:200]
+        return text+(f'（{state}）' if state else '')+('：'+reason if reason else '')
+
+    def _cloud_description(self,record,full_sha=False):
+        count=(record.get('processing') or {}).get('output_points')
+        points=f'{count:,}' if isinstance(count,int) else '未记录'
+        sha=str(record.get('sha256') or '未记录')
+        return (f"点云：{record.get('name') or '未命名'}\n版本：{record.get('id','未选择')}"
+                f"\nSHA256：{sha if full_sha else sha[:16]} · 全量点数：{points}\n"+
+                self._keyframe_cleanup_text(record))
+
+    def _clear_cloud_preview(self,message):
+        self.cloud_preview_request=None;self.displayed_cloud_identity=None
+        self.clean_view.set_cloud({'xyz':np.empty((0,3)),'source':'尚未加载所选点云'})
+        self.cloud_info.setText(message)
+
+    def _select_map_cloud(self,manifest):
+        """Bind the cleanup editor to the displayed map's immutable source."""
+        self.pending_map_cloud=manifest
+        source=manifest.get('source_pcd');source_sha=manifest.get('source_pcd_sha256')
+        matches=[]
+        if source and source_sha:
+            source=Path(source).expanduser().resolve()
+            matches=[record['id'] for record in self.clouds_by_id.values()
+                if record.get('pcd') and record.get('sha256')==source_sha
+                and Path(record['pcd']).expanduser().resolve()==source]
+        ident=manifest.get('cloud_id')
+        if ident not in matches:ident=matches[0] if len(matches)==1 else None
+        index=self.cloud_box.findData(ident) if ident else -1
+        self.cloud_box.blockSignals(True);self.cloud_box.setCurrentIndex(index);self.cloud_box.blockSignals(False)
+        if index>=0:
+            self.pending_map_cloud=None;self.preview_cloud()
+        else:
+            self._bind_query_filter(manifest)
+            self._clear_cloud_preview('当前地图未找到已登记且身份一致的源 PCD；请刷新点云列表或导入其源 PCD。未自动选择其他点云。')
+
     def preview_cloud(self, *_):
         ident=self.cloud_box.currentData()
-        if ident:self._api('cloud_preview','GET',f'/api/clouds/{ident}/preview')
+        if not ident:
+            self._clear_cloud_preview('尚未选择三维 PCD；请先关联当前地图的源点云。')
+            return
+        self.pending_map_cloud=None
+        record=self.clouds_by_id.get(ident,{})
+        self._bind_query_filter(record)
+        sha=str(record.get('sha256') or '')
+        self._clear_cloud_preview('正在读取所选点云预览……\n'+self._cloud_description(dict(record,id=ident)))
+        self.cloud_preview_request=(ident,sha)
+        self._api(f'cloud_preview:{ident}:{sha}','GET',f'/api/clouds/{ident}/preview')
 
     def clean_cloud_roi(self):
+        if self.pending_cloud_id:
+            QMessageBox.warning(self,'新点云正在加载','请等新版本加载完成后，再继续清理。');return
         ident=self.cloud_box.currentData()
         if not ident:
             QMessageBox.warning(self,'尚未选择 PCD','先导入并选择三维点云版本。');return
@@ -1845,18 +1977,25 @@ class Studio(QMainWindow):
         high=[self.cloud_roi_edits[(axis,'max')].value() for axis in ('x','y','z')]
         if any(a>=b for a,b in zip(low,high)):
             QMessageBox.warning(self,'ROI 无效','每个坐标轴的下限必须小于上限。');return
+        query_filter=self._query_self_filter_config()
         answer=QMessageBox.question(self,'确认清理全量地图',
-            f'将从地图坐标系下的整个 PCD 删除盒内所有点：\\nmin={low}\\nmax={high}\\n'
+            self._cloud_description(dict(self.clouds_by_id.get(ident,{}),id=ident),full_sha=True)+'\n\n'+
+            '查询车体过滤配置：'+(query_filter or '未启用')+'\n'+
+            f'将从地图坐标系下的整个 PCD 删除盒内所有点：\nmin={low}\nmax={high}\n'
             '原始 PCD 保留，新版本可预览和再次清洗。务必确认没有删掉树干、墙面等定位结构。',
             QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
         if answer!=QMessageBox.Yes:return
         if self.demo:
             self.write_log('演示模式：不执行 PCD 清洗');return
         self.cloud_clean_btn.setEnabled(False)
+        payload={'operations':[{'type':'delete','min':low,'max':high}],
+                 'query_self_filter_config':query_filter}
         self._api('cloud_clean','POST',f'/api/clouds/{ident}/clean',
-                  {'operations':[{'type':'delete','min':low,'max':high}]})
+                  payload)
 
     def generate_grid(self):
+        if self.pending_cloud_id:
+            QMessageBox.warning(self,'新点云正在加载','请等新版本加载完成后，再生成二维地图。');return
         cloud=self.cloud_box.currentData()
         if not cloud:QMessageBox.warning(self,'缺少三维地图','请先导入 FAST-LIO2 或 GLIM 导出的 PCD。');return
         projection={key:editor.value() for key,editor in self.projection_edits.items()}
@@ -1884,6 +2023,7 @@ class Studio(QMainWindow):
                 view.image=pixels.copy();view.res=float(manifest['resolution']);view.origin=tuple(manifest['origin'])
                 view.set_keepout(manifest.get('keepout_polygons_px',[]));view.scale=1.;view.pan_x=view.pan_y=0.;view.reset_heading();view.update()
             self.current_map_id=manifest['id']
+            self._select_map_cloud(manifest)
             summary=manifest.get('asset_summary')
             if summary is None:
                 source=manifest.get('source_pcd')

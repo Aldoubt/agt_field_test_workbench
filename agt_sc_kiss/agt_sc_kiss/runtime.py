@@ -25,7 +25,8 @@ def request_arguments(node,stamp,base_from_body,directory):
     from rclpy.time import Time
     value=lambda name:node.get_parameter(name).value
     spec=contract(value('mapping_body_livox_translation'),value('mapping_body_livox_quaternion_xyzw'),
-                  value('query_min_range_m'),value('query_max_range_m'),value('query_voxel_leaf_m'))
+                  value('query_min_range_m'),value('query_max_range_m'),value('query_voxel_leaf_m'),
+                  self_filter=getattr(node,'_query_self_filter_spec',None))
     path=Path(directory)/'sc_contract.json';write_json(path,spec)
     tf=node.tf_buffer.lookup_transform('odom',str(value('mount_base_frame')),Time.from_msg(stamp),
         timeout=Duration(seconds=float(value('tf_timeout_sec')))).transform

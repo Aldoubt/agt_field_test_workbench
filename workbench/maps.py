@@ -146,9 +146,22 @@ def _asset_health(record):
     return directory,status,False,False
 
 
+def _polar_ready(directory,status,ready):
+    if not ready or not directory or not (directory/'polar_context.db').is_file():return False
+    if 'keyframes_sha256' not in status:return status.get('polar_context')!='FAILED'
+    try:
+        return (status.get('polar_context')=='READY'
+                and hash_file(directory/'polar_context.db')==status.get('polar_context_db_sha256'))
+    except OSError:return False
+
+
 def relocalization_assets(record):
     """Never expose incomplete or stale BBS assets to V3 localization."""
     directory,status,ready,legacy=_asset_health(record)
+    # Native V3 prefers any on-disk Polar DB. Never expose a stale, missing or
+    # modified one when this version tracks descriptor input/output identity.
+    if directory and ((directory/'polar_context.db').is_file() or status.get('polar_context')=='READY') and not _polar_ready(directory,status,ready):
+        return ''
     return str(directory) if ready else ''
 
 
@@ -161,9 +174,11 @@ def scan_context_database(record):
     status={}
     try:status=json.loads((root/'asset_status.json').read_text())
     except (OSError,ValueError):pass
+    tracked='keyframes_sha256' in status
+    if tracked and status.get('scan_context')!='READY':return ''
     candidates=[]
     if status.get('sc_database'):candidates.append(Path(status['sc_database']).expanduser())
-    if root.is_dir():candidates.extend(sorted(root.glob('scancontext_db*/manifest.json'),reverse=True))
+    if root.is_dir() and not tracked:candidates.extend(sorted(root.glob('scancontext_db*/manifest.json'),reverse=True))
     try:current_meta=yaml.safe_load(Path(record['yaml']).read_text())
     except (OSError,KeyError,ValueError):return ''
     for candidate in candidates:
@@ -191,7 +206,7 @@ def scan_context_database(record):
 
 def asset_summary(record):
     directory,status,ready,legacy=_asset_health(record)
-    polar=(directory is not None and (directory/'polar_context.db').is_file() and ready)
+    polar=_polar_ready(directory,status,ready)
     sc_db=scan_context_database(record)
     sc=('已生成' if sc_db else
         '构建失败：'+str(status.get('scan_context_error','请检查关键帧与 LIO 配置'))[:100]
@@ -206,7 +221,12 @@ def asset_summary(record):
         '构建失败：'+str(status.get('polar_context_error','请检查关键帧'))[:100]
         if status.get('polar_context')=='FAILED' else
         '未生成（没有可用的关键帧描述子库）')
-    return f'Scan Context：{sc}；AGT Polar Context：{polar_label}；BBS 体素资产：{bbs}'
+    cleanup=record.get('keyframe_cleanup') or status.get('keyframe_cleanup') or {}
+    state=cleanup.get('state')
+    suffix=('；关键帧删点：已同步' if state=='APPLIED' else
+            '；仅融合 PCD 已清理，关键帧未同步：'+str(cleanup.get('reason',state))[:100]
+            if state and state!='NOT_REQUIRED' else '')
+    return f'Scan Context：{sc}；AGT Polar Context：{polar_label}；BBS 体素资产：{bbs}'+suffix
 
 
 class Maps:
@@ -273,7 +293,8 @@ class Maps:
         meta = yaml.safe_load((self.directory / parent / 'map.yaml').read_text())
         lineage = {k: original.get(k) for k in
                    ('source_yaml', 'source_pgm_sha256', 'source_pcd', 'source_pcd_sha256',
-                    'source_bag', 'source_bag_sha256', 'calibration', 'cloud_id', 'projection', 'name')}
+                    'source_bag', 'source_bag_sha256', 'calibration', 'cloud_id', 'projection', 'name',
+                    'keyframe_cleanup','query_self_filter_config','query_self_filter_sha256')}
         lineage['parent'] = parent
         lineage['keepout_polygons_px'] = polygons
         pixels=bake_keepout_pixels(pixels,width,height,polygons)
@@ -440,7 +461,8 @@ class Maps:
         # PCD and grid. It is not a cell-wise fusion with an unrelated PCD.
         lineage={k:candidate.get(k) for k in (
             'source_yaml','source_pgm_sha256','source_pcd','source_pcd_sha256',
-            'source_bag','source_bag_sha256','calibration','cloud_id','projection','name')}
+            'source_bag','source_bag_sha256','calibration','cloud_id','projection','name',
+            'keyframe_cleanup','query_self_filter_config','query_self_filter_sha256')}
         lineage.update(parent=base_id,keepout_polygons_px=candidate.get('keepout_polygons_px',[]),
             update_type='AUTOMATIC_DIFF_DRAFT',base_map_id=base_id,
             base_map_sha256=base['sha256'],candidate_map_id=candidate_id,
