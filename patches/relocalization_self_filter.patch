@@ -1,0 +1,109 @@
+diff --git a/bringup/agt_system_bringup/launch/localization.launch.py b/bringup/agt_system_bringup/launch/localization.launch.py
+index 7968c0b..3377c55 100644
+--- a/bringup/agt_system_bringup/launch/localization.launch.py
++++ b/bringup/agt_system_bringup/launch/localization.launch.py
+@@ -58,6 +58,7 @@ def _localization_nodes(context):
+         _include('agt_global_relocalization', 'global_relocalization.launch.py', {
+             'global_backend':value('global_backend'),
+             'sc_database':value('sc_database'),
++            'query_self_filter_config':value('query_self_filter_config'),
+             'global_map': global_map,
+             'output_pose_topic':value('global_pose_output'),
+             'relocalization_assets': assets,
+@@ -88,6 +89,7 @@ def generate_launch_description():
+     return LaunchDescription([
+         DeclareLaunchArgument('global_backend', default_value='bbs', choices=['bbs','sc_kiss']),
+         DeclareLaunchArgument('sc_database', default_value=''),
++        DeclareLaunchArgument('query_self_filter_config', default_value=''),
+         DeclareLaunchArgument('global_pose_output', default_value='/agt/relocalization/pose'),
+         DeclareLaunchArgument('global_map', description='Absolute localization PCD path'),
+         DeclareLaunchArgument('relocalization_assets', default_value=''),
+diff --git a/navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py b/navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py
+index ca636b5..f9ba26d 100644
+--- a/navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py
++++ b/navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py
+@@ -83,6 +83,8 @@ class GlobalRelocalization(Node):
+         p('query_min_range_m', 0.5)
+         p('query_max_range_m', 30.0)
+         p('query_voxel_leaf_m', 0.25)
++        # Explicit candidate experiment; the Livox -> LIO stream is untouched.
++        p('query_self_filter_config', '')
+         p('require_stationary', True)
+         p('local_odom_topic', '/agt/odometry/local')
+         # A tracked chassis can be physically stopped while LiDAR odometry
+@@ -547,6 +549,12 @@ class GlobalRelocalization(Node):
+             min_range_sq=0.;max_range_sq=math.inf;voxel_leaf=0.
+         mode, query_frame, fixed_transform = self.query_frame_contract()
+         timeout = Duration(seconds=float(self.get_parameter('tf_timeout_sec').value))
++        query_self_filter = None
++        self._query_self_filter_spec = None
++        self.last_query_self_filter = None
++        if str(self.get_parameter('query_self_filter_config').value).strip():
++            from agt_field_test_bringup.relocalization_self_filter import prepare_query_self_filter
++            query_self_filter = prepare_query_self_filter(self)
+ 
+         def finalize():
+             self.last_query_raw_points = len(rows)
+@@ -556,6 +564,7 @@ class GlobalRelocalization(Node):
+                     'raw_rows': raw_rows,
+                     'transformed_rows': list(rows),
+                     'transforms': transform_records,
++                    'self_filter': self.last_query_self_filter,
+                 }
+             if voxel_leaf <= 0.0:
+                 return rows
+@@ -573,6 +582,17 @@ class GlobalRelocalization(Node):
+         for cloud in list(self.clouds):
+             if not cloud.header.frame_id:
+                 raise RuntimeError('relocalization scan has empty frame_id')
++            keep_query_point = None
++            if query_self_filter is not None:
++                try:
++                    # Check the raw sensor point in base_link, before the
++                    # existing mapping-body conversion and voxel sampling.
++                    base_tf = self.tf_buffer.lookup_transform(
++                        str(self.get_parameter('mount_base_frame').value),
++                        cloud.header.frame_id, Time.from_msg(cloud.header.stamp), timeout=timeout)
++                    keep_query_point = query_self_filter.predicate(base_tf.transform)
++                except TransformException as exc:
++                    raise RuntimeError(f'query self-filter TF unavailable: {exc}') from exc
+             if fixed_transform is None:
+                 try:
+                     transform = self.tf_buffer.lookup_transform(
+@@ -620,6 +640,8 @@ class GlobalRelocalization(Node):
+                         continue
+                     if capture_contract:
+                         raw_rows.append((x, y, z, intensity))
++                    if keep_query_point is not None and not keep_query_point(x, y, z):
++                        continue
+                     if transform is None:
+                         x, y, z = self._rotate_xyz(x, y, z, (
+                             fixed_transform['qx'], fixed_transform['qy'],
+@@ -820,6 +842,7 @@ class GlobalRelocalization(Node):
+                 'calling 3D relocalization backend',
+                 points=len(rows),
+                 raw_points=self.last_query_raw_points,
++                query_self_filter=self.last_query_self_filter,
+                 query_min_range_m=float(self.get_parameter('query_min_range_m').value),
+                 query_max_range_m=float(self.get_parameter('query_max_range_m').value),
+                 query_voxel_leaf_m=float(self.get_parameter('query_voxel_leaf_m').value),
+diff --git a/navigation/localization/agt_global_relocalization/launch/global_relocalization.launch.py b/navigation/localization/agt_global_relocalization/launch/global_relocalization.launch.py
+index f86a2a8..2275453 100644
+--- a/navigation/localization/agt_global_relocalization/launch/global_relocalization.launch.py
++++ b/navigation/localization/agt_global_relocalization/launch/global_relocalization.launch.py
+@@ -16,6 +16,7 @@ def generate_launch_description():
+     return LaunchDescription([
+         DeclareLaunchArgument('global_backend', default_value='bbs', choices=['bbs','sc_kiss']),
+         DeclareLaunchArgument('sc_database', default_value=''),
++        DeclareLaunchArgument('query_self_filter_config', default_value=''),
+         DeclareLaunchArgument('use_sim_time', default_value='false'),
+         DeclareLaunchArgument('output_pose_topic', default_value='/agt/relocalization/pose'),
+         DeclareLaunchArgument(
+@@ -68,6 +69,7 @@ def generate_launch_description():
+                 {
+                     'global_backend': LaunchConfiguration('global_backend'),
+                     'sc_database': LaunchConfiguration('sc_database'),
++                    'query_self_filter_config': LaunchConfiguration('query_self_filter_config'),
+                     'global_map': LaunchConfiguration('global_map'),
+                     'output_pose_topic': LaunchConfiguration('output_pose_topic'),
+                     'batch_lio_config_file': LaunchConfiguration('batch_lio_config_file'),

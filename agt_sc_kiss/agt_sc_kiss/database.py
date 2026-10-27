@@ -20,7 +20,7 @@ def build(map_pcd,map_yaml,keyframes,output,spec):
     identities=dict(map_sha256=sha(map_pcd),navigation_yaml_sha256=sha(map_yaml),navigation_pgm_sha256=sha(pgm))
     poses=keyframes/'poses_timed.txt'
     if not poses.is_file():poses=keyframes/'poses.txt'
-    entries=[];descriptions=[];index=sc.Index();seen=set()
+    entries=[];descriptions=[];index=sc.Index();seen=set();skipped=[]
     for line in poses.read_text().splitlines():
         if not line.strip() or line.lstrip().startswith('#'):continue
         fields=line.split()
@@ -30,11 +30,15 @@ def build(map_pcd,map_yaml,keyframes,output,spec):
         seen.add(name);v=np.array(fields[-7:],dtype=float)
         if not np.isfinite(v).all() or not .99<np.linalg.norm(v[3:])<1.01:raise ValueError('invalid keyframe pose')
         q=[v[4],v[5],v[6],v[3]];level,yaw=level_rotation(q)
-        body=preprocess(sc.load_pcd(str(path)),spec)
-        if len(body)<100:raise ValueError('keyframe too small after common preprocessing: '+name)
+        raw=sc.load_pcd(str(path))
+        body=preprocess(raw,spec,allow_empty=True)
+        if len(body)<100:
+            skipped.append(dict(name=name,reason='TOO_FEW_POINTS_AFTER_PREPROCESSING',
+                input_points=len(raw),processed_points=len(body),minimum_points=100,pcd_sha256=sha(path)))
+            continue
         descriptions.append(index.descriptor(body@level.T))
         entries.append(dict(name=name,translation=v[:3].tolist(),quaternion_xyzw=q,yaw=yaw,pcd_sha256=sha(path)))
-    if not entries:raise ValueError('no usable keyframes; fused PCD alone is not a keyframe database')
+    if not entries:raise ValueError(f'no usable keyframes; {len(skipped)} skipped below 100 processed points; fused PCD alone is not a keyframe database')
     if any(identities[k]!=sha(p) for k,p in [('map_sha256',map_pcd),('navigation_yaml_sha256',map_yaml),('navigation_pgm_sha256',pgm)]):
         raise ValueError('map source changed while building SC DB')
     output.mkdir(parents=True)
@@ -44,6 +48,7 @@ def build(map_pcd,map_yaml,keyframes,output,spec):
         navigation_geometry=dict(resolution=float(nav['resolution']),
                                   origin=[float(v) for v in nav['origin']]),
         preprocessing=spec,entries=entries,descriptors_sha256=sha(output/'descriptors.npz'),
+        skipped_keyframes=skipped,keyframe_counts=dict(read=len(seen),indexed=len(entries),skipped=len(skipped)),
         pose_file_sha256=sha(poses),REAL_BAG_VERIFIED='NOT_RUN',**identities)
     manifest['metadata_sha256']=metadata_sha(manifest)
     write_json(output/'manifest.json',manifest)

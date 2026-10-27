@@ -149,6 +149,7 @@ def _configure(context):
         localization_args = {
             'global_backend': global_backend,
             'sc_database':value('sc_database'),
+            'query_self_filter_config':value('query_self_filter_config'),
             'global_map': value('global_map'), 'lio_backend': value('lio_backend'),
             'relocalization_assets': value('relocalization_assets'),
             'enable_map_tracking': value('enable_map_tracking'),
@@ -285,6 +286,7 @@ def generate_launch_description():
         DeclareLaunchArgument('robot', default_value='bunker'),
         DeclareLaunchArgument('global_backend', default_value='bbs'),
         DeclareLaunchArgument('sc_database', default_value=''),
+        DeclareLaunchArgument('query_self_filter_config', default_value=''),
         DeclareLaunchArgument('relocalization_assets', default_value=''),
         DeclareLaunchArgument('enable_inspection', default_value='true'),
         DeclareLaunchArgument('enable_camera_gimbal', default_value='false'),

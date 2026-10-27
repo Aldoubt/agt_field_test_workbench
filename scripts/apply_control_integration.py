@@ -20,8 +20,10 @@ def main():
     parser.add_argument('--manifest', type=Path, default=REPO/'patches/control_manifest.json')
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text())
-    experiment_path=REPO/'patches/sc_kiss_manifest.json'
-    experiment=json.loads(experiment_path.read_text()) if experiment_path.is_file() else {}
+    followups=[]
+    for filename in ('sc_kiss_manifest.json','relocalization_self_filter_manifest.json'):
+        path=REPO/'patches'/filename
+        if path.is_file():followups.append(json.loads(path.read_text()))
     pending = []
     # Validate every dependency and file before making any changes.
     for relative, spec in manifest.items():
@@ -35,9 +37,15 @@ def main():
             if actual == hashes['before']:
                 names.append(name)
             elif actual != hashes['after']:
-                followup=experiment.get(relative,{}).get('files',{}).get(name,{})
-                if not (args.manifest==REPO/'patches/control_manifest.json' and
-                        followup.get('before')==hashes['after'] and followup.get('after')==actual):
+                # Accept only reachable, reviewed successor hashes; never accept
+                # arbitrary local edits, even when a later patch is installed.
+                reachable={hashes['after']}
+                for followup_manifest in followups:
+                    successor=followup_manifest.get(relative,{})
+                    edge=successor.get('files',{}).get(name,{})
+                    if successor.get('commit')==spec['commit'] and edge.get('before') in reachable:
+                        reachable.add(edge.get('after'))
+                if actual not in reachable:
                     raise SystemExit(f'{relative}/{name}: differs from reviewed source and patch; preserved')
         if names:
             command = ['git', '-C', str(root), 'apply', '--whitespace=error']

@@ -54,6 +54,8 @@ class Clouds:
         if not re.fullmatch(r'[0-9TZ-]{16,24}-[0-9a-f]{8}',version): raise ValueError('invalid cloud ID')
         record=json.loads((self.directory/version/'manifest.json').read_text())
         if hash_file(record['pcd'])!=record['sha256']: raise ValueError('PCD SHA changed')
+        if record.get('query_self_filter_config') and hash_file(record['query_self_filter_config'])!=record.get('query_self_filter_sha256'):
+            raise ValueError('cloud query self-filter snapshot changed')
         return record
     def _process(self,source,spec):
         ident=_new_id(); config=self.root/'runs'/ident/'operations.yaml';config.parent.mkdir(parents=True)
@@ -81,6 +83,8 @@ class Clouds:
         if not source.is_file() or source.suffix.lower()!='.pcd': raise ValueError('existing PCD required')
         sha=hash_file(source)
         calibration=dict(calibration or {})
+        from .query_filters import describe_query_filter, freeze_query_filter
+        query_filter=describe_query_filter(calibration.get('query_self_filter_config'),self.root)
         artifact=calibration.get('source_artifact') or self._artifact_root(source)
         if artifact and not Path(artifact).expanduser().is_dir():artifact=None
         if artifact:artifact=str(Path(artifact).expanduser().resolve())
@@ -92,26 +96,71 @@ class Clouds:
         lio_config=calibration.get('internal_config') or calibration.get('lio_config')
         if lio_config and not Path(lio_config).expanduser().is_file():lio_config=None
         ident,out,config=self._process(source,{'operations':[]})
+        query_filter=freeze_query_filter(query_filter['query_self_filter_config'],out,
+                                        expected_sha256=query_filter['query_self_filter_sha256'])
         shutil.copyfile(source,out/'original.pcd')
         if hash_file(source)!=sha or hash_file(out/'original.pcd')!=sha: raise ValueError('source changed during import')
         bag_sha={str(p.relative_to(Path(bag))):hash_file(p) for p in Path(bag).rglob('*') if p.is_file()} if bag and Path(bag).is_dir() else None
-        return self._save(ident,out,dict(source=str(source),source_sha256=sha,calibration=calibration,source_bag=bag,source_bag_sha256=bag_sha,
+        lineage=dict(source=str(source),source_sha256=sha,calibration=calibration,source_bag=bag,source_bag_sha256=bag_sha,
             source_artifact=artifact,sc_keyframes=str(Path(keyframes).resolve()) if self._keyframes_ready(keyframes) else None,
             lio_config=str(Path(lio_config).expanduser().resolve()) if lio_config else None,
-            name=str(name).strip()[:120],parent=None,operations=[],temporal_cleanup=cleanup))
+            name=str(name).strip()[:120],parent=None,operations=[],temporal_cleanup=cleanup,**query_filter)
+        if query_filter['query_self_filter'] is not None:
+            # Import with a mask must filter Polar inputs too, not just the SC builder.
+            _,keyframes,_,keyframe_error,_=self._scan_context_inputs(dict(lineage,pcd=str(out/'cloud.pcd'),sha256=hash_file(out/'cloud.pcd')))
+            keyframes,report=self._edit_keyframes(keyframes,out,[],query_filter,keyframe_error)
+            lineage.update(sc_keyframes=str(keyframes) if keyframes else None,keyframe_cleanup=report)
+        return self._save(ident,out,lineage)
 
     def _save(self,ident,out,lineage):
         record=dict(id=ident,pcd=str(out/'cloud.pcd'),sha256=hash_file(out/'cloud.pcd'),status='DRAFT',
                     frame_id='map',processing=yaml.safe_load((out/'result.yaml').read_text()),**lineage)
         write_json(out/'manifest.json',record);return record
 
-    def clean(self,parent,items):
+    @staticmethod
+    def _edit_keyframes(keyframes,out,items,query_filter,keyframe_error=''):
+        """Write a new descriptor source or an explicit failure, never raw fallback."""
+        from .keyframe_edits import sync_keyframe_edits, keyframes_identity
+        if not keyframes:
+            return None,{'state':'UNAVAILABLE','reason':keyframe_error or 'no source keyframes; fused PCD cleaned only'}
+        try:
+            result=sync_keyframe_edits(keyframes,out/'edited_keyframes',items,
+                                      self_filter=query_filter['query_self_filter'])
+            keyframes=Path(result['output_keyframes'])
+            provenance=keyframes/'edit_provenance.json'
+            cleanup={key:result[key] for key in ('input_frames','output_frames','input_points','output_points','removed_points')}
+            cleanup.update(state='APPLIED',scope='current ROI and optional body mask; ancestral temporal cleanup is not replayed',
+                report=str(provenance),report_sha256=hash_file(provenance),
+                keyframes_sha256=keyframes_identity(keyframes)['sha256'],
+                query_self_filter_sha256=query_filter['query_self_filter_sha256'])
+            return keyframes,cleanup
+        except Exception as error:
+            return None,{'state':getattr(error,'state','FAILED'),'reason':str(error)[:800]}
+
+    def clean(self,parent,items,query_self_filter_config=None):
         original=self.get(parent);items=operations(items)
+        from .query_filters import describe_query_filter, freeze_query_filter
+        selected_filter=(original.get('query_self_filter_config','') if query_self_filter_config is None
+                         else query_self_filter_config)
+        query_filter=describe_query_filter(selected_filter,self.root)
+        if ((original.get('keyframe_cleanup') or {}).get('state')=='APPLIED'
+                and original.get('query_self_filter') is not None
+                and original['query_self_filter']!=query_filter['query_self_filter']):
+            raise ValueError('cannot change or disable a mask after keyframe points were removed; start from the original unfiltered cloud')
         ident,out,config=self._process(original['pcd'],{'operations':items})
+        query_filter=freeze_query_filter(query_filter['query_self_filter_config'],out,
+                                        expected_sha256=query_filter['query_self_filter_sha256'])
+        _,keyframes,lio_config,keyframe_error,_=self._scan_context_inputs(original)
+        geometric=any(op['type'] in ('delete','crop') for op in items)
+        needs_sync=geometric or query_filter['query_self_filter'] is not None
+        cleanup=original.get('keyframe_cleanup') or {'state':'NOT_REQUIRED'}
+        if needs_sync:
+            keyframes,cleanup=self._edit_keyframes(keyframes,out,items,query_filter,keyframe_error)
         return self._save(ident,out,dict(parent=parent,parent_sha256=original['sha256'],operations=items,
             calibration=original.get('calibration'),source_bag=original.get('source_bag'),source_bag_sha256=original.get('source_bag_sha256'),
-            source_artifact=original.get('source_artifact'),sc_keyframes=original.get('sc_keyframes'),
-            lio_config=original.get('lio_config'),name=original.get('name',''),source=original['pcd'],source_sha256=original['sha256']))
+            source_artifact=original.get('source_artifact'),sc_keyframes=str(keyframes) if keyframes else None,
+            keyframe_cleanup=cleanup,lio_config=str(lio_config) if lio_config else original.get('lio_config'),
+            name=original.get('name',''),source=original['pcd'],source_sha256=original['sha256'],**query_filter))
 
     def _scan_context_inputs(self,cloud):
         calibration=cloud.get('calibration') or {}
@@ -120,14 +169,27 @@ class Clouds:
             artifact_value=self._artifact_root(cloud['source'])
         artifact=Path(artifact_value).expanduser().resolve() if artifact_value else None
         if artifact and not artifact.is_dir():artifact=None
-        keyframes_value=cloud.get('sc_keyframes') or calibration.get('sc_keyframes')
-        if not self._keyframes_ready(keyframes_value) and artifact:
+        cleanup=cloud.get('keyframe_cleanup') or {}
+        strict=cleanup.get('state') not in (None,'NOT_REQUIRED')
+        keyframe_error=''
+        keyframes_value=cloud.get('sc_keyframes') if strict else (cloud.get('sc_keyframes') or calibration.get('sc_keyframes'))
+        if strict:
+            try:
+                if cleanup.get('state')!='APPLIED':
+                    raise ValueError(cleanup.get('reason') or 'keyframe cleanup did not complete')
+                from .keyframe_edits import keyframes_identity
+                if keyframes_identity(keyframes_value)['sha256']!=cleanup.get('keyframes_sha256'):
+                    raise ValueError('edited keyframe contents changed')
+                if hash_file(cleanup['report'])!=cleanup.get('report_sha256'):
+                    raise ValueError('keyframe cleanup report changed')
+            except Exception as error:
+                keyframes_value=None;keyframe_error=str(error)[:800]
+        if not strict and not self._keyframes_ready(keyframes_value) and artifact:
             for candidate in (artifact/'temporal_cleanup'/'keyframes',artifact/'sc_keyframes',
                               Path(cloud['pcd']).parent/'sc_keyframes'):
                 if self._keyframes_ready(candidate):
                     keyframes_value=str(candidate.resolve());break
-        keyframe_error=''
-        if not self._keyframes_ready(keyframes_value) and artifact and all(
+        if not strict and not self._keyframes_ready(keyframes_value) and artifact and all(
                 (artifact/name).is_file() for name in ('frames.csv','trajectory.csv','points.raw')):
             target=Path(cloud['pcd']).parent/'sc_keyframes'
             if target.exists() and not self._keyframes_ready(target):
@@ -161,6 +223,17 @@ class Clouds:
         state=dict(old) if old.get('source_sha256')==cloud['sha256'] else {}
         state.update(source_sha256=cloud['sha256'],source_pcd=str(source))
         artifact,keyframes,lio_config,keyframe_error,lio_error=self._scan_context_inputs(cloud)
+        from .keyframe_edits import keyframes_identity
+        identity=None
+        if keyframes:
+            try:identity=keyframes_identity(keyframes)['sha256']
+            except Exception as error:keyframe_error=str(error)[:800];keyframes=None
+        old_identity=state.get('keyframes_sha256')
+        same_mask=state.get('query_self_filter_sha256','')==cloud.get('query_self_filter_sha256','')
+        state.update(keyframes_sha256=identity,keyframe_cleanup=cloud.get('keyframe_cleanup',{'state':'NOT_REQUIRED'}),
+                     query_self_filter_sha256=cloud.get('query_self_filter_sha256',''),
+                     query_self_filter=cloud.get('query_self_filter'))
+        descriptor_inputs_match=bool(identity and identity==old_identity and same_mask)
 
         map_record=None
         if map_id:
@@ -169,6 +242,13 @@ class Clouds:
             for candidate in Maps(self.root).list():
                 if candidate.get('cloud_id')==cloud_id and candidate.get('source_pcd_sha256')==cloud['sha256']:
                     map_record=candidate;break
+
+        if not descriptor_inputs_match:
+            # Retire old descriptors before any native work. An interrupted
+            # rebuild must not leave last version's READY state loadable.
+            state.update(polar_context='BUILDING',scan_context='BUILDING')
+            state.pop('sc_database',None)
+            write_json(status_path,state)
 
         bbs_ready=(state.get('state')=='READY' and state.get('bbs')=='READY'
             and (directory/'voxelmaps_coords').is_dir()
@@ -195,9 +275,13 @@ class Clouds:
             finally:
                 if temporary.exists():shutil.rmtree(temporary)
 
-        if (directory/'polar_context.db').is_file():
+        if (descriptor_inputs_match and state.get('polar_context')=='READY'
+                and (directory/'polar_context.db').is_file()
+                and hash_file(directory/'polar_context.db')==state.get('polar_context_db_sha256')):
             state['polar_context']='READY'
         elif keyframes and state.get('bbs')=='READY':
+            state['polar_context']='BUILDING'
+            write_json(status_path,state)
             try:
                 from .polar_context import prepare_builder_input
                 compatible = directory/('polar_context_source_'+_new_id())
@@ -211,6 +295,8 @@ class Clouds:
                 metadata = yaml.safe_load((temporary/'polar_context.yaml').read_text())
                 if metadata.get('entries', 0) <= 0:
                     raise RuntimeError('candidate builder returned an empty index')
+                if keyframes_identity(keyframes)['sha256']!=identity:
+                    raise RuntimeError('keyframes changed while building candidates')
                 # Publish the complete DB last. A running matcher must never read a partial file.
                 os.replace(temporary/'polar_context.yaml', directory/'polar_context.yaml')
                 os.replace(temporary/'polar_context.db', directory/'polar_context.db')
@@ -222,31 +308,44 @@ class Clouds:
             except Exception as error:
                 state['polar_context']='FAILED';state['polar_context_error']=str(error)[:600]
         else:
-            state.setdefault('polar_context','NOT_GENERATED_NO_KEYFRAME_PATCHES')
+            state['polar_context']='FAILED' if keyframe_error else 'NOT_GENERATED_NO_KEYFRAME_PATCHES'
+            if keyframe_error:state['polar_context_error']=keyframe_error
 
         sc_database='';sc_error=''
         if map_record:
             from .relocalization import validate_sc_database
-            existing=state.get('sc_database') or scan_context_database(map_record)
+            existing=(state.get('sc_database') or scan_context_database(map_record)) if descriptor_inputs_match else ''
             if existing:
-                try:sc_database=validate_sc_database(existing,map_record)
+                try:
+                    from .query_filters import describe_query_filter, validate_sc_query_filter
+                    sc_database=validate_sc_database(existing,map_record)
+                    validate_sc_query_filter(sc_database,describe_query_filter(cloud.get('query_self_filter_config')))
                 except Exception:sc_database=''
             if not sc_database and keyframes and lio_config:
+                state['scan_context']='BUILDING';state.pop('sc_database',None)
+                write_json(status_path,state)
                 base_name='scancontext_db_'+cloud['sha256'][:12]+'_'+hash_file(lio_config)[:8]
                 output=directory/base_name
                 if output.exists():output=directory/(base_name+'_'+_new_id())
                 command=['python3',str(REPO/'scripts/build_sc_database.py'),
                          '--map',str(source),'--map-yaml',str(map_record['yaml']),
                          '--lio-config',str(lio_config),'--output',str(output),'--keyframes',str(keyframes)]
+                if cloud.get('query_self_filter_config'):
+                    command+=['--query-self-filter-config',cloud['query_self_filter_config']]
                 try:
                     self.runner(command,timeout=1200)
+                    if keyframes_identity(keyframes)['sha256']!=identity:
+                        raise RuntimeError('keyframes changed while building Scan Context')
                     sc_database=validate_sc_database(str(output),map_record)
+                    from .query_filters import describe_query_filter, validate_sc_query_filter
+                    validate_sc_query_filter(sc_database,describe_query_filter(cloud.get('query_self_filter_config')))
                 except Exception as error:
-                    sc_error=str(error)[:800]
+                    sc_database='';sc_error=str(error)[:800]
             if sc_database:
                 state.update(scan_context='READY',sc_database=sc_database)
                 state.pop('scan_context_error',None)
             else:
+                state.pop('sc_database',None)
                 state['scan_context']='FAILED' if sc_error else 'NOT_GENERATED'
                 state['scan_context_error']=sc_error or lio_error or keyframe_error or (
                     'mapping artifact keyframes are unavailable' if not keyframes else
@@ -337,6 +436,9 @@ class Clouds:
             source_bag=original.get('source_bag'),
             source_bag_sha256=original.get('source_bag_sha256'),
             calibration=original.get('calibration'),
+            keyframe_cleanup=original.get('keyframe_cleanup',{'state':'NOT_REQUIRED'}),
+            query_self_filter_config=original.get('query_self_filter_config',''),
+            query_self_filter_sha256=original.get('query_self_filter_sha256',''),
             pre_projection_cleanup=original.get('temporal_cleanup'),
             name=original.get('name','') if name is None else str(name).strip()[:120],
             source_yaml=str(out/'map.yaml'),source_pgm_sha256=hash_file(out/'map.pgm')))

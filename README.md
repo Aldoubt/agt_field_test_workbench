@@ -23,6 +23,7 @@ bash scripts/run_workbench.sh
 打开 `http://127.0.0.1:8765`。远程使用 `ssh -L 8765:127.0.0.1:8765 <工控机>`。日常操作使用一个网页，无需拼多个终端。升级现有工作区先检查 `git status`，保留现场修改和 `calibration/`；初始化仅补充缺失模板，遇到不匹配的锁或补丁停止并保留文件。
 
 - [2026-10-24 建图修复、去残影前后图与代码分支](docs/evidence/mapping_cleanup_20261024/README.md)
+- [2026-10-27 点云删点、关键帧同步、自波查询过滤与新地图加载](docs/map_cleanup_and_relocalization_20261027.md)
 - [逐页操作手册与实机分阶段步骤](docs/workbench_operator_manual.md)
 - [本轮交付、软件证据、尚未执行的验收](docs/field_loop_delivery.md)
 - [历史交付记录](docs/field_delivery.md)

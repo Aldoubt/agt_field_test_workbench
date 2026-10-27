@@ -25,9 +25,12 @@ def positive(value):
 
 def make_mode_plan(args):
     planning_profile = 'distance' if args.mode == 'distance' else 'navigation'
-    base = field_trial.make_plan(ROOT, args.config, args.map_id, args.global_backend,planning_profile)
+    base = field_trial.make_plan(ROOT, args.config, args.map_id, args.global_backend,planning_profile,
+                                 getattr(args,'query_self_filter_config',None))
     common = ['--config', str(args.config), '--map-id', base['map_id'],
               '--global-backend', base['global_backend'],'--planning-profile',planning_profile]
+    if getattr(args,'query_self_filter_config',None) is not None:
+        common+=['--query-self-filter-config',args.query_self_filter_config]
     core = ['bash', str(REPO/'scripts/field_trial.sh'), 'start', *common]
     components = [('navigation_stack', core)]
     if args.mode == 'photo':
@@ -286,6 +289,7 @@ def parser():
     p.add_argument('--config', type=Path, default=ROOT/'config/field_trial.yaml')
     p.add_argument('--map-id')
     p.add_argument('--global-backend', choices=['bbs','sc_kiss'], default='bbs')
+    p.add_argument('--query-self-filter-config',default=None,help='定位查询专用过滤 JSON；不改变 LIO 输入')
     p.add_argument('--manual-localization', action='store_true', help='等待外部 field_trial relocalize，不自动请求')
     p.add_argument('--no-clock-hold', action='store_true', help='不执行现有系统时钟保持助手')
     p.add_argument('--no-rviz', action='store_true')

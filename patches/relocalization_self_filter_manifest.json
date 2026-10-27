@@ -1,0 +1,20 @@
+{
+  "agt_navigation_v3": {
+    "commit": "b3a60487dff973c6326aca2ca2e9db1e78daeaaa",
+    "patch": "patches/relocalization_self_filter.patch",
+    "files": {
+      "bringup/agt_system_bringup/launch/localization.launch.py": {
+        "before": "accf91a2efdcaa8e659427aacb20087a7f411d3a1213a03f20d3a37a2fae1382",
+        "after": "034622a99df0d67cb76b7f35b89b3b51508eeea2a2c2435183fa2f3ef754b2a2"
+      },
+      "navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py": {
+        "before": "96ac7babe6c8fe3e1b50c0d6f6561f47734b3bad02e44028a0817d2d1bf977fc",
+        "after": "6a5963e9440eebb2cf166bf1af1046138e1dbc94a36cc3cc41163b1c3c3e1cfa"
+      },
+      "navigation/localization/agt_global_relocalization/launch/global_relocalization.launch.py": {
+        "before": "0dfc3bc5955c4ce07838dada062aca9d720f69cab4214134166b26bb3881c739",
+        "after": "9ac20c3ad563cbe8a4ed58e591321593eec3121b33d50617cef293262c9b7be4"
+      }
+    }
+  }
+}

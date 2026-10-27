@@ -9,6 +9,8 @@ if [[ -f "$ROOT/install/setup.bash" ]]; then source "$ROOT/install/setup.bash"; 
 set -u
 python3 "$REPO/scripts/apply_control_integration.py" --workspace "$ROOT"
 python3 "$REPO/scripts/apply_sc_kiss_integration.py" --workspace "$ROOT"
+python3 "$REPO/scripts/apply_control_integration.py" --workspace "$ROOT" \
+  --manifest "$REPO/patches/relocalization_self_filter_manifest.json"
 # Reuse existing KISS binaries; compile the accepted locked recipe only if absent.
 if ! PYTHONPATH="$REPO/agt_sc_kiss:${PYTHONPATH:-}" python3 -c 'from agt_sc_kiss.localizer import require_kiss; require_kiss()'; then
   python3 "$REPO/scripts/build_kiss_optional.py"

@@ -11,6 +11,7 @@ from .fwmini import candidate_path,resolve_profile,load_profile,digest
 from .safety import setup,report
 from agt_field_test_bringup import profiles,calibration
 from agt_field_test_bringup.livox import validate_mid360s_config
+from .query_filters import describe_query_filter, freeze_query_filter, query_filter_matches, validate_sc_query_filter, validate_bbs_query_filter
 
 
 def rpc(root,operation,payload=None):
@@ -225,14 +226,17 @@ class Sessions:
             raise ValueError('formal navigation requires an ACCEPTED navigation grid')
         backend=p.get('global_backend','sc_kiss')
         if backend not in ('bbs','sc_kiss'):raise ValueError('unknown localization backend')
+        query_filter=describe_query_filter(p.get('query_self_filter_config',m.get('query_self_filter_config','')),self.root)
         if backend=='sc_kiss':
             from .relocalization import validate_sc_database
             selected_db=p.get('sc_database') or scan_context_database(m)
             p=dict(p,global_backend=backend,sc_database=validate_sc_database(selected_db,m))
+            validate_sc_query_filter(p['sc_database'],query_filter)
         else:
             assets=relocalization_assets(m)
             if not assets or not (Path(assets)/'polar_context.db').is_file():
                 raise ValueError('BBS requires same-source Polar Context candidates; refusing slow whole-map fallback')
+            validate_bbs_query_filter(assets,query_filter)
             p=dict(p,global_backend=backend)
 
         profile_source=Path(sensor['profile_snapshot']).resolve()
@@ -259,6 +263,8 @@ class Sessions:
         if not localization_matches_navigation_map(current,robot,m,backend,p.get('sc_database'),
                                                     p.get('lio_backend','batch_lio')):
             raise ValueError('running localization does not use this map PCD/backend; stop and restart localization explicitly')
+        if not query_filter_matches(current,query_filter):
+            raise ValueError('running localization uses another query self-filter; stop and restart localization explicitly')
         if (hash_file(Path(current['profile_snapshot']))!=current['profile']['profile_sha256']
                 or hash_file(Path(current['calibration']))!=current['calibration_snapshot_sha256']
                 or current.get('calibration_sha256')!=sensor['calibration_sha256']):
@@ -352,6 +358,9 @@ class Sessions:
         if task in ('localization','navigation') and (not map_record or not map_record.get('source_pcd')):
             raise ValueError('map with source PCD required')
         if map_record:Maps(self.root).validate_identity(map_record)
+        query_filter=freeze_query_filter(
+            p.get('query_self_filter_config',(map_record or {}).get('query_self_filter_config',''))
+            if task in ('localization','navigation') else '',directory,self.root)
         acceptance=None
         if task=='navigation':
             if map_record['status']!='ACCEPTED':raise ValueError('formal navigation requires ACCEPTED map')
@@ -382,6 +391,7 @@ class Sessions:
             if geometry_file:args+=['fwmini_geometry_file:='+str(Path(geometry_file).resolve())]
         if p.get('gps_alignment_file'):args+=['gps_alignment_file:='+str(Path(p['gps_alignment_file']).resolve())]
         if map_record:args+=['global_map:='+map_record['source_pcd'],'map_yaml:='+map_record['yaml']]
+        if query_filter['query_self_filter_config']:args+=['query_self_filter_config:='+query_filter['query_self_filter_config']]
         if acceptance:
             args+=['safety_report:='+acceptance['path']]
             if robot=='fwmini':
@@ -396,6 +406,7 @@ class Sessions:
             from .relocalization import validate_sc_database
             requested_db=p.get('sc_database') or scan_context_database(map_record)
             sc_database=validate_sc_database(requested_db,map_record)
+            validate_sc_query_filter(sc_database,query_filter)
             p=dict(p,global_backend=backend,sc_database=sc_database)
             ros_call(['ros2','pkg','prefix','agt_sc_kiss'],timeout=4)
             args+=['sc_database:='+sc_database]
@@ -403,6 +414,7 @@ class Sessions:
             assets=relocalization_assets(map_record) if map_record else ''
             if not assets or not (Path(assets)/'polar_context.db').is_file():
                 raise ValueError('BBS requires same-source Polar Context candidates; refusing slow whole-map fallback')
+            validate_bbs_query_filter(assets,query_filter)
         lio_backend=p.get('lio_backend','batch_lio')
         if lio_backend not in ('batch_lio','fastlio2'):raise ValueError('unknown local odometry backend')
         args+=['global_backend:='+backend,'lio_backend:='+lio_backend]
@@ -423,7 +435,7 @@ class Sessions:
             enable_camera_gimbal=False,camera_launch_owner='camera_gimbal_job',
             sensor_stack_job_id=sensor_job['id'] if sensor_job else None,
             chassis_job_id=(self._find_job('chassis_component') or {}).get('id'),
-            safety_report=acceptance)
+            safety_report=acceptance,**query_filter)
         write_json(directory/'session.json',snapshot)
         job_meta=dict(snapshot);job_meta['session_id']=job_meta.pop('id')
         if task=='navigation':self._stop_kind('control_guard')
