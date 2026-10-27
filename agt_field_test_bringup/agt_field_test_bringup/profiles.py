@@ -148,6 +148,11 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
     </PipelineSequence>
   </BehaviorTree>
 </root>"""))
+        # Milliseconds: tolerate action acknowledgement jitter without changing
+        # controller/collision timeouts or the planner's computation budget.
+        for tag in ('ComputePathToPose', 'ComputePathThroughPoses'):
+            for plan in bt.iter(tag):
+                plan.set('server_timeout', '200')
         for follow in bt.iter('FollowPath'):
             follow.set('goal_checker_id', controller['goal_checker_plugins'][0])
         destination = Path(output).with_name(Path(output).stem+'_'+key+'.xml')

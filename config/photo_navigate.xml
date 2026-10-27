@@ -10,7 +10,7 @@
             <Inverter><GlobalUpdatedGoal/></Inverter>
             <IsPathValid path="{path}"/>
           </ReactiveSequence>
-          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" server_timeout="200"/>
         </Fallback>
       </RateController>
       <FollowPath path="{path}" controller_id="PhotoFollowPath" goal_checker_id="photo_goal_checker"/>

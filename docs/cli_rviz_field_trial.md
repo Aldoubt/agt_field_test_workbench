@@ -176,3 +176,9 @@ SC 返回 SCAN_CONTEXT_NO_CANDIDATE 表示描述子检索没有满足阈值的�
 更换地图可修改 `config/field_trial.yaml` 的 `map_id`，或在启动时指定 `--map-id <地图版本>`。其他终端的 nav/重定位/状态命令操作同一条运行链路，无需再次选图。
 
 底层 launch 新增 `navigation_mode:=field_test supervised:=true`；原有 Workbench/Studio 正式导航入口维持原策略。下午按本文使用 CLI，不再被 CANDIDATE 标签和缺少正式报告阻断。
+
+## 规划请求确认超时（2026-10-27）
+
+现场 11:41:56 出现 `Timed out while waiting for action server to acknowledge goal request for compute_path_to_pose`，随后跟随任务被取消；录包在报错后约 10 ms 仍收到新路径。运行中的默认确认时限为 20 ms。这是 Action 接单确认等待，不是规划计算时限或停车等待时限；未采集逐跳确认时序，尚不能确定具体调度/通信延迟来源。
+
+普通导航、直线测试生成的行为树以及拍照行为树，现在为 ComputePathToPose / ComputePathThroughPoses 显式设置 `server_timeout="200"`（毫秒）。FollowPath、碰撞检测、停车等待和规划计算预算保持原值。200 ms 是待现场复测的有限确认预算，不代表已经解决所有延迟问题。停车结束旧会话后按原命令重新启动，以重新生成并加载行为树；仅修改 YAML 默认值不保证已构造的 BT 节点刷新。
