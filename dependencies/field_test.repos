@@ -70,7 +70,7 @@ repositories:
   agt_ins_driver:
     type: git
     url: https://github.com/Aldoubt/agt_ins_driver.git
-    version: 52bd413c9f9cb643970dec00bb11366f35db0453
+    version: 20e804c951ff603fc87bc1a77da36462952e4b0a
   external/kiss_matcher:
     type: git
     url: https://github.com/MIT-SPARK/KISS-Matcher.git
