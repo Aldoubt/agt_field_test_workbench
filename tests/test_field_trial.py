@@ -99,6 +99,7 @@ def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypa
     assert guard['output_topic'] == '/mux/cmd_vel'
     assert guard['command_timeout_sec'] == .2
     assert guard['max_linear_x'] == plan['limits']['forward_mps']
+    assert tree['controller_server']['ros__parameters']['FollowPath']['plugin'] == 'agt_field_test_bringup/PlanarRegulatedPurePursuitController'
     assert tree['controller_server']['ros__parameters']['FollowPath']['desired_linear_vel'] == plan['limits']['forward_mps']
     assert tree['velocity_smoother']['ros__parameters']['max_velocity'] == [plan['limits']['forward_mps'], 0., plan['limits']['angular_radps']]
     assert tree['local_costmap']['local_costmap']['ros__parameters']['update_frequency'] == 20.
@@ -112,7 +113,7 @@ def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypa
     assert local['inflation_layer']['cost_scaling_factor']==tree['controller_server']['ros__parameters']['FollowPath']['inflation_cost_scaling_factor']==3.
     assert tree['controller_server']['ros__parameters']['FollowPath']['cost_scaling_dist']<=local['inflation_layer']['inflation_radius']
     assert tree['agt_pointcloud_preprocessor']['ros__parameters']['self_filter']['extra_boxes'] == [
-        -.36,.02,-.17,.19,.72,1.68, -.95,-.60,-.12,.31,.82,1.00]
+        -.36,.02,-.17,.19,.72,1.68, -.95,-.60,-.12,.31,.82,1.68]
     assert Path(plan['inputs']['calibration_bundle']).read_bytes() == before
     # Formal launch remains separate and refuses this unpromoted candidate.
     context.launch_configurations['navigation_mode'] = 'formal'

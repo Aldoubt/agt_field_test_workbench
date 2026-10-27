@@ -28,6 +28,16 @@ class FieldLoop(unittest.TestCase):
         xml=calibration.description(b,'fastlio2')
         self.assertNotIn('rtk_antenna_link',xml)
         self.assertIn('livox_frame',xml)
+    def test_mechanical_pitch_reaches_generated_robot_description(self):
+        import math
+        import xml.etree.ElementTree as ET
+        bundle=calibration.load(ROOT/'agt_field_test_bringup/config/bunker_calibration_candidate.yaml','bunker')
+        xml=ET.fromstring(calibration.description(bundle,'fastlio2'))
+        origin=xml.find("joint[@name='base_link_to_lidar_link']/origin")
+        self.assertAlmostEqual(float(origin.attrib['rpy'].split()[1]),math.radians(15.))
+        self.assertEqual(bundle['mount']['pitch_confirmation']['pitch_deg'],15.)
+        self.assertEqual(bundle['internal']['fastlio2']['translation'],[-.011,-.02329,.04412])
+
     def test_relative_goal_uses_robot_heading(self):
         import math
         target=relative(dict(x=2.,y=3.,yaw=math.pi/2),-5.)

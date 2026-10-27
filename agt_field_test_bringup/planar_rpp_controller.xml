@@ -1,0 +1,7 @@
+<library path="agt_planar_rpp_controller">
+  <class name="agt_field_test_bringup/PlanarRegulatedPurePursuitController"
+         type="agt_field_test_bringup::PlanarRegulatedPurePursuitController"
+         base_class_type="nav2_core::Controller">
+    <description>Native Humble RPP with a private planar path-to-base transform view.</description>
+  </class>
+</library>

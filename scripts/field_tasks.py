@@ -147,21 +147,23 @@ def execute_distance(path):
         # Both launch modes have camera-free runtimes; inspect effective Nav2
         # settings so a normal-navigation launch cannot masquerade as precision.
         controller = read_parameters(node, 'controller_server',
-                                     ['general_goal_checker.xy_goal_tolerance'])
+                                     ['general_goal_checker.xy_goal_tolerance', 'FollowPath.plugin'])
         planner = read_parameters(node, 'planner_server',
                                   ['GridBased.plugin', 'GridBased.smoother.w_data'])
         tolerance = controller['general_goal_checker.xy_goal_tolerance']
         if (not isinstance(tolerance, (int, float)) or isinstance(tolerance, bool)
                 or not math.isfinite(tolerance) or not 0 < tolerance <= 0.020001
+                or controller['FollowPath.plugin'] != 'agt_field_test_bringup/PlanarRegulatedPurePursuitController'
                 or planner['GridBased.plugin'] != 'agt_field_test_bringup/ExactGoalPlanner'
                 or planner['GridBased.smoother.w_data'] != 0.0):
             raise ValueError(
                 '当前 Nav2 未启用距离精度配置：'
-                f'xy_goal_tolerance={tolerance!r}，planner={planner["GridBased.plugin"]!r}，'
+                f'xy_goal_tolerance={tolerance!r}，controller={controller["FollowPath.plugin"]!r}，'
+                f'planner={planner["GridBased.plugin"]!r}，'
                 f'w_data={planner["GridBased.smoother.w_data"]!r}。'
                 '本次未提交任务；停车后结束旧会话，使用 ./field_start distance 启动，'
                 '就绪后再运行 ./field_distance run 5（或所需距离）。')
-        print(f'距离配置已核对：位置容差 {tolerance * 100:g} cm，精确终点规划器。', flush=True)
+        print(f'距离配置已核对：位置容差 {tolerance * 100:g} cm，精确终点规划器与平面控制器。', flush=True)
         tree = read_parameters(node,'mission_runtime',['nav_behavior_tree'])['nav_behavior_tree']
         if tree != '':
             raise ValueError('当前为拍照执行器；距离模式需要原精度到达判定')

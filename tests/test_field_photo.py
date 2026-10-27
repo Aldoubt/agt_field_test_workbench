@@ -209,6 +209,8 @@ def test_photo_navigation_keeps_default_checker_and_uses_separate_arrival(tmp_pa
     generated = yaml.safe_load(output.read_text())
     assert generated['velocity_smoother']['ros__parameters']['min_velocity'][0] == -profile['reverse_mps']
     assert generated['agt_cmd_vel_guard']['ros__parameters']['max_reverse_x'] == profile['reverse_mps']
+    assert controller['FollowPath']['plugin'] == 'agt_field_test_bringup/PlanarRegulatedPurePursuitController'
+    assert controller['PhotoFollowPath']['plugin'] == controller['FollowPath']['plugin']
     assert controller['PhotoFollowPath']['use_rotate_to_heading'] is False
     assert controller['PhotoFollowPath']['allow_reversing'] is False
     assert controller['PhotoFollowPath']['use_collision_detection'] is True

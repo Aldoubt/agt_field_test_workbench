@@ -95,6 +95,7 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
     # Selected explicitly by the photo BT. Ordinary/accuracy navigation keeps
     # the original checker as the first (default) entry.
     controller = params('controller_server')
+    controller['FollowPath']['plugin'] = 'agt_field_test_bringup/PlanarRegulatedPurePursuitController'
     if planning_profile == 'distance':
         # Fixed-anchor accuracy trials use a 2 cm planar arrival radius.
         # Preserve yaw tolerance and the ordinary/photo arrival policies.
