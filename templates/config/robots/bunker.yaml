@@ -15,8 +15,10 @@ local_costmap_publish_hz: 10.0
 # Measured stationary cable/support returns in base_link, 2026-10-25.
 # xmin,xmax,ymin,ymax,zmin,zmax. Rear box is measured attached hardware,
 # confirmed by the operator; extends behind the driving footprint.
+# 2026-10-27 test: rear zmax raised from 1.00 to 1.68 m for swinging rod.
+# Height is provisional, not a measured sweep envelope; verify raw/filtered clouds.
 navigation_self_mask_boxes: [-0.36, 0.02, -0.17, 0.19, 0.72, 1.68,
-                            -0.95, -0.60, -0.12, 0.31, 0.82, 1.00]
+                            -0.95, -0.60, -0.12, 0.31, 0.82, 1.68]
 control_hz: 50
 can_interface: can0
 can_bitrate: 500000
