@@ -36,12 +36,12 @@ def make_mode_plan(args):
                        ('runtime', ['bash', str(REPO/'scripts/field_photo.sh'), 'runtime']),
                        ('queue', ['bash', str(REPO/'scripts/field_photo.sh'), 'queue',
                                   '--map-id', base['map_id']])]
-    elif args.mode == 'distance':
+    elif args.mode in ('distance', 'nav'):
         from ament_index_python.packages import get_package_share_directory
         params = Path(get_package_share_directory('agt_navigation_runtime'))/'config/runtime.yaml'
         components.append(('runtime', ['ros2', 'run', 'agt_navigation_runtime', 'mission_runtime',
             '--ros-args', '--params-file', str(params), '-p', 'nav_behavior_tree:=""',
-            '-p', 'recenter_after_capture:=false', '-p', 'record_root:='+str(ROOT/'data/captures/missions')]))
+            '-p', 'wait_for_bunker_control:=true', '-p', 'recenter_after_capture:=false', '-p', 'record_root:='+str(ROOT/'data/captures/missions')]))
     if not args.no_rviz:
         script = 'field_photo.sh' if args.mode == 'photo' else 'field_trial.sh'
         components.append(('rviz', ['bash', str(REPO/'scripts'/script), 'rviz']))
@@ -131,7 +131,7 @@ class Readiness:
             self.rclpy.spin_once(self.node, timeout_sec=.05)
         names = {name for name,_ in self.node.get_node_names_and_namespaces()}
         collision = names & self.CORE_NODES
-        if mode in ('photo', 'distance'):
+        if mode in ('photo', 'distance', 'nav'):
             collision |= names & {'mission_runtime'}
         if mode == 'photo':
             collision |= names & {'rviz_patrol'}
@@ -360,12 +360,12 @@ def main(argv=None):
             for component in plan['components']:
                 if component['name'] not in ('navigation_stack','camera'):
                     session.start(component['name'])
-            if args.mode in ('photo','distance'):
+            if args.mode in ('photo','distance','nav'):
                 probe.mission_ready(args.mode,args.startup_timeout_sec)
             write_json(directory/'session.json',dict(plan=plan,state='READY',owned=session.owned))
             publish_mode_state(ROOT,args.mode,plan['map_id'],'READY')
             print('导航已激活。'+({'photo':'在 RViz 排队后执行 ./field_photo start。',
-                  'distance':'使用 ./field_distance teach home、accuracy、run；不会自动发车。',
+                  'distance':'使用 ./field_distance run 5（或 7、10）从当前位姿向前测试；不会自动发车。',
                   'nav':'可在 RViz 手动指定导航目标。'}[args.mode]),flush=True)
             while True:
                 probe.health_check()

@@ -2,7 +2,9 @@ robot: bunker
 status: BASELINE_REQUIRES_FIELD_CHECK
 body_frame: base_link
 odom_frame: odom
-footprint_m: [[0.42, 0.33], [0.42, -0.33], [-0.42, -0.33], [-0.42, 0.33]]
+# Operator-confirmed body length/width 1.20 x 0.95 m (2026-10-27).
+# Retains centered base_link assumption; origin offset requires measurement.
+footprint_m: [[0.60, 0.475], [0.60, -0.475], [-0.60, -0.475], [-0.60, 0.475]]
 forward_mps: 0.40
 reverse_mps: 0.15
 angular_radps: 0.50
@@ -15,8 +17,10 @@ local_costmap_publish_hz: 10.0
 # Measured stationary cable/support returns in base_link, 2026-10-25.
 # xmin,xmax,ymin,ymax,zmin,zmax. Rear box is measured attached hardware,
 # confirmed by the operator; extends behind the driving footprint.
+# 2026-10-27 test: rear zmax raised from 1.00 to 1.68 m for swinging rod.
+# Height is provisional, not a measured sweep envelope; verify raw/filtered clouds.
 navigation_self_mask_boxes: [-0.36, 0.02, -0.17, 0.19, 0.72, 1.68,
-                            -0.95, -0.60, -0.12, 0.31, 0.82, 1.00]
+                            -0.95, -0.60, -0.12, 0.31, 0.82, 1.68]
 control_hz: 50
 can_interface: can0
 can_bitrate: 500000

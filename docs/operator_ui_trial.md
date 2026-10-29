@@ -10,24 +10,25 @@
 
 ## 构建并安装桌面入口
 
-试用分支为 `codex/operator-ui-bbs-20261026`。在实际工作区操作，先记录现有分支、HEAD 和未提交改动，不覆盖现场标定。以下布局与仓库 README 的首次部署布局一致；将工作区路径替换为目标机实际路径。若源码已经更新到本分支，可从第二个 `cd` 开始：
+合并版本使用 `main`，兼容边界见 [PR #10 整合说明](pr10_integration.md)。在实际工作区操作，先记录现有分支、HEAD 和未提交改动，不覆盖现场标定。以下布局与仓库 README 的首次部署布局一致；将工作区路径替换为目标机实际路径。若源码已经更新到本分支，可从第二个 `cd` 开始：
 
 ```bash
 cd ~/agt_field_test_ws/src/agt_field_test_workbench
 git status --short
 git rev-parse HEAD
-git fetch origin codex/operator-ui-bbs-20261026
-git switch codex/operator-ui-bbs-20261026
+git fetch origin main
+git switch main
+git merge --ff-only origin/main
 cd ~/agt_field_test_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-colcon build --base-paths src/agt_field_test_workbench/agt_robot_studio \
-  --packages-select agt_robot_studio --symlink-install
+colcon build --base-paths src/agt_field_test_workbench \
+  --packages-select agt_robot_studio agt_field_test_bringup --symlink-install
 bash src/agt_field_test_workbench/scripts/launch_studio.sh --workspace "$PWD" --check
 bash src/agt_field_test_workbench/scripts/install_studio_desktop.sh --workspace "$PWD"
 ```
 
-如果 `git switch` 提示现场文件冲突，先保留并合并这些修改；不要强制覆盖。已存在的本地同名分支也需要核对是否包含交付提交。上面的构建只更新 Qt 包，不替代首次工作区构建，也不会重新编译 BBS 原生修复；BBS 更新按其交付说明单独执行。目标机使用 ROS Humble 对应的系统 Python，不复用云端测试虚拟环境。缺少 Qt 依赖时先安装 `python3-pyqt5 python3-numpy python3-yaml`，再执行 `--check`。
+如果 `git switch` 提示现场文件冲突，先保留并合并这些修改；不要强制覆盖。已存在的本地同名分支也需要核对是否包含交付提交。上面的构建更新 Qt 与 bringup 配置/插件，要求已有现场依赖和可用的安装结果，不替代首次工作区构建。BBS 候选恢复补丁不随默认初始化/构建自动应用；不得为应用旧补丁将现场导航依赖回退。目标机使用 ROS Humble 对应的系统 Python，不复用云端测试虚拟环境。缺少 Qt 依赖时先安装 `python3-pyqt5 python3-numpy python3-yaml`，再执行 `--check`。
 
 菜单中打开“AGT 机器人工作台”。应用快捷菜单还提供“离线界面演示”。也可执行：
 
@@ -56,7 +57,7 @@ bash src/agt_field_test_workbench/scripts/install_studio_desktop.sh --workspace 
 
 单点预检当前包括：后端状态不超过 4 秒、会话为 navigation、地图版本相同、定位有效、底盘新鲜反馈许可、Nav2 状态均为 active。提交时后端继续复核地图、标定和运动许可，前端变绿不能绕过这些检查。路线保存和执行沿用后端校验；不要把单点按钮的预检文案当作整条路线可达性证明。
 
-5/7/10m 精度验收仍复用固定 home 与固定目标；“相对移动（非定点验收）”按钮不能代替这套测量。记录每步的通过/失败/未执行、软件提交 SHA、实际配置、地图/路线 ID、截图与日志。BBS 的现场失败需要对应查询、地图资产和运行日志；离线回归不代表该现场案例已匹配成功。
+5/7/10m 精度验收使用启用 distance 规划配置的 CLI：`./field_distance run 5`（或 7、10）默认从当前位姿生成前向目标；显式 `--directory` 才复用固定批次与固定目标。Qt“相对移动（非定点验收）”仍走普通导航，不能替代距离精度验收。记录每步的通过/失败/未执行、软件提交 SHA、实际配置、地图/路线 ID、截图与日志。BBS 的现场失败需要对应查询、地图资产和运行日志；离线回归不代表该现场案例已匹配成功。
 
 桌面启动日志位于 `${XDG_STATE_HOME:-~/.local/state}/agt-robot-studio/launcher.log`。若环境错误导致没有窗口，先执行 `--check`；桌面模式在系统已有 zenity 或 notify-send 时还会显示错误通知。
 

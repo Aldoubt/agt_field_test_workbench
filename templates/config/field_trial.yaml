@@ -3,7 +3,7 @@ map_id: 20261025T023926Z-231ee788
 global_backend: sc_kiss  # Override per run with: ./field_trial start --global-backend bbs
 robot_profile: config/robots/bunker.yaml
 calibration_bundle: calibration/bunker/bunker_calibration_candidate.yaml
-calibration_acceptance: '2026-10-25 用户确认标定已实测，可用于当前现场测试；不声称已完成全部正式验收项目。'
+calibration_acceptance: '2026-10-27 用户按机械安装规范确认俯仰为15度；其他标定沿用此前现场测试配置，全量物理验收尚未完成。'
 livox_config: config/sensors/bunker_mid360s.json
 # Empty resolves the matching SC database from the selected map's existing assets.
 sc_database: ''

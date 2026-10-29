@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only SHA, dirty-tree and duplicate ROS package audit."""
 import json
+import argparse
 import hashlib
 import filecmp
 from pathlib import Path
@@ -24,9 +25,17 @@ def git(path, *args):
 
 def main():
     import yaml
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--with-bbs-recovery', action='store_true',
+                        help='audit the explicitly installed experimental BBS patch')
+    args = parser.parse_args()
     manifest = yaml.safe_load((ROOT / '.repos').read_text())['repositories']
     control_patches={}
-    for name in ('control','frontend','map_cleanup','sc_kiss','bbs_recovery','navigation_perception','photo_mission','map_tracking_support','ugv_protocol_lifetime'):
+    names = ['control','frontend','map_cleanup','sc_kiss']
+    if args.with_bbs_recovery:
+        names.append('bbs_recovery')
+    names += ['navigation_perception','photo_mission','map_tracking_support','ugv_protocol_lifetime']
+    for name in names:
         entries=json.loads((Path(__file__).resolve().parents[1]/f'patches/{name}_manifest.json').read_text())
         for relative,spec in entries.items():
             control_patches.setdefault(relative,dict(files={}))['files'].update(spec['files'])

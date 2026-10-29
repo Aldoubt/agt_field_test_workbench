@@ -5,6 +5,7 @@
   <description>Controlled AGT field test launch entry points</description>
   <maintainer email="field-test@example.invalid">AGT Field Test</maintainer>
   <license>Apache-2.0</license>
+  <license>BSD-3-Clause</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
   <exec_depend>python3-yaml</exec_depend>
@@ -45,5 +46,12 @@
   <depend>agt_pointcloud_core</depend>
   <depend>libpcl-all-dev</depend>
   <depend>yaml-cpp</depend>
+  <depend>nav2_smac_planner</depend>
+  <depend>nav2_core</depend>
+  <depend>nav2_regulated_pure_pursuit_controller</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>pluginlib</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <test_depend>ament_cmake_gtest</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

@@ -10,7 +10,9 @@
 
 三个组合入口都应在各自终端保持前台运行，互斥使用。已有旧链路时继续用分开命令，组合入口不会接管或停止它，也不会再开第二套底盘、TF 或定位。切换组合模式时先取消当前任务、观察停稳，在原组合终端 Ctrl+C 后启动另一个模式。
 
-Bunker 现场导航的局部障碍层使用预处理后的点云标记、原始导航支路点云投影射线清理；人站着时保留障碍，人离开且有背景/地面射线观测时清除旧位置。传感器断流不会按时间让障碍消失。静态地图上的障碍仍属于地图，局部射线不会修改静态地图。全局/局部软代价膨胀半径为 0.80/0.65 m，衰减因子 3；车体 footprint 和 padding 保持原尺寸，RPP 的代价距离/衰减随局部膨胀同步。配置在核心链路下次启动时加载，不能只重开 RViz。
+Bunker 现场导航的局部障碍层使用预处理后的点云标记、原始导航支路点云投影射线清理；人站着时保留障碍，人离开且有背景/地面射线观测时清除旧位置。传感器断流不会按时间让障碍消失。静态地图上的障碍仍属于地图，局部射线不会修改静态地图。全局代价地图也接收动态障碍，并通过 `UnknownPreservingObstacleLayer` 保留静态占用和未知区域。
+
+2026-10-29 保存的现场配置：全局/局部软代价膨胀半径为 1.20/1.00 m，代价地图衰减因子均为 2；车体 footprint 和 padding 保持原尺寸。RPP `cost_scaling_dist=0.85`、`inflation_cost_scaling_factor=3`。**RPP 与代价地图的衰减因子不一致是已知未解决问题**，3 项配置一致性测试仍失败；本次保存现场基线时未调整运行参数，也没有移除该测试门。后续路径规划/速度调节验证应处理这一差异。配置在核心链路下次启动时加载，不能只重开 RViz。
 
 ## 启动顺序
 
@@ -51,42 +53,55 @@ Bunker 现场导航的局部障碍层使用预处理后的点云标记、原始�
 等待上述最终就绪提示，并确认现场测试方向后，操作终端：
 
 ```bash
-./field_distance teach home
 ./field_distance accuracy --distances 5 7 10 --trials 5
 ```
 
-teach 读取当前停车位姿；accuracy 生成 `missions/distance/accuracy_5m.yaml`、7m/10m、独立 `return_home.yaml` 和空白实测 CSV。这两条不发送目标。5/8/12 米同样支持：把 `--distances` 换成 `5 8 12`。
+accuracy 读取当前停车位姿作为本批固定起点，不读取旧点位本，默认创建唯一的 `missions/distance_<时间>_<标识>/` 目录，生成 5m/7m/10m、独立 `return_home.yaml` 和空白实测 CSV。生成成功后自动选为当前批次；固定批次执行必须为 run 指定 --directory；不指定时 run 从当前位置出发。同时保存 `start_pose.yaml` 起点快照，不发送目标。5/8/12 米同样支持：把 `--distances` 换成 `5 8 12`。
 
 显式执行一轮、独立尺量、再返程：
 
 ```bash
-./field_distance run 5
+./field_distance run 5 --directory missions/固定批次目录
 # 任务结束并停稳后进行独立尺量，填写 CSV；人员离开后再返程：
 ./field_distance home
 ```
 
+距离模式的位置到点半径为 0.02 m（2 cm），朝向容差约 5°；这是定位坐标中的判定阈值，不代表独立尺量精度保证。修改后须重新启动 `./field_start distance` 生效。距离模式启用 RPP 倒车跟踪（allow_reversing=true），并按其互斥要求关闭 use_rotate_to_heading；后方路径允许负线速度，最终方向由路径和车体相对位置决定，不保证所有返程都直线倒车。终点不再主动原地对齐朝向，仍需满足约 5° 朝向门限。Bunker 倒车受速度平滑器和 guard 的 0.15 m/s 限制；距离任务使用不带旋转/倒车恢复的行为树，规划或控制失败直接结束；5 秒内没有至少 1 cm 平移或约 2.9° 旋转进展时失败停止。碰撞检查保留。路径末端通过碰撞检查后连接到精确目标，避免栅格中心引入额外误差。
+
 每轮复用同一 home 和同一组目标，避免累计起点漂移。分别把 run 的距离换成 7、10，各测 5 次；`--trials` 只生成对应数量的空白测量记录，不会自动循环发车或填入成功结果。Nav2 可能绕障，米数表示固定起终点间距离。
 
-默认点位本 `config/field_test_points.yaml` 和输出目录都不会覆盖已有内容。新一批测试用新名字：
+输出目录不会覆盖已有内容。新一批测试先停在起点、车头对准测试方向，再用新目录：
 
 ```bash
-./field_distance --points config/distance_batch2.yaml teach home
-./field_distance --points config/distance_batch2.yaml accuracy --distances 5 8 12 --output missions/distance_batch2
+./field_distance accuracy --distances 5 8 12 --output missions/distance_batch2
 ./field_distance run 8 --directory missions/distance_batch2
 ./field_distance home --directory missions/distance_batch2
 ```
 
-已有同一地图、同一起点的距离任务时，重新启动后直接 `./field_distance run 5`，不必再次 teach 或生成文件。若任务刚下发组合入口就报参数响应超时并退出，目标会随清理取消；先解决启动失败并等最终就绪，再重试任务。本次故障证据见 [启动响应超时回归](evidence/startup_response_fix_20261025/README.md)。
+已有同一地图、同一起点的距离任务时，重新启动后用 `./field_distance run 5 --directory missions/固定批次目录`，不必再次生成文件；若本批起点改变，必须重新执行 accuracy 生成新批次（默认自动创建新目录）。若任务刚下发组合入口就报参数响应超时并退出，目标会随清理取消；先解决启动失败并等最终就绪，再重试任务。本次故障证据见 [启动响应超时回归](evidence/startup_response_fix_20261025/README.md)。
 
 目前 run/home 按 `config/field_trial.yaml` 中地图校验任务；使用组合入口 `--map-id` 覆盖时，也应让该配置对应同一地图后再生成距离任务。`run/home` 拒绝带相机视图的任务、失效定位和正在使用拍照行为树的执行器。取消距离任务用 `./field_distance cancel`，它请求父任务取消；等待最终结果和停稳，不能把 Trigger 的提交响应当成停车完成。
 
-## 导航模式
+## 导航模式：当前位置向前测试
 
 ```bash
 ./field_start nav
 ```
 
-该模式没有相机、巡检执行器或拍照队列。显示导航就绪后，在 RViz 用普通导航工具发目标。原来的 `./field_trial status --seconds 5`、`record`、`cancel` 继续可用。
+等待就绪后，另开终端即可执行：
+
+```bash
+./field_distance run 5
+# 上一条完成、车辆停稳后，根据需要再选一条：
+./field_distance run 7
+./field_distance run 10
+```
+
+每次 run 都读取当时的 map -> base_link 位姿，以当前车头方向计算目标，只执行这一个目标。无需 teach、accuracy、home 或指定目录；不会先去旧起点，也不会自动返程。连续执行 5、7、10 表示分别从每次执行时的位置出发，不是同一起点的三个固定目标。请停车后下发；等待遥控器释放期间不要重新挪动车辆，因为目标在命令提交时已经确定。
+
+该模式启动任务执行器，不启动相机或拍照队列；仍可使用 RViz 普通导航目标，但不要与距离任务同时下发。Nav2 保留避障规划，因此这里是前方目标距离，不是强制沿直线撞过障碍，也不是累计路程。普通 nav 模式使用导航到点容差；需要原 2 cm 精度配置时仍可启动 `./field_start distance`，同样支持上述 run 指令。
+
+一键录包保持：独立终端先运行 `./field_trial record`，发车测试完停稳后 Ctrl+C 结束。目标和起点自动保存到 `missions/forward_<时间>_<标识>/`。取消距离任务使用 `./field_distance cancel`，等待任务结束并停稳。
 
 ## 导航加云台相机模式
 
@@ -125,3 +140,5 @@ teach 读取当前停车位姿；accuracy 生成 `missions/distance/accuracy_5m.
 精度测试的独立执行器仍可按 [旧距离测试文档](accuracy_and_photo_tasks.md) 启动；普通导航不需要相机相关四条命令。继续分开启动时，不需要运行 field_start。
 
 新检出工作区运行 `scripts/init_workspace.sh` 会补齐四个根目录包装器；已有包装器和现场配置保留，依赖版本不变。原导航阶段标签是 `field-long-distance-navigation-pass-20261025`，组合入口开发放在它之后，标签保持指向原快照。
+
+拍照模式启用轮速辅助停车判定：轮速、最终零指令和 1 秒 LIO 位姿窗口共同确认，再连续稳定 0.8 秒后拍照；等待上限 15 秒。它不修改定位里程计。缺失或过期反馈会继续等待并最终报错。任务提交后会等待 Bunker 自动控制权；释放遥控器切到 CAN 模式后才提交 Nav2，等待可取消。

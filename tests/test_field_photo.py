@@ -64,6 +64,31 @@ def test_start_accepts_photo_runtime_and_loaded_checker(monkeypatch):
         field_photo.validate_photo_parameters(runtime, {})
 
 
+def test_photo_start_requires_live_global_obstacles_and_unknown_protection():
+    costmap = {
+        'plugins': ['static_layer', 'obstacle_layer', 'inflation_layer'],
+        'obstacle_layer.plugin': 'agt_field_test_bringup/UnknownPreservingObstacleLayer',
+        'obstacle_layer.enabled': True, 'obstacle_layer.combination_method': 1,
+        'obstacle_layer.lidar3d_mark.topic': '/agt/navigation/points_obstacles',
+        'obstacle_layer.lidar3d_mark.marking': True,
+        'obstacle_layer.lidar3d_clear.topic': '/agt/livox/points',
+        'obstacle_layer.lidar3d_clear.clearing': True,
+    }
+    field_photo.validate_photo_obstacles(costmap)
+    for key, value in (
+        ('plugins', ['static_layer', 'inflation_layer']),
+        ('plugins', ['obstacle_layer', 'static_layer', 'inflation_layer']),
+        ('obstacle_layer.plugin', 'nav2_costmap_2d::ObstacleLayer'),
+        ('obstacle_layer.enabled', False), ('obstacle_layer.combination_method', 0),
+        ('obstacle_layer.lidar3d_mark.topic', '/missing_obstacles'),
+        ('obstacle_layer.lidar3d_mark.marking', False),
+        ('obstacle_layer.lidar3d_clear.topic', '/missing_rays'),
+        ('obstacle_layer.lidar3d_clear.clearing', False),
+    ):
+        with pytest.raises(ValueError, match='实时障碍'):
+            field_photo.validate_photo_obstacles({**costmap, key: value})
+
+
 def test_field_gimbal_error_replay_uses_real_arrival_judge(tmp_path):
     import subprocess
     preset = yaml.safe_load((REPO/'config/photo_three_views.yaml').read_text())
@@ -183,23 +208,50 @@ def test_photo_runtime_three_points_and_failure_stop(tmp_path, nav_fails):
         rig.close()
 
 
-def test_photo_navigation_keeps_default_checker_and_uses_separate_arrival(tmp_path):
+@pytest.mark.parametrize('planning_profile', ['navigation', 'distance'])
+def test_photo_navigation_keeps_default_checker_and_uses_separate_arrival(tmp_path, planning_profile):
     from agt_field_test_bringup import profiles
     import xml.etree.ElementTree as ET
     profile = profiles.load(field_photo.ROOT/'config/robots/bunker.yaml', 'bunker')
     source = REPO.parent/'agt_navigation_v3/config'
     output = tmp_path/'navigation.yaml'
-    profiles.navigation(profile, source, output)
+    profiles.navigation(profile, source, output, planning_profile)
     controller = yaml.safe_load(output.read_text())['controller_server']['ros__parameters']
     original = yaml.safe_load((source/'controller.yaml').read_text())['controller_server']['ros__parameters']
     assert controller['goal_checker_plugins'][0] == original['goal_checker_plugins'][0]
-    assert controller['general_goal_checker'] == original['general_goal_checker']
+    expected = dict(original['general_goal_checker'])
+    if planning_profile == 'distance':
+        expected['xy_goal_tolerance'] = .02
+    assert controller['general_goal_checker'] == expected
+    if planning_profile == 'distance':
+        assert controller['FollowPath']['allow_reversing'] is True
+        assert controller['FollowPath']['use_rotate_to_heading'] is False
+        assert controller['progress_checker']['movement_time_allowance'] == 5.0
+        assert controller['progress_checker']['required_movement_radius'] == .01
+    else:
+        for key in ('allow_reversing', 'use_rotate_to_heading'):
+            assert controller['FollowPath'][key] == original['FollowPath'][key]
+    generated = yaml.safe_load(output.read_text())
+    assert generated['velocity_smoother']['ros__parameters']['min_velocity'][0] == -profile['reverse_mps']
+    assert generated['agt_cmd_vel_guard']['ros__parameters']['max_reverse_x'] == profile['reverse_mps']
+    assert controller['FollowPath']['plugin'] == 'agt_field_test_bringup/PlanarRegulatedPurePursuitController'
+    assert controller['PhotoFollowPath']['plugin'] == controller['FollowPath']['plugin']
+    assert controller['PhotoFollowPath']['use_rotate_to_heading'] is False
+    assert controller['PhotoFollowPath']['allow_reversing'] is False
+    assert controller['PhotoFollowPath']['use_collision_detection'] is True
     assert controller['photo_goal_checker']['xy_goal_tolerance'] == .35
     assert controller['photo_goal_checker']['yaw_goal_tolerance'] == math.pi
     for key in ('default_nav_to_pose_bt_xml', 'default_nav_through_poses_bt_xml'):
         default = yaml.safe_load(output.read_text())['bt_navigator']['ros__parameters'][key]
+        parsed = ET.parse(default)
         assert all(f.attrib['goal_checker_id'] == 'general_goal_checker'
-                   for f in ET.parse(default).iter('FollowPath'))
+                   for f in parsed.iter('FollowPath'))
+        if planning_profile == 'distance' and key == 'default_nav_to_pose_bt_xml':
+            for tag in ('Spin', 'BackUp', 'Wait', 'RecoveryNode', 'ClearEntireCostmap'):
+                assert parsed.find('.//'+tag) is None
+            assert parsed.find('.//ComputePathToPose') is not None
+            assert parsed.find('.//IsPathValid') is not None
+            assert controller['FollowPath']['use_collision_detection'] is True
     tree = ET.parse(REPO/'config/photo_navigate.xml')
     assert tree.find('.//FollowPath').attrib['goal_checker_id'] == 'photo_goal_checker'
     assert all(tree.find('.//'+tag) is None for tag in ('Spin', 'BackUp', 'ClearEntireCostmap'))
@@ -226,7 +278,8 @@ def test_concurrent_steady_waits_do_not_destroy_executor_timers(tmp_path):
         rig.close()
 
 
-@pytest.mark.parametrize('mode', ['success', 'failed', 'bad_angles', 'timeout', 'cancel'])
+@pytest.mark.parametrize('mode', ['success', 'failed', 'bad_angles', 'timeout', 'cancel',
+                                  'transient_motion', 'stationary_timeout', 'stationary_cancel'])
 def test_recenter_feedback_before_next_navigation(tmp_path, mode):
     import os
     import json
@@ -240,6 +293,17 @@ def test_recenter_feedback_before_next_navigation(tmp_path, mode):
     spec.loader.exec_module(module)
     rig = module.Rig(tmp_path)
     moves = []
+    motion_started = []
+    original_stationary = rig.runtime._motion_is_stationary
+    def motion_check(now):
+        if mode in ('transient_motion', 'stationary_timeout', 'stationary_cancel') and rig.runtime._current_view_tag == '__recenter__':
+            if not motion_started:
+                motion_started.append(time.monotonic())
+            duration = .55 if mode == 'stationary_timeout' else .12
+            if time.monotonic() - motion_started[0] < duration:
+                return False, 'injected motion before recenter'
+        return original_stationary(now)
+    rig.runtime._motion_is_stationary = motion_check
     def execute(handle):
         moves.append(handle)
         assert len(rig.peers.camera_goals) == 3 * len(moves)
@@ -277,24 +341,101 @@ def test_recenter_feedback_before_next_navigation(tmp_path, mode):
         if mode == 'cancel':
             module.wait(lambda: len(moves) == 1)
             rig.cancel(handle)
+        elif mode == 'stationary_cancel':
+            module.wait(lambda: bool(motion_started))
+            assert not moves
+            rig.cancel(handle)
         result = rig.result(handle, timeout=10.)
         root, manifest = rig.record(name)
         assert all((m.request.heading, m.request.roll, m.request.pitch) == (0., 0., 0.) for m in moves)
         assert all(m.request.stable_samples == 2 for m in moves)
         events = [json.loads(line) for line in (root/'events.jsonl').read_text().splitlines()]
         finished = [e for e in events if e['event'] == 'gimbal_recenter_finished']
-        if mode == 'success':
+        if mode in ('success', 'transient_motion'):
             assert result.result.success
             assert len(moves) == 2 and len(rig.peers.nav_goals) == 3
             assert manifest['capture_records'] == 6  # return-home creates no photo/recenter
             assert all(e['success'] for e in finished)
         else:
             assert not result.result.success
-            assert len(moves) == len(rig.peers.nav_goals) == 1
+            assert len(rig.peers.nav_goals) == 1
+            assert len(moves) == (0 if mode in ('stationary_timeout', 'stationary_cancel') else 1)
+            if mode == 'stationary_timeout':
+                assert result.result.error_code == 1100
             assert manifest['completed_points'] == 0
             assert manifest['capture_records'] == 3
             assert manifest['child_actions_terminal'] and manifest['base_stationary']
             assert not any(e['success'] for e in finished)
         assert rig.spin_error is None
+    finally:
+        rig.close()
+
+
+@pytest.mark.parametrize('cancel_wait', [False, True])
+def test_control_handoff_precedes_nav_submission(tmp_path, cancel_wait):
+    import os
+    from bunker_msgs.msg import BunkerStatus
+    if os.environ.get('ROS_DOMAIN_ID') != '183' or os.environ.get('ROS_LOCALHOST_ONLY') != '1':
+        pytest.skip('requires isolated domain')
+    path = REPO.parent/'agt_navigation_v3/navigation/nav2/agt_navigation_runtime/test/test_runtime_isolated_ros.py'
+    spec = importlib.util.spec_from_file_location('handoff_fixture', path)
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    rig = module.Rig(tmp_path)
+    try:
+        rig.parameter('wait_for_bunker_control', True)
+        mode = [3]
+        def status():
+            msg = BunkerStatus(); msg.header.stamp = rig.runtime.get_clock().now().to_msg()
+            msg.control_mode = mode[0]
+            rig.runtime._on_bunker_status(msg)
+        timer = rig.peers.create_timer(.02, status)
+        name, mission = rig.mission(views=0, points=1)
+        handle = rig.submit(mission)
+        time.sleep(.85)  # longer than the fixture's nav timeout; no nav sent yet
+        assert not rig.peers.nav_goals
+        if cancel_wait:
+            rig.cancel(handle)
+        else:
+            mode[0] = 1
+        result = rig.result(handle)
+        assert result.result.success == (not cancel_wait)
+        assert len(rig.peers.nav_goals) == (0 if cancel_wait else 1)
+        rig.peers.destroy_timer(timer)
+    finally:
+        rig.close()
+
+
+def test_wheel_stop_gate_allows_photos_despite_lio_twist_noise(tmp_path):
+    import os
+    import copy
+    from geometry_msgs.msg import Twist
+    if os.environ.get('ROS_DOMAIN_ID') != '183' or os.environ.get('ROS_LOCALHOST_ONLY') != '1':
+        pytest.skip('requires isolated domain')
+    path = REPO.parent/'agt_navigation_v3/navigation/nav2/agt_navigation_runtime/test/test_runtime_isolated_ros.py'
+    spec = importlib.util.spec_from_file_location('stop_fixture', path)
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    rig = module.Rig(tmp_path)
+    try:
+        rig.parameter('wheel_stop_gate', True)
+        rig.parameter('stationary_timeout_sec', 3.)
+        # Feed wheel and final-command evidence through the same callbacks used
+        # by the subscriptions, while LIO twist stays noisy and pose stays still.
+        def evidence():
+            msg = rig.runtime.latest_local_odom
+            if msg is None:
+                return
+            wheel = copy.deepcopy(msg)
+            wheel.header.stamp = rig.runtime.get_clock().now().to_msg()
+            wheel.twist.twist.linear.x = .15 if rig.peers.active_nav else 0.
+            rig.runtime.on_stop_wheel(wheel)
+            rig.runtime.on_stop_command(Twist())
+            rig.runtime.latest_local_odom.twist.twist.linear.x = .08
+        timer = rig.peers.create_timer(.02, evidence)
+        name, mission = rig.mission(views=1, points=1)
+        handle = rig.submit(mission)
+        result = rig.result(handle, timeout=8.)
+        assert result.result.success
+        assert len(rig.peers.camera_goals) == 1
+        rig.peers.destroy_timer(timer)
     finally:
         rig.close()

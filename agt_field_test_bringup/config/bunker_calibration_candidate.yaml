@@ -1,7 +1,7 @@
 schema_version: 2
 kind: robot_calibration_bundle
 robot: bunker
-version: bunker_imported_baseline_20261023
+version: bunker_imported_baseline_pitch15_20261027
 status: CANDIDATE
 sensor_id: UNRECORDED
 source:
@@ -22,8 +22,13 @@ mount:
   - 0.727468117997015
   rpy:
   - 0.0
-  - 0.226892802759063
+  - 0.2617993877991494
   - 0.0
+  pitch_confirmation:
+    pitch_deg: 15.0
+    source: Operator reports mechanical installation specification of 15 degrees
+    date: '2026-10-27'
+    scope: Mount pitch only; full physical calibration and field acceptance remain pending
 internal:
   fastlio2:
     rotation:

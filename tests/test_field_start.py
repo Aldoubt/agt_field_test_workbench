@@ -19,7 +19,7 @@ def base(monkeypatch):
 
 
 @pytest.mark.parametrize('mode,expected',[
-    ('nav',['navigation_stack','rviz']),
+    ('nav',['navigation_stack','runtime','rviz']),
     ('distance',['navigation_stack','runtime','rviz']),
     ('photo',['navigation_stack','camera','runtime','queue','rviz'])])
 def test_three_modes_compose_existing_entrypoints_without_task_goals(base,mode,expected):
@@ -34,7 +34,7 @@ def test_three_modes_compose_existing_entrypoints_without_task_goals(base,mode,e
     if mode=='photo':
         assert plan['external_task_trigger']=='./field_photo start'
         assert plan['components'][3]['command'][-2:]==['--map-id','test_map']
-    elif mode=='distance':
+    elif mode in ('distance', 'nav'):
         assert 'nav_behavior_tree:=""' in commands[1]
         assert 'recenter_after_capture:=false' in commands[1]
     else:

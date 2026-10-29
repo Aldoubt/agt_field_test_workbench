@@ -8,7 +8,7 @@ import pytest
 import yaml
 from launch import LaunchContext
 from launch.actions import DeclareLaunchArgument, LogInfo
-from agt_field_test_bringup import calibration
+from agt_field_test_bringup import calibration, profiles
 from agt_field_test_bringup.navigation_policy import require_navigation_calibration
 from workbench import field_trial
 
@@ -51,6 +51,10 @@ def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypa
     plan = field_trial.make_plan(ROOT, ROOT/'config/field_trial.yaml', global_backend=backend,planning_profile=planning_profile)
     assert plan['calibration_status'] == 'CANDIDATE'
     before = Path(plan['inputs']['calibration_bundle']).read_bytes()
+    map_yaml = Path(dict(item.split(':=', 1) for item in plan['launch_args'])['map_yaml'])
+    map_image = map_yaml.parent/yaml.safe_load(map_yaml.read_text())['image']
+    map_files = (map_yaml, map_image, map_yaml.parent/'manifest.json')
+    map_before = {path: path.read_bytes() for path in map_files}
     module_path = REPO/'agt_field_test_bringup/launch/field_test.launch.py'
     spec = importlib.util.spec_from_file_location('field_trial_launch', module_path)
     module = importlib.util.module_from_spec(spec)
@@ -99,6 +103,7 @@ def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypa
     assert guard['output_topic'] == '/mux/cmd_vel'
     assert guard['command_timeout_sec'] == .2
     assert guard['max_linear_x'] == plan['limits']['forward_mps']
+    assert tree['controller_server']['ros__parameters']['FollowPath']['plugin'] == 'agt_field_test_bringup/PlanarRegulatedPurePursuitController'
     assert tree['controller_server']['ros__parameters']['FollowPath']['desired_linear_vel'] == plan['limits']['forward_mps']
     assert tree['velocity_smoother']['ros__parameters']['max_velocity'] == [plan['limits']['forward_mps'], 0., plan['limits']['angular_radps']]
     assert tree['local_costmap']['local_costmap']['ros__parameters']['update_frequency'] == 20.
@@ -107,17 +112,58 @@ def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypa
     assert local['plugins']==['obstacle_layer','inflation_layer']
     assert local['obstacle_layer']['plugin']=='nav2_costmap_2d::ObstacleLayer'
     assert local['obstacle_layer']['min_obstacle_height']==-3.
-    assert local['inflation_layer']['inflation_radius']==.65
-    assert tree['global_costmap']['global_costmap']['ros__parameters']['inflation_layer']['inflation_radius']==.8
-    assert local['inflation_layer']['cost_scaling_factor']==tree['controller_server']['ros__parameters']['FollowPath']['inflation_cost_scaling_factor']==3.
+    assert local['inflation_layer']['inflation_radius']==1.0
+    global_costmap=tree['global_costmap']['global_costmap']['ros__parameters']
+    assert global_costmap['plugins']==['static_layer','obstacle_layer','inflation_layer']
+    assert global_costmap['global_frame']=='map'
+    assert global_costmap['static_layer']['map_subscribe_transient_local'] is True
+    assert global_costmap['inflation_layer']['inflation_radius']==1.2
+    obstacle=global_costmap['obstacle_layer']
+    assert obstacle['plugin']=='agt_field_test_bringup/UnknownPreservingObstacleLayer'
+    assert obstacle['enabled'] is True and obstacle['combination_method']==1
+    assert obstacle['observation_sources'].split()==['lidar3d_mark','lidar3d_clear']
+    assert (obstacle['min_obstacle_height'],obstacle['max_obstacle_height'])==(-3.,3.4)
+    mark,clear=obstacle['lidar3d_mark'],obstacle['lidar3d_clear']
+    assert mark['topic']=='/agt/navigation/points_obstacles'
+    assert mark['data_type']=='PointCloud2' and mark['marking'] and not mark['clearing']
+    assert clear['topic']=='/agt/livox/points'
+    assert clear['data_type']=='PointCloud2' and clear['clearing'] and not clear['marking']
+    assert mark['obstacle_min_range']==clear['raytrace_min_range']==.3
+    assert mark['obstacle_max_range']==12. and clear['raytrace_max_range']==15.
+    for source in (mark,clear):
+        assert source['observation_persistence']==0.
+        assert (source['min_obstacle_height'],source['max_obstacle_height'])==(-3.,3.4)
+    # YAML aliases would preserve shared object identity on reload. Each layer
+    # must own its nested sources so later global tuning cannot alter local IO.
+    assert obstacle is not local['obstacle_layer']
+    assert mark is not local['obstacle_layer']['lidar3d_mark']
+    assert clear is not local['obstacle_layer']['lidar3d_clear']
+    assert local['inflation_layer']['cost_scaling_factor']==tree['controller_server']['ros__parameters']['FollowPath']['inflation_cost_scaling_factor']==2.
     assert tree['controller_server']['ros__parameters']['FollowPath']['cost_scaling_dist']<=local['inflation_layer']['inflation_radius']
     assert tree['agt_pointcloud_preprocessor']['ros__parameters']['self_filter']['extra_boxes'] == [
-        -.36,.02,-.17,.19,.72,1.68, -.95,-.60,-.12,.31,.82,1.00]
+        -.36,.02,-.17,.19,.72,1.68, -.95,-.60,-.12,.31,.82,1.68]
     assert Path(plan['inputs']['calibration_bundle']).read_bytes() == before
+    assert nav['map']==str(map_yaml)
+    assert {path:path.read_bytes() for path in map_files}==map_before
     # Formal launch remains separate and refuses this unpromoted candidate.
     context.launch_configurations['navigation_mode'] = 'formal'
     with pytest.raises(ValueError, match='VERIFIED'):
         module._configure(context)
+
+
+@pytest.mark.parametrize('planning_profile', ['navigation','distance'])
+def test_fwmini_keeps_original_costmap_sources(tmp_path,planning_profile):
+    profile=profiles.load(REPO/'templates/config/robots/fwmini.yaml','fwmini')
+    source=REPO.parent/'agt_navigation_v3/config'
+    output=tmp_path/'navigation.yaml'
+    profiles.navigation(profile,source,output,planning_profile)
+    tree=yaml.safe_load(output.read_text())
+    global_costmap=tree['global_costmap']['global_costmap']['ros__parameters']
+    local=tree['local_costmap']['local_costmap']['ros__parameters']
+    assert global_costmap['plugins']==['static_layer','inflation_layer']
+    assert 'obstacle_layer' not in global_costmap
+    assert local['plugins']==['voxel_layer','inflation_layer']
+    assert local['voxel_layer']['plugin']=='nav2_costmap_2d::VoxelLayer'
 
 
 @pytest.mark.parametrize('command', ['start', 'build-polar-context', 'map', 'nav', 'rviz', 'relocalize', 'cancel', 'record', 'status'])

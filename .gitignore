@@ -5,3 +5,5 @@ work/
 build/
 install/
 log/
+# Local recovery bundles and source backups remain on the field machine.
+/snapshots/

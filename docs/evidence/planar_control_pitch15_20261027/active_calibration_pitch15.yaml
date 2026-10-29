@@ -1,0 +1,179 @@
+schema_version: 2
+kind: robot_calibration_bundle
+robot: bunker
+version: bunker_mechanical_pitch_15deg_20261027_v3
+status: CANDIDATE
+sensor_id: UNRECORDED
+source:
+  repository: Aldoubt/agt_chassis_description
+  commit: 75b838ce9af0d8da7c403d6683b34f4e4268f687
+  file: config/field_acceptance.yaml
+  sha256: b71cc5d637856663d9b9d8316ba6642b6300da80a4e9457c4affa125ce5ebc21
+  prior_acceptance_scope: stationary_relocalization
+  import_date: '2026-10-23'
+  new_physical_measurement: false
+base_link_height_m: 0.2
+mount:
+  parent: base_link
+  child: livox_frame
+  xyz:
+  - 0.406074739840648
+  - 0.0
+  - 0.727468117997015
+  rpy:
+  - 0.0
+  - 0.2617993877991494
+  - 0.0
+  pitch_confirmation:
+    pitch_deg: 15.0
+    source: Operator reports mechanical installation specification of 15 degrees
+    date: '2026-10-27'
+    scope: Mount pitch only; full physical calibration and field acceptance remain pending
+internal:
+  fastlio2:
+    rotation: &id001
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    translation: &id002
+    - -0.011
+    - -0.02329
+    - 0.04412
+    source: Inverse of prior YHS MID360 T_L_I reference; matches agt_field_test_workbench/agt-lio-pgo-mapping/bringup/agt_mapping_bringup/config/fastlio2_mid360.yaml.
+      MID360S model applicability still unverified.
+    transform_convention: 'T_I_L: convert LiDAR-frame point to IMU/body coordinates'
+    formula: p_I = R_I_L * p_L + t_I_L
+    status: ACCEPTED_FOR_CURRENT_FIELD_TEST; CURRENT_WORKBENCH_CONFIG_MATCHES_THIS_SIGN; MID360S_VENDOR_APPLICABILITY_NOT_INDEPENDENTLY_VERIFIED
+  batch_lio:
+    rotation: *id001
+    translation: *id002
+    source: Normalized inverse of the same T_L_I reference. Current Batch-LIO source
+      code uses p_body_imu = R * p_body_lidar + t, so it requires T_I_L just like
+      FAST-LIO2. Legacy external/batch_lio/config/avia.yaml still has the opposite-sign
+      MID360 comment/value and was not edited.
+    transform_convention: 'T_I_L: convert LiDAR-frame point to IMU/body coordinates'
+    formula: p_I = R_I_L * p_L + t_I_L
+    status: NORMALIZED_CANDIDATE; LEGACY_SOURCE_YAML_SIGN_CONFLICT
+  manufacturer_reference:
+    source_document: YHS_MID360_外参合同_CAD候选.yaml (user Library source; previous YHS
+      TK-mid / ordinary MID360 reference)
+    source_archive_path: yhs_navigation_debug_20261009_171732.tar.gz, appliance/assets/yhs_mid360/yhs_mid360_tf_nominal.urdf
+    source_robot: YHS TK-mid tracked
+    source_sensor_model: Livox MID360 ordinary (not confirmed MID360S)
+    status: REFERENCE_ACCEPTED_FOR_CURRENT_FIELD_TEST; MID360S_MODEL_REVISION_NOT_VENDOR_VERIFIED
+    transform_parent: livox_frame
+    transform_child: imu_link
+    transform_name: T_L_I (pose of IMU frame I in LiDAR frame L)
+    xyz_m:
+    - 0.011
+    - 0.02329
+    - -0.04412
+    rpy_rad:
+    - 0.0
+    - 0.0
+    - 0.0
+    meaning: IMU origin expressed in LiDAR coordinates; this is internal sensor geometry,
+      not base_link mounting geometry.
+rtk_arm:
+  enabled: false
+  status: UNMEASURED
+  xyz: null
+time_sync:
+  imu_offset_sec: 0.0
+  lidar_offset_sec: 0.0
+  status: HISTORICAL_TIMESTAMP_DISCONTINUITY_UNRESOLVED; 2026-10-25 live stream monotonic-stamp checks passed; offsets intentionally remain zero pending root-cause closure
+  convention: corrected timestamp = raw timestamp + offset; Livox timebase shifted
+    equally
+pending:
+- Record MID360S serial/device identity and confirm vendor model revision applicability before promoting the full calibration bundle to VERIFIED; current FAST-LIO2 reference is accepted for this field test only.
+- Optional future check: remeasure floor-to-LiDAR optical center height only if the mount/CAD changes or field geometry residuals contradict the accepted 0.927468 m CAD nominal; not a blocker for the current field test.
+- Resolve the LiDAR header timestamp jump at frame indices 233-234 and record Livox
+  packet time_type / PTP-GPS-no-sync mode.
+- Verify PTP/PHC/host clock status; use LI-Init or another validated estimator for
+  temporal offset only after timestamp monotonicity is repaired.
+- Repeat straight, arc, and figure-eight runs; compare clockwise/counterclockwise
+  effective rotation-center estimates.
+- Run offline replay and physical geometry checks before any candidate is promoted
+  to VERIFIED.
+- Audit legacy agt_navigation_runtime FAST-LIO2 configs whose extrinsic_T sign conflicts
+  with the canonical T_I_L transform.
+- If Batch-LIO is used directly, normalize its legacy external/batch_lio/config/avia.yaml
+  sign; the workbench candidate now emits canonical T_I_L values.
+- Measure the RTK antenna lever arm before enabling the RTK TF/factor.
+timestamp_audit:
+  source_bag: bags/20261023T140757Z-9d64418b
+  lidar_frames: 1037
+  imu_messages: 20807
+  lidar_header_equals_timebase: TRUE_BY_DRIVER_IMPLEMENTATION_AND_SAMPLED_MESSAGES
+  lidar_header_nonmonotonic_pairs: 1
+  discontinuity_previous_frame_index_zero_based: 233
+  discontinuity_frame_index_zero_based: 234
+  frame_233_header_step_ms: 500.081539
+  frame_233_storage_step_ms: 77.650992
+  frame_233_header_minus_storage_ms: 301.295477
+  frame_234_header_step_ms: -400.296624
+  frame_234_storage_step_ms: 22.666797
+  frame_234_header_minus_storage_ms: -121.667944
+  storage_minus_header_median_ms: 121.102899
+  nearest_imu_sample_delta_ms_median: -0.2715425
+  nearest_imu_sample_delta_ms_p10: -2.545064
+  nearest_imu_sample_delta_ms_p90: 1.698877
+  fixed_offset_estimate_sec: null
+  interpretation: Nearest-sample differences are quantized by the ~5 ms IMU cadence
+    and are not a valid fixed-offset estimate. The two-frame timestamp jump/rollback
+    is not correctable by a single constant offset.
+  cause: 'UNKNOWN: CustomMsg does not preserve Livox packet time_type; inspect sensor
+    PTP/GPS/no-sync mode and driver clock source.'
+rotation_center_estimate:
+  status: CANDIDATE_NOT_APPLIED
+  method: Offline FAST-LIO2 frontend odometry from B+C rosbag; first-turn samples
+    around the detected timestamp rollback (22.8–24.5 s) excluded from circle fit.
+  odom_samples: 1033
+  odom_frame: lidar
+  body_frame: body (IMU/body state used by this FAST-LIO2 backend)
+  clockwise:
+    yaw_change_deg: -360.670923
+    circle_radius_m: 0.387129
+    radial_rmse_m: 0.008243
+    radial_p95_abs_residual_m: 0.013626
+    body_origin_in_effective_center_xy_m:
+    - 0.385001
+    - 0.029465
+  counterclockwise:
+    yaw_change_deg: 363.511077
+    circle_radius_m: 0.378092
+    radial_rmse_m: 0.012037
+    radial_p95_abs_residual_m: 0.024564
+    body_origin_in_effective_center_xy_m:
+    - 0.377354
+    - 0.045307
+  effective_center_difference_between_directions_m: 0.03382
+  mean_body_origin_in_effective_center_xy_m:
+  - 0.381177
+  - 0.037386
+  estimated_base_to_lidar_xy_if_base_link_is_redefined_at_effective_center_m:
+  - 0.382693
+  - 0.014096
+  z_from_yaw_only_spin: UNOBSERVABLE
+  limitations: Tracked-chassis slip, direction-dependent instantaneous center, timestamp
+    rollback and LIO out-of-order warnings remain. Do not overwrite mount.xyz with
+    this estimate.
+height_estimate:
+  status: ACCEPTED_CAD_NOMINAL_FOR_CURRENT_FIELD_TEST
+  accepted_for_current_field_test: true
+  acceptance_basis: User confirmed acceptance of the CAD-derived optical-center height for the current test on 2026-10-25; this is not claimed as a new tape measurement.
+  base_link_height_m: 0.2
+  current_cad_mount_z_m: 0.727468117997015
+  current_cad_derived_lidar_center_above_ground_m: 0.927468117997015
+  prior_calibration_note_height_m: 0.5
+  prior_source: agt_navigation_v2/docs/calibration/bunker_lidar_chassis_extrinsic_from_bag.md
+  static_imu_gravity_angle_from_sensor_z_deg: 15.91
+  ground_plane_in_sampled_static_pointcloud: NOT_DETECTED_AS_A_DENSE_HORIZONTAL_PLANE
+  z_estimate_from_rotation: UNOBSERVABLE
+  action: Keep the accepted CAD nominal 0.927468 m for the current field test; remeasure only if mounting/CAD changes or geometry evidence contradicts it.

@@ -1,0 +1,6 @@
+[bt_navigator-12] [INFO] [1793076132.305167712] [bt_navigator]: Begin navigating from current location (31.36, 24.45) to (10.62, -0.79)
+[controller_server-8] [ERROR] [1793076242.363384131] [controller_server]: Failed to make progress
+[bt_navigator-12] [ERROR] [1793076242.388108804] [bt_navigator]: Goal failed
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[planner_server-10] [ERROR] [1793076344.185953395] [transformPoseInTargetFrame]: Extrapolation Error looking up target frame: Lookup would require extrapolation into the past.  Requested time 1793076333.600638 but the earliest data is at time 1793076334.110332, when looking up transform from frame [base_link] to frame [map]
+[planner_server-10] [ERROR] [1793076344.683962419] [transformPoseInTargetFrame]: Extrapolation Error looking up target frame: Lookup would require extrapolation into the past.  Requested time 1793076333.600638 but the earliest data is at time 1793076334.610057, when looking up transform from frame [base_link] to frame [map]

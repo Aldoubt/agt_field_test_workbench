@@ -1,0 +1,21 @@
+{
+  "status": "OFFLINE_PASS_FIELD_NOT_RUN",
+  "nav2_rpp_version": "1.1.20",
+  "native_cpp_tests": {
+    "passed": 13,
+    "failed": 0,
+    "skipped": 0
+  },
+  "python_regression": {
+    "unique_cases_passed": 88,
+    "initial_passed": 85,
+    "initial_failed": 3,
+    "failed_reason": "pre-existing rear-mask assertion still expected zmax=1.0 instead of operator-approved 1.68",
+    "corrected_module_rerun_passed": 17
+  },
+  "mount_pitch_degrees": 15.0,
+  "mount_pitch_radians": 0.2617993877991494,
+  "active_calibration_digest": "fc65ded99f1ce8d386b0a51cdbe5d52cf93e656725e1383cab00a0bc5e566b10",
+  "physical_distance_accuracy_test": "NOT_RUN",
+  "physical_motion_commands_sent": false
+}

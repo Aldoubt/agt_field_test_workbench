@@ -52,7 +52,8 @@ def test_photo_order_angles_and_runtime_schema(tmp_path):
         tasks.photo_mission(data, ['P01', 'P01'])
 
 
-def test_accuracy_cli_produces_fifteen_unscored_physical_measurements(tmp_path):
+def test_accuracy_cli_produces_fifteen_unscored_physical_measurements(tmp_path, monkeypatch):
+    mock_live_pose(tmp_path, monkeypatch)
     import csv
     from agt_navigation_runtime.mission_schema import load_mission
     source = tmp_path/'points.yaml'
@@ -70,7 +71,8 @@ def test_accuracy_cli_produces_fifteen_unscored_physical_measurements(tmp_path):
         tasks.main(['--points', str(source), 'accuracy', '--output', str(output)])
 
 
-def test_custom_distances_use_fixed_anchor_and_no_photos(tmp_path):
+def test_custom_distances_use_fixed_anchor_and_no_photos(tmp_path, monkeypatch):
+    mock_live_pose(tmp_path, monkeypatch)
     source=tmp_path/'points.yaml';source.write_text(yaml.safe_dump(book()))
     output=tmp_path/'measurements'
     tasks.main(['--points',str(source),'accuracy','--distances','5','8','12',
@@ -105,3 +107,83 @@ def test_distance_cancel_targets_parent_mission_not_nav_child(monkeypatch):
     monkeypatch.setattr(tasks.os,'execvp',lambda name,args:commands.append(args))
     tasks.main(['cancel'])
     assert commands==[['ros2','service','call','/agt/task/cancel','std_srvs/srv/Trigger','{}']]
+
+
+def mock_live_pose(tmp_path, monkeypatch):
+    monkeypatch.setattr(tasks, 'ROOT', tmp_path)
+    (tmp_path/'config').mkdir()
+    (tmp_path/'config/field_trial.yaml').write_text('map_id: test_map\n')
+    monkeypatch.setattr(tasks, 'read_pose', lambda map_id: book()['points']['home']['pose'].copy())
+
+
+def test_accuracy_captures_current_pose_once_and_ignores_old_home(tmp_path, monkeypatch):
+    mock_live_pose(tmp_path, monkeypatch)
+    calls = []
+    live = dict(x=100., y=200., yaw=0., frame_id='map')
+    def read(map_id):
+        calls.append(map_id)
+        return live.copy()
+    monkeypatch.setattr(tasks, 'read_pose', read)
+    old = tmp_path/'old.yaml'
+    old.write_text(yaml.safe_dump(book()))
+    before = old.read_bytes()
+    output = tmp_path/'batch'
+    tasks.main(['--points', str(old), 'accuracy', '--output', str(output)])
+    assert calls == ['test_map']
+    assert old.read_bytes() == before
+    for distance in (5, 7, 10):
+        mission = yaml.safe_load((output/f'accuracy_{distance}m.yaml').read_text())
+        assert mission['points'][0]['pose'] == live
+        assert mission['points'][1]['pose']['x'] == 100. + distance
+    assert yaml.safe_load((output/'return_home.yaml').read_text())['points'][0]['pose'] == live
+    assert yaml.safe_load((output/'start_pose.yaml').read_text())['points']['home']['pose'] == live
+    with pytest.raises(FileExistsError):
+        tasks.main(['accuracy', '--output', str(output)])
+    assert calls == ['test_map']
+
+
+def test_accuracy_invalid_localization_leaves_no_batch(tmp_path, monkeypatch):
+    mock_live_pose(tmp_path, monkeypatch)
+    def fail(map_id):
+        raise ValueError('localization is not valid')
+    monkeypatch.setattr(tasks, 'read_pose', fail)
+    output = tmp_path/'batch'
+    with pytest.raises(ValueError, match='localization is not valid'):
+        tasks.main(['accuracy', '--output', str(output)])
+    assert not output.exists()
+
+
+def test_default_run_uses_current_pose_not_old_batch(tmp_path, monkeypatch):
+    mock_live_pose(tmp_path, monkeypatch)
+    submitted = []
+    monkeypatch.setattr(tasks, 'execute_distance', submitted.append)
+    (tmp_path/'work').mkdir()
+    (tmp_path/'work/active_distance_batch.json').write_text('{"directory":"/old/batch"}')
+    for distance, x, yaw in [(5, 100., 0.), (7, 200., math.pi/2), (10, 300., math.pi)]:
+        monkeypatch.setattr(tasks, 'read_pose', lambda map_id, x=x, yaw=yaw:
+                            dict(x=x, y=2., yaw=yaw, frame_id='map'))
+        tasks.main(['run', str(distance)])
+        doc = yaml.safe_load(submitted[-1].read_text())
+        assert len(doc['points']) == 1
+        target = doc['points'][0]['pose']
+        assert target['x'] == pytest.approx(x + distance*math.cos(yaw))
+        assert target['y'] == pytest.approx(2. + distance*math.sin(yaw))
+        assert not doc['points'][0]['views']
+    assert len(set(submitted)) == 3
+
+
+def test_generation_selects_latest_batch_for_run_and_home(tmp_path, monkeypatch):
+    mock_live_pose(tmp_path, monkeypatch)
+    submitted = []
+    monkeypatch.setattr(tasks, 'execute_distance', submitted.append)
+    for _ in range(2):
+        tasks.main(['accuracy', '--distances', '5'])
+        selected = Path(tasks.json.loads((tmp_path/'work/active_distance_batch.json').read_text())['directory'])
+        tasks.main(['run', '5', '--directory', str(selected)])
+        tasks.main(['home'])
+        assert submitted[-2:] == [selected/'accuracy_5m.yaml', selected/'return_home.yaml']
+    assert submitted[0].parent != submitted[2].parent
+    active = (tmp_path/'work/active_distance_batch.json').read_bytes()
+    with pytest.raises(FileExistsError):
+        tasks.main(['accuracy', '--output', str(selected)])
+    assert (tmp_path/'work/active_distance_batch.json').read_bytes() == active

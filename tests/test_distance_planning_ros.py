@@ -1,4 +1,4 @@
-"""Native Smac planner only, synthetic maps in private DDS; never a controller."""
+"""Distance planner and exact endpoints in private DDS; never a controller."""
 import math
 import os
 import signal
@@ -15,7 +15,7 @@ pytestmark=pytest.mark.skipif(
 
 
 @pytest.fixture
-def planner(tmp_path):
+def planner(tmp_path, request):
     import rclpy
     from rclpy.qos import QoSProfile,DurabilityPolicy
     from rclpy.action import ActionClient
@@ -42,12 +42,18 @@ def planner(tmp_path):
     msg.info.width=500;msg.info.height=240;msg.info.origin.position.x=-5.;msg.info.origin.position.y=-5.
     msg.info.origin.orientation.w=1.
     grid=np.zeros((240,500),dtype=np.int8)
-    start=np.array([.329844069,-.197154558]);yaw=-.0958670173
+    case_parameters = getattr(request, 'param', {})
+    start=np.array(case_parameters.get('start', [.329844069,-.197154558]))
+    yaw=case_parameters.get('yaw', -.0958670173)
     def set_map(case):
         grid[:]=0
         if case in ('obstacle','unknown'):
             grid[80:105,145:155]=100 if case=='obstacle' else -1
         if case=='no_route':grid[:,145:155]=-1
+        if case in ('occupied_goal', 'unknown_goal'):
+            end = start + 5. * np.array([math.cos(yaw), math.sin(yaw)])
+            gx, gy = ((end + 5.) / .05).astype(int)
+            grid[gy, gx] = 100 if case == 'occupied_goal' else -1
         msg.data=grid.ravel().tolist()
     set_map('free')
     def publish():
@@ -106,6 +112,7 @@ def planner(tmp_path):
 def test_free_distance_route_removes_grid_bends(planner,distance):
     status,xy,elapsed,_,start,end=planner(distance)
     assert status==4 and len(xy)>2
+    assert np.linalg.norm(xy[-1]-end) < 1e-8
     normal=np.array([-(end-start)[1],(end-start)[0]])/distance
     deviation=float(np.max(np.abs((xy-start)@normal)))
     assert deviation<.04
@@ -131,3 +138,26 @@ def test_distance_smoothing_preserves_obstacle_and_unknown_avoidance(planner,cas
     assert np.all(values==0),'path cuts through an obstacle or unknown cells'
     normal=np.array([-(end-start)[1],(end-start)[0]])/5.
     assert np.max(np.abs((xy-start)@normal))>.5,'obstructed route must detour'
+
+
+@pytest.mark.parametrize('case', ['occupied_goal', 'unknown_goal'])
+def test_exact_goal_never_accepts_a_nearby_free_cell(planner, case):
+    status, xy, *_ = planner(5., case=case)
+    assert status != 4
+    assert len(xy) == 0
+
+
+@pytest.mark.parametrize('planner', [dict(
+    start=[.340968200378086, -.20925805805468],
+    yaw=-.10146856675230191)], indirect=True)
+def test_exact_endpoint_does_not_create_a_reverse_cusp(planner):
+    # Field 2026-10-27 19:24: the native cell center overshot the requested
+    # goal; appending it produced a reverse cusp and 119 direction switches.
+    status, xy, _, _, start, end = planner(5.)
+    assert status == 4
+    assert np.linalg.norm(xy[-1]-end) < 1e-8
+    segments = np.diff(xy, axis=0)
+    joins = np.sum(segments[:-1]*segments[1:], axis=1)
+    assert np.all(joins >= -1e-10), 'exact endpoint introduces an artificial reverse cusp'
+    direction = (end-start)/5.
+    assert np.all(segments[-4:]@direction >= -1e-8)

@@ -273,7 +273,8 @@ class Sessions:
               'enable_chassis:=false','external_chassis:=true','enable_mid360:=false',
               'enable_description:=false','enable_guard:=false','enable_localization:=false',
               'external_localization:=true','enable_navigation:=true','enable_inspection:=true',
-              'enable_camera_gimbal:=false','global_map:='+m['source_pcd'],'map_yaml:='+m['yaml'],
+              'enable_camera_gimbal:=false','inspection_behavior_tree:='+str(REPO/'config/photo_navigate.xml'),
+              'global_map:='+m['source_pcd'],'map_yaml:='+m['yaml'],
               'safety_report:='+acceptance['path'],'lio_backend:='+current['lio_backend']]
         if robot=='bunker':args+=['calibration_bundle:='+current['calibration']]
         else:

@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import re
 import time
+from datetime import datetime, timezone
+import uuid
 
 import yaml
 
@@ -142,6 +144,26 @@ def execute_distance(path):
     node = rclpy.create_node('field_distance_submit')
     try:
         field_trial.require_navigation_ready(node)
+        # Both launch modes have camera-free runtimes; inspect effective Nav2
+        # settings so a normal-navigation launch cannot masquerade as precision.
+        controller = read_parameters(node, 'controller_server',
+                                     ['general_goal_checker.xy_goal_tolerance', 'FollowPath.plugin'])
+        planner = read_parameters(node, 'planner_server',
+                                  ['GridBased.plugin', 'GridBased.smoother.w_data'])
+        tolerance = controller['general_goal_checker.xy_goal_tolerance']
+        if (not isinstance(tolerance, (int, float)) or isinstance(tolerance, bool)
+                or not math.isfinite(tolerance) or not 0 < tolerance <= 0.020001
+                or controller['FollowPath.plugin'] != 'agt_field_test_bringup/PlanarRegulatedPurePursuitController'
+                or planner['GridBased.plugin'] != 'agt_field_test_bringup/ExactGoalPlanner'
+                or planner['GridBased.smoother.w_data'] != 0.0):
+            raise ValueError(
+                '当前 Nav2 未启用距离精度配置：'
+                f'xy_goal_tolerance={tolerance!r}，controller={controller["FollowPath.plugin"]!r}，'
+                f'planner={planner["GridBased.plugin"]!r}，'
+                f'w_data={planner["GridBased.smoother.w_data"]!r}。'
+                '本次未提交任务；停车后结束旧会话，使用 ./field_start distance 启动，'
+                '就绪后再运行 ./field_distance run 5（或所需距离）。')
+        print(f'距离配置已核对：位置容差 {tolerance * 100:g} cm，精确终点规划器与平面控制器。', flush=True)
         tree = read_parameters(node,'mission_runtime',['nav_behavior_tree'])['nav_behavior_tree']
         if tree != '':
             raise ValueError('当前为拍照执行器；距离模式需要原精度到达判定')
@@ -154,6 +176,27 @@ def execute_distance(path):
                      'agt_robot_interfaces/action/ExecuteInspectionMission',goal,'--feedback'])
 
 
+def run_from_current_pose(distance):
+    """One target relative to this invocation's pose; never visits an old home."""
+    from workbench.mode_state import require_mode_ready
+    require_mode_ready(ROOT)
+    config = yaml.safe_load((ROOT/'config/field_trial.yaml').read_text())
+    start = read_pose(config['map_id'])
+    target = dict(x=start['x'] + distance * math.cos(start['yaw']),
+                  y=start['y'] + distance * math.sin(start['yaw']),
+                  yaw=start['yaw'], frame_id='map')
+    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    directory = ROOT/'missions'/f'forward_{stamp}_{uuid.uuid4().hex[:8]}'
+    mission = dict(version=1, mission_id=directory.name, map_id=config['map_id'],
+                   points=[point('FORWARD', target)])
+    save_new(directory/'start_pose.yaml', dict(map_id=config['map_id'], pose=start, distance_m=distance))
+    save_new(directory/'mission.yaml', mission)
+    print(f'从当前位姿向前 {distance:g} m：起点 ({start["x"]:.3f}, {start["y"]:.3f})，'
+          f'目标 ({target["x"]:.3f}, {target["y"]:.3f})；到点结束，不自动返程。', flush=True)
+    print(f'诊断任务文件：{directory.resolve()}', flush=True)
+    return execute_distance(directory/'mission.yaml')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--points', type=Path, default=ROOT/'config/field_test_points.yaml')
@@ -163,18 +206,18 @@ def main(argv=None):
     teach.add_argument('--map-id')
     for angle in ('heading', 'pitch', 'roll'):
         teach.add_argument('--'+angle, type=finite, default=0.)
-    accuracy = sub.add_parser('accuracy', help='generate fixed 5/7/10 m targets and a separate return mission')
+    accuracy = sub.add_parser('accuracy', help='capture the current parked pose and generate fixed targets for this batch')
     accuracy.add_argument('--trials', type=int, default=5)
-    accuracy.add_argument('--output', type=Path, default=ROOT/'missions/distance')
+    accuracy.add_argument('--output', type=Path, help='new batch directory; defaults to a unique directory')
     accuracy.add_argument('--distances', type=finite, nargs='+', default=[5.,7.,10.])
     photos = sub.add_parser('photos', help='generate a multi-point AcquireView mission')
     photos.add_argument('ids', nargs='+')
     photos.add_argument('--output', type=Path, required=True)
-    run = sub.add_parser('run', help='explicitly execute one prepared distance mission')
+    run = sub.add_parser('run', help='navigate forward from the current pose; no preparation required')
     run.add_argument('distance', type=finite)
-    run.add_argument('--directory',type=Path,default=ROOT/'missions/distance')
+    run.add_argument('--directory',type=Path,help='explicitly use a legacy fixed-anchor batch instead of the current pose')
     home = sub.add_parser('home', help='explicitly execute the prepared return-home mission')
-    home.add_argument('--directory',type=Path,default=ROOT/'missions/distance')
+    home.add_argument('--directory',type=Path,help='prepared batch; defaults to the last successfully generated batch')
     sub.add_parser('cancel',help='request parent mission cancellation')
     args = parser.parse_args(argv)
     if args.command == 'cancel':
@@ -182,9 +225,20 @@ def main(argv=None):
     if args.command in ('run','home'):
         if args.command == 'run' and args.distance <= 0:
             raise ValueError('distance must be positive')
+        if args.command == 'run' and args.directory is None:
+            return run_from_current_pose(args.distance)
         filename = ('return_home.yaml' if args.command == 'home' else
                     'accuracy_'+str(float(args.distance)).removesuffix('.0')+'m.yaml')
-        return execute_distance(args.directory/filename)
+        directory = args.directory
+        if directory is None:
+            active = ROOT/'work/active_distance_batch.json'
+            if not active.is_file():
+                raise ValueError('尚未选择本批任务；请先执行 accuracy 记录当前起点，或用 --directory 明确指定已有批次。不会自动使用旧 missions/distance。')
+            directory = Path(json.loads(active.read_text())['directory'])
+            if not directory.is_absolute() or not (directory/'start_pose.yaml').is_file():
+                raise ValueError('本批任务记录无效；请重新执行 accuracy 或明确指定 --directory。')
+        print(f'使用距离批次：{directory.resolve()}', flush=True)
+        return execute_distance(directory/filename)
 
     if args.command == 'teach':
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}', args.id):
@@ -211,10 +265,16 @@ def main(argv=None):
             raise ValueError('trials must be between 1 and 20')
         if not args.distances or any(d <= 0 for d in args.distances) or len(set(args.distances)) != len(args.distances):
             raise ValueError('distances must be positive and unique')
-        data = load_points(args.points)
-        if 'home' not in data['points']:
-            raise ValueError('teach home before generating accuracy missions')
+        if args.output is None:
+            stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            args.output = ROOT/'missions'/f'distance_{stamp}_{uuid.uuid4().hex[:8]}'
+        if args.output.exists():
+            raise FileExistsError(f'任务目录已存在：{args.output}；新一批测试请用 --output 指定新目录，run/home 使用同一 --directory。')
+        config = yaml.safe_load((ROOT/'config/field_trial.yaml').read_text())
+        home = read_pose(config['map_id'])
+        data = dict(map_id=config['map_id'], points=dict(home=dict(pose=home)))
         args.output.mkdir(parents=True, exist_ok=False)
+        save_new(args.output/'start_pose.yaml', data)
         with (args.output/'physical_measurements.csv').open('x', newline='') as stream:
             fields = ['distance_m', 'trial', 'goal_x', 'goal_y', 'measured_x', 'measured_y',
                       'longitudinal_error_m', 'lateral_error_m', 'yaw_error_deg',
@@ -232,6 +292,15 @@ def main(argv=None):
         save_new(args.output/'return_home.yaml', dict(
             version=1, mission_id='accuracy_return_home', map_id=data['map_id'],
             points=[point('HOME', data['points']['home']['pose'])]))
+        active = ROOT/'work/active_distance_batch.json'
+        active.parent.mkdir(parents=True, exist_ok=True)
+        temporary = active.with_suffix('.tmp')
+        temporary.write_text(json.dumps(dict(directory=str(args.output.resolve())), ensure_ascii=False))
+        temporary.replace(active)
+        print('已保存固定起点批次；执行本批任务请使用 run/home --directory 指定此目录。')
+        print(f'本批起点（当前位姿）：x={home["x"]:.3f}, y={home["y"]:.3f}, yaw={home["yaw"]:.3f} rad')
+        print(f'任务目录：{args.output.resolve()}')
+        print('本批所有轮次复用此起点；run 先到 HOME_START，再到距离终点；home 返回本批起点。')
     else:
         save_new(args.output, photo_mission(load_points(args.points), args.ids))
     print('Prepared only; no navigation or camera action was sent.')

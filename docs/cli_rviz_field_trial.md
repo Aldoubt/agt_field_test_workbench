@@ -176,3 +176,23 @@ SC 返回 SCAN_CONTEXT_NO_CANDIDATE 表示描述子检索没有满足阈值的�
 更换地图可修改 `config/field_trial.yaml` 的 `map_id`，或在启动时指定 `--map-id <地图版本>`。其他终端的 nav/重定位/状态命令操作同一条运行链路，无需再次选图。
 
 底层 launch 新增 `navigation_mode:=field_test supervised:=true`；原有 Workbench/Studio 正式导航入口维持原策略。下午按本文使用 CLI，不再被 CANDIDATE 标签和缺少正式报告阻断。
+
+## 规划请求确认超时（2026-10-27）
+
+现场 11:41:56 出现 `Timed out while waiting for action server to acknowledge goal request for compute_path_to_pose`，随后跟随任务被取消；录包在报错后约 10 ms 仍收到新路径。运行中的默认确认时限为 20 ms。这是 Action 接单确认等待，不是规划计算时限或停车等待时限；未采集逐跳确认时序，尚不能确定具体调度/通信延迟来源。
+
+普通导航、直线测试生成的行为树以及拍照行为树，现在为 ComputePathToPose / ComputePathThroughPoses 显式设置 `server_timeout="200"`（毫秒）。FollowPath、碰撞检测、停车等待和规划计算预算保持原值。200 ms 是待现场复测的有限确认预算，不代表已经解决所有延迟问题。停车结束旧会话后按原命令重新启动，以重新生成并加载行为树；仅修改 YAML 默认值不保证已构造的 BT 节点刷新。
+
+## 从当前位置执行5/7/10m距离测试
+
+距离测试使用 `./field_start distance`，就绪后另开终端 `./field_trial record`，再执行 `./field_distance run 5`（或7、10）。每次run抓取当前起点和朝向，单目标、无自动返程。普通 `./field_start nav` 使用普通导航参数，不能替代距离精度入口。
+
+提交前会读取实际Nav2参数，核对2cm容差、精确终点规划器和距离平滑设置；不匹配会拒绝提交并提示重启distance入口。2cm是估计位姿的到点判定半径，不保证物理测距误差。停滞/取消的任务不得计入成功精度样本；出现固定偏短应对照目标、路径末端、指令速度和实测轮速定位原因，不直接给目标加补偿距离。
+
+2026-10-27 19:24距离包发现：精确终点补点可能在栅格中心越过目标后形成反向折点，RPP允许倒车时持续正负切换。ExactGoalPlanner现替换末端格点并检查新连接方向，完整保留末段碰撞检查。需重新编译agt_field_test_bringup并重启旧会话；本工作区已编译。详见 [末端摆动报告](evidence/distance_endpoint_oscillation_20261027_1924/README.md)。
+
+## 平面控制与15度机械安装角（2026-10-27）
+
+FollowPath与PhotoFollowPath已使用PlanarRegulatedPurePursuitController：控制器内部按平面位置/航向变换路径，避免map高度差与车体roll/pitch引入虚假终点xy。三维TF仍用于点云和定位。安装俯仰按用户机械规范从13度改为15度，当前工作区和包内默认模板同步。距离提交也会检查实际插件，旧进程不能静默继续测试。
+
+本工作区插件已编译。停车退出旧会话，按原启动参数重启并重新定位后生效；不要复用旧13度标定生成的全局校正。详见 [实现与验证记录](evidence/planar_control_pitch15_20261027/README.md)。

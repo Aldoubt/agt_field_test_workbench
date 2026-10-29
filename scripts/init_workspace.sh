@@ -37,7 +37,7 @@ python3 "$REPO/scripts/fetch_locked.py"
 python3 "$REPO/scripts/apply_mapping_calibration.py"
 python3 "$REPO/scripts/apply_control_integration.py"
 python3 "$REPO/scripts/apply_sc_kiss_integration.py"
-python3 "$REPO/scripts/apply_bbs_recovery.py"
+# BBS recovery is opt-in; see docs/pr10_integration.md before applying it.
 python3 "$REPO/scripts/apply_control_integration.py" --manifest "$REPO/patches/navigation_perception_manifest.json"
 python3 "$REPO/scripts/apply_control_integration.py" --manifest "$REPO/patches/photo_mission_manifest.json"
 python3 "$REPO/scripts/apply_control_integration.py" --manifest "$REPO/patches/map_tracking_support_manifest.json"

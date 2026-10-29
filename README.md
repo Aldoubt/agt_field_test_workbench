@@ -2,7 +2,7 @@
 
 单一 **Ubuntu 22.04 / ROS 2 Humble** 工作区，支持 Bunker / FW-mini。当前提供网页选择底盘和外参、无 PGO 建图与 raw bag、全量 PCD 清洗、2D 编辑、地图绑定路线、受监督 jog 和有门禁的 Nav2 距离目标。
 
-**实车验收未执行。** 软件测试、合成 DDS/点云测试、真实 bag 和物理测量分别记录；没有数据的项目保持 `NOT_RUN`。Qt 工作台默认使用 Scan Context + KISS-Matcher + small_gicp，3D-BBS 保留为显式备用；这不代表真实 bag 或实车定位已验收。GPS 默认仅观察。默认不启动底盘、不进入运动档、不启用自主导航。
+**完整实车验收尚未完成。2026-10-29 操作员反馈长序列任务逻辑通过。** 本轮结果、已知问题和后续语义/路径规划/地图更新工作见[现场发布记录](docs/evidence/field_long_sequence_20261029/README.md)。软件测试、合成 DDS/点云测试、真实 bag 和物理测量分别记录；没有数据的项目保持 `NOT_RUN`。Qt 工作台默认使用 Scan Context + KISS-Matcher + small_gicp，3D-BBS 保留为显式备用；这不代表所有真实 bag 或实车定位场景已验收。GPS 默认仅观察。默认不启动底盘、不进入运动档、不启用自主导航。
 
 ## 工控机首次部署
 

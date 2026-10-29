@@ -437,8 +437,20 @@ def main(argv=None):
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         output = ROOT/'bags'/('field_trial_'+stamp+'_'+uuid.uuid4().hex[:8])
         topics = list(dict.fromkeys([*TEMPLATES['full_field_test'], '/fastlio2/lio_odom',
-                                    '/agt/odometry/adapter_status', '/rosout', '/map', '/plan']))
-        command = ['ros2', 'bag', 'record', '-o', str(output), *topics]
+                                    '/agt/odometry/adapter_status', '/rosout', '/map', '/plan',
+                                    '/agt/map_tracking/pose', '/local_plan', '/lookahead_point',
+                                    '/agt/navigation/points_obstacles', '/agt/livox/points',
+                                    '/local_costmap/costmap', '/local_costmap/costmap_updates',
+                                    '/local_costmap/published_footprint',
+                                    '/global_costmap/costmap', '/global_costmap/costmap_updates',
+                                    '/agt/mission/status', '/agt/task/status',
+                                    '/agt/rviz_patrol/goal', '/agt/rviz_patrol/status',
+                                    '/navigate_to_pose/_action/feedback', '/navigate_to_pose/_action/status',
+                                    '/compute_path_to_pose/_action/feedback', '/compute_path_to_pose/_action/status',
+                                    '/follow_path/_action/feedback', '/follow_path/_action/status',
+                                    '/backup/_action/feedback', '/backup/_action/status',
+                                    '/parameter_events']))
+        command = ['ros2', 'bag', 'record', '--include-hidden-topics', '-o', str(output), *topics]
     if args.dry_run:
         print(shlex.join(command))
         return 0

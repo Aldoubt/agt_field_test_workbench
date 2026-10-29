@@ -6,6 +6,7 @@ import shlex
 import math
 
 import yaml
+from agt_field_test_bringup.photo_policy import photo_runtime_parameters
 
 REPO = Path(__file__).resolve().parents[1]
 ROOT = Path(os.environ.get('AGT_FIELD_TEST_WS', str(REPO.parent.parent)))
@@ -19,6 +20,22 @@ def validate_photo_parameters(runtime, controller):
             controller.get('photo_goal_checker.xy_goal_tolerance') != .35 or
             not math.isclose(controller.get('photo_goal_checker.yaw_goal_tolerance') or 0., math.pi)):
         raise ValueError('现场导航未加载 photo_goal_checker；需重启 field_trial 并重新完成定位、nav。')
+
+
+def validate_photo_obstacles(costmap):
+    """Reject a still-running static-only global map before task submission."""
+    plugins = costmap.get('plugins') or []
+    expected = ['static_layer', 'obstacle_layer', 'inflation_layer']
+    if (not all(name in plugins for name in expected) or
+            [plugins.index(name) for name in expected] != sorted(plugins.index(name) for name in expected) or
+            costmap.get('obstacle_layer.plugin') != 'agt_field_test_bringup/UnknownPreservingObstacleLayer' or
+            costmap.get('obstacle_layer.enabled') is not True or
+            costmap.get('obstacle_layer.combination_method') != 1 or
+            costmap.get('obstacle_layer.lidar3d_mark.topic') != '/agt/navigation/points_obstacles' or
+            costmap.get('obstacle_layer.lidar3d_mark.marking') is not True or
+            costmap.get('obstacle_layer.lidar3d_clear.topic') != '/agt/livox/points' or
+            costmap.get('obstacle_layer.lidar3d_clear.clearing') is not True):
+        raise ValueError('现场全局地图尚未加载实时障碍与未知区保护；停车结束旧任务后重启原 ./field_start photo 会话。')
 
 
 def check_photo_runtime():
@@ -38,6 +55,12 @@ def check_photo_runtime():
         controller = read('controller_server', ['goal_checker_plugins',
                           'photo_goal_checker.xy_goal_tolerance', 'photo_goal_checker.yaw_goal_tolerance'])
         validate_photo_parameters(runtime, controller)
+        costmap = read('global_costmap/global_costmap', [
+            'plugins', 'obstacle_layer.plugin', 'obstacle_layer.enabled',
+            'obstacle_layer.combination_method', 'obstacle_layer.lidar3d_mark.topic',
+            'obstacle_layer.lidar3d_mark.marking', 'obstacle_layer.lidar3d_clear.topic',
+            'obstacle_layer.lidar3d_clear.clearing'])
+        validate_photo_obstacles(costmap)
     finally:
         node.destroy_node()
         rclpy.shutdown()
@@ -56,10 +79,12 @@ def command_plan(args):
     if args.command == 'runtime':
         from ament_index_python.packages import get_package_share_directory
         params = Path(get_package_share_directory('agt_navigation_runtime'))/'config/runtime.yaml'
-        return ['ros2', 'run', 'agt_navigation_runtime', 'mission_runtime', '--ros-args',
-                '--params-file', str(params), '-p', 'record_root:='+str(ROOT/'data/captures/missions'),
-                '-p', 'nav_behavior_tree:='+str(REPO/'config/photo_navigate.xml'),
-                '-p', 'recenter_after_capture:=true']
+        command = ['ros2', 'run', 'agt_navigation_runtime', 'mission_runtime', '--ros-args',
+                   '--params-file', str(params)]
+        for key, value in photo_runtime_parameters(
+                REPO/'config/photo_navigate.xml', ROOT/'data/captures/missions').items():
+            command += ['-p', key + ':=' + (str(value).lower() if isinstance(value, bool) else str(value))]
+        return command
     if args.command == 'queue':
         map_id = args.map_id or yaml.safe_load((ROOT/'config/field_trial.yaml').read_text())['map_id']
         return ['ros2', 'run', 'agt_rviz_patrol', 'rviz_patrol', '--ros-args',

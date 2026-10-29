@@ -85,6 +85,7 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
     # Never plan through unobserved space just to get a shorter Smac path.
     params('planner_server')['GridBased']['allow_unknown'] = False
     if planning_profile == 'distance':
+        params('planner_server')['GridBased']['plugin'] = 'agt_field_test_bringup/ExactGoalPlanner'
         # Equal-cost 8-neighbor choices left 13.5 cm bends on the captured
         # clear 5 m route. The default data term pins those bends in place.
         # Relax it only for distance trials; keep native costmap-aware
@@ -94,6 +95,18 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
     # Selected explicitly by the photo BT. Ordinary/accuracy navigation keeps
     # the original checker as the first (default) entry.
     controller = params('controller_server')
+    controller['FollowPath']['plugin'] = 'agt_field_test_bringup/PlanarRegulatedPurePursuitController'
+    if planning_profile == 'distance':
+        # Fixed-anchor accuracy trials use a 2 cm planar arrival radius.
+        # Preserve yaw tolerance and the ordinary/photo arrival policies.
+        controller['general_goal_checker']['xy_goal_tolerance'] = 0.02
+        # RPP forbids combining reversing with rotate-to-heading. A return
+        # target behind the chassis can now be tracked with negative velocity.
+        controller['FollowPath'].update(allow_reversing=True, use_rotate_to_heading=False)
+        # End stalled precision trials instead of spending a minute recovering.
+        controller['progress_checker'].update(required_movement_radius=0.01,
+                                              required_movement_angle=0.05,
+                                              movement_time_allowance=5.0)
     if 'photo_goal_checker' not in controller['goal_checker_plugins']:
         controller['goal_checker_plugins'].append('photo_goal_checker')
     controller['photo_goal_checker'] = {
@@ -101,6 +114,11 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
         'stateful': True, 'xy_goal_tolerance': 0.35,
         'yaw_goal_tolerance': math.pi,
     }
+    # Photo routes use continuous forward steering instead of repeated
+    # rotate-to-path alignment. Position-only arrival needs no final base yaw.
+    controller['controller_plugins'].append('PhotoFollowPath')
+    controller['PhotoFollowPath'] = copy.deepcopy(controller['FollowPath'])
+    controller['PhotoFollowPath'].update(use_rotate_to_heading=False, allow_reversing=False)
     # Humble refuses an empty checker ID when multiple checkers are loaded.
     # Preserve ordinary navigation's checker explicitly in both default BTs.
     from ament_index_python.packages import get_package_share_directory
@@ -111,6 +129,31 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
         ('default_nav_through_poses_bt_xml', 'navigate_through_poses_w_replanning_and_recovery.xml'),
     ):
         bt = ET.parse(bt_dir/filename)
+        if planning_profile == 'distance' and key == 'default_nav_to_pose_bt_xml':
+            # A failed precision attempt must stop, not spin/back up and retry.
+            # Keep collision checks and invalid-path replanning in FollowPath.
+            bt = ET.ElementTree(ET.fromstring("""
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <PipelineSequence name="DistanceNavigateWithReplanning">
+      <RateController hz="1.0">
+        <Fallback>
+          <ReactiveSequence>
+            <Inverter><GlobalUpdatedGoal/></Inverter>
+            <IsPathValid path="{path}"/>
+          </ReactiveSequence>
+          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+        </Fallback>
+      </RateController>
+      <FollowPath path="{path}" controller_id="FollowPath" goal_checker_id="general_goal_checker"/>
+    </PipelineSequence>
+  </BehaviorTree>
+</root>"""))
+        # Milliseconds: tolerate action acknowledgement jitter without changing
+        # controller/collision timeouts or the planner's computation budget.
+        for tag in ('ComputePathToPose', 'ComputePathThroughPoses'):
+            for plan in bt.iter(tag):
+                plan.set('server_timeout', '200')
         for follow in bt.iter('FollowPath'):
             follow.set('goal_checker_id', controller['goal_checker_plugins'][0])
         destination = Path(output).with_name(Path(output).stem+'_'+key+'.xml')
@@ -153,13 +196,28 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
             obstacle[source].update(min_obstacle_height=-3.0,max_obstacle_height=3.4)
         local['obstacle_layer'] = obstacle
         local['plugins'] = ['obstacle_layer' if name=='voxel_layer' else name for name in local['plugins']]
+        # Smac and IsPathValid consume the global map, so local-only marking
+        # cannot invalidate a route blocked by a newly parked vehicle. Apply
+        # the same filtered marking and raw clearing rays before inflation in
+        # both Bunker planning profiles. Preserve static occupancy and unknown
+        # terrain: Humble's native Max merge can turn unknown into free when
+        # clearing rays pass through it, so the global layer guards that merge.
+        global_costmap = tree['global_costmap']['global_costmap']['ros__parameters']
+        global_costmap['obstacle_layer'] = copy.deepcopy(obstacle)
+        global_costmap['obstacle_layer']['plugin'] = 'agt_field_test_bringup/UnknownPreservingObstacleLayer'
+        global_costmap['obstacle_layer']['combination_method'] = 1
+        global_costmap['plugins'].insert(
+            global_costmap['plugins'].index('inflation_layer'), 'obstacle_layer')
         # Narrow the soft-cost halo, retaining the physical footprint/padding.
-        local['inflation_layer'].update(inflation_radius=.65,cost_scaling_factor=3.0)
-        tree['global_costmap']['global_costmap']['ros__parameters']['inflation_layer'].update(
-            inflation_radius=.80,cost_scaling_factor=3.0)
-        controller['FollowPath'].update(cost_scaling_dist=.60,inflation_cost_scaling_factor=3.0)
+        local['inflation_layer'].update(inflation_radius=1.00,cost_scaling_factor=2.0)
+        global_costmap['inflation_layer'].update(
+            inflation_radius=1.20,cost_scaling_factor=2.0)
+        controller['FollowPath'].update(cost_scaling_dist=.85,
+            inflation_cost_scaling_factor=local['inflation_layer']['cost_scaling_factor'])
     if p['navigation_self_mask_boxes']:
         params('agt_pointcloud_preprocessor')['self_filter']['extra_boxes'] = p['navigation_self_mask_boxes']
+    controller['PhotoFollowPath'] = copy.deepcopy(controller['FollowPath'])
+    controller['PhotoFollowPath'].update(use_rotate_to_heading=False, allow_reversing=False)
     Path(output).write_text(yaml.safe_dump(tree,sort_keys=False))
     return str(output)
 

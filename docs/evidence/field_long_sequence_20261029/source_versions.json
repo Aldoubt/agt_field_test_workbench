@@ -1,0 +1,182 @@
+{
+  "recorded_local": "2026-10-29T08:39:08.067117+08:00",
+  "meaning": "Source inventory, not a replacement bootstrap lock or a claim that every dependency branch was pushed",
+  "workbench": {
+    "revision": "the commit containing this file",
+    "parent_before_release": "9d055838f9f90d16c1853dc27089d32a0304241f"
+  },
+  "repositories": [
+    {
+      "path": "external/scancontext",
+      "head": "93672835bb85e9c03fedf0fbaf2d0491df12161e",
+      "branch": "DETACHED",
+      "origin": "https://github.com/gisbi-kim/scancontext.git",
+      "locked_base": "93672835bb85e9c03fedf0fbaf2d0491df12161e",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "Autolabor-C1-ROS2",
+      "head": "10d82179dc34ae035b382e9b465e4b8f5d55c0a8",
+      "branch": "DETACHED",
+      "origin": "https://github.com/Aldoubt/Autolabor-C1-ROS2.git",
+      "locked_base": "10d82179dc34ae035b382e9b465e4b8f5d55c0a8",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "agt_navigation_v3",
+      "head": "3dd05c173aaea2b82b3a2231e6eaa38792b4a2da",
+      "branch": "main",
+      "origin": "https://github.com/Aldoubt/agt_navigation_v3.git",
+      "locked_base": "b3a60487dff973c6326aca2ca2e9db1e78daeaaa",
+      "head_matches_lock": false,
+      "remote_upload_verified_by_this_manifest": true,
+      "verified_remote_ref": "refs/heads/main"
+    },
+    {
+      "path": "agt-lio-pgo-mapping",
+      "head": "61f92e154734e81f51fedfb40cd4385b4c7f8b45",
+      "branch": "field/snapshot-20261027",
+      "origin": "https://github.com/Aldoubt/agt-lio-pgo-mapping.git",
+      "locked_base": "62e80002cf2db12fce8332688dc63f4a94b87f12",
+      "head_matches_lock": false,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "agt_pointcloud_pipeline",
+      "head": "2def1b76b7526b88972a3bc747b47dd7badcc765",
+      "branch": "DETACHED",
+      "origin": "https://github.com/Aldoubt/agt_pointcloud_pipeline.git",
+      "locked_base": "2def1b76b7526b88972a3bc747b47dd7badcc765",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "fwmini_navigation_lab",
+      "head": "ecae743b9a44607c3b2ce202c6dbaa8d05dc62f8",
+      "branch": "field/snapshot-20261027",
+      "origin": "https://github.com/Aldoubt/fwmini_navigation_lab.git",
+      "locked_base": "34ac35650452027f6f8efde0e3c4ace6ca526a9f",
+      "head_matches_lock": false,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "agt_bunker_base",
+      "head": "cb6c3655ad7d85d8a1e847342eefa20f90d102ed",
+      "branch": "DETACHED",
+      "origin": "https://github.com/Aldoubt/agt_bunker_base.git",
+      "locked_base": "cb6c3655ad7d85d8a1e847342eefa20f90d102ed",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "agt_chassis_description",
+      "head": "75b838ce9af0d8da7c403d6683b34f4e4268f687",
+      "branch": "DETACHED",
+      "origin": "https://github.com/Aldoubt/agt_chassis_description.git",
+      "locked_base": "75b838ce9af0d8da7c403d6683b34f4e4268f687",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/bunker_ros2",
+      "head": "b068c7cfde7a0a21b2206a78901986b9236de1bd",
+      "branch": "field/snapshot-20261027",
+      "origin": "https://github.com/westonrobot/bunker_ros2.git",
+      "locked_base": "b6c8c9e5eed5aa1c236751e0e34f9917d4a10d2b",
+      "head_matches_lock": false,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/ugv_sdk",
+      "head": "358c1a7dedbed6c0b03370cb583949b8d47b6e2c",
+      "branch": "field/snapshot-20261027",
+      "origin": "https://github.com/agilexrobotics/ugv_sdk.git",
+      "locked_base": "f2704eacdc90357078cd93ec60aae08bb4baab35",
+      "head_matches_lock": false,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/fast_lio2_mapping",
+      "head": "d538a89ef913fd7688d247cd8fe334676836fd73",
+      "branch": "field/snapshot-20261027",
+      "origin": "https://github.com/Aldoubt/fast-lio2.git",
+      "locked_base": "7f664a66ae7b3b683dddf7f5322c1ea55a3c8141",
+      "head_matches_lock": false,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/livox_ros_driver2",
+      "head": "13eb05e4e6dd7a765b934d0c5fd6236676a57b49",
+      "branch": "DETACHED",
+      "origin": "https://github.com/Livox-SDK/livox_ros_driver2.git",
+      "locked_base": "13eb05e4e6dd7a765b934d0c5fd6236676a57b49",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/batch_lio",
+      "head": "fe4a9cb3c07024caad70239d6015c49c01d72608",
+      "branch": "DETACHED",
+      "origin": "https://github.com/Functionhx/Batch-LIO.git",
+      "locked_base": "fe4a9cb3c07024caad70239d6015c49c01d72608",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/3d_bbs",
+      "head": "41529a34a2fb9618b5ff560fb3c2363f1615666d",
+      "branch": "DETACHED",
+      "origin": "https://github.com/KOKIAOKI/3d_bbs.git",
+      "locked_base": "41529a34a2fb9618b5ff560fb3c2363f1615666d",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/small_gicp",
+      "head": "2c6c7831bc1f5ada2ee5300027fe7d7aee66827d",
+      "branch": "DETACHED",
+      "origin": "https://github.com/koide3/small_gicp.git",
+      "locked_base": "2c6c7831bc1f5ada2ee5300027fe7d7aee66827d",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/Sophus",
+      "head": "de0f8d3d92bf776271e16de56d1803940ebccab9",
+      "branch": "DETACHED",
+      "origin": "https://github.com/strasdat/Sophus.git",
+      "locked_base": "de0f8d3d92bf776271e16de56d1803940ebccab9",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/Livox-SDK2",
+      "head": "08f523c930b2f0ba1e98a6afaa8d7476bf479908",
+      "branch": "DETACHED",
+      "origin": "https://github.com/Livox-SDK/Livox-SDK2.git",
+      "locked_base": "08f523c930b2f0ba1e98a6afaa8d7476bf479908",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "agt_ins_driver",
+      "head": "20e804c951ff603fc87bc1a77da36462952e4b0a",
+      "branch": "fix/field-460800-serial",
+      "origin": "https://github.com/Aldoubt/agt_ins_driver.git",
+      "locked_base": "20e804c951ff603fc87bc1a77da36462952e4b0a",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    },
+    {
+      "path": "external/kiss_matcher",
+      "head": "8b58b118e00c7a5a22448741f8d956d638a44ae2",
+      "branch": "DETACHED",
+      "origin": "https://github.com/MIT-SPARK/KISS-Matcher.git",
+      "locked_base": "8b58b118e00c7a5a22448741f8d956d638a44ae2",
+      "head_matches_lock": true,
+      "remote_upload_verified_by_this_manifest": false
+    }
+  ]
+}
