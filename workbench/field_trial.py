@@ -444,7 +444,9 @@ def main(argv=None):
                                     '/local_costmap/published_footprint',
                                     '/global_costmap/costmap', '/global_costmap/costmap_updates',
                                     '/agt/mission/status', '/agt/task/status',
+                                    '/agt/rviz_patrol/goal', '/agt/rviz_patrol/status',
                                     '/navigate_to_pose/_action/feedback', '/navigate_to_pose/_action/status',
+                                    '/compute_path_to_pose/_action/feedback', '/compute_path_to_pose/_action/status',
                                     '/follow_path/_action/feedback', '/follow_path/_action/status',
                                     '/backup/_action/feedback', '/backup/_action/status',
                                     '/parameter_events']))

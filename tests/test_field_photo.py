@@ -64,6 +64,31 @@ def test_start_accepts_photo_runtime_and_loaded_checker(monkeypatch):
         field_photo.validate_photo_parameters(runtime, {})
 
 
+def test_photo_start_requires_live_global_obstacles_and_unknown_protection():
+    costmap = {
+        'plugins': ['static_layer', 'obstacle_layer', 'inflation_layer'],
+        'obstacle_layer.plugin': 'agt_field_test_bringup/UnknownPreservingObstacleLayer',
+        'obstacle_layer.enabled': True, 'obstacle_layer.combination_method': 1,
+        'obstacle_layer.lidar3d_mark.topic': '/agt/navigation/points_obstacles',
+        'obstacle_layer.lidar3d_mark.marking': True,
+        'obstacle_layer.lidar3d_clear.topic': '/agt/livox/points',
+        'obstacle_layer.lidar3d_clear.clearing': True,
+    }
+    field_photo.validate_photo_obstacles(costmap)
+    for key, value in (
+        ('plugins', ['static_layer', 'inflation_layer']),
+        ('plugins', ['obstacle_layer', 'static_layer', 'inflation_layer']),
+        ('obstacle_layer.plugin', 'nav2_costmap_2d::ObstacleLayer'),
+        ('obstacle_layer.enabled', False), ('obstacle_layer.combination_method', 0),
+        ('obstacle_layer.lidar3d_mark.topic', '/missing_obstacles'),
+        ('obstacle_layer.lidar3d_mark.marking', False),
+        ('obstacle_layer.lidar3d_clear.topic', '/missing_rays'),
+        ('obstacle_layer.lidar3d_clear.clearing', False),
+    ):
+        with pytest.raises(ValueError, match='实时障碍'):
+            field_photo.validate_photo_obstacles({**costmap, key: value})
+
+
 def test_field_gimbal_error_replay_uses_real_arrival_judge(tmp_path):
     import subprocess
     preset = yaml.safe_load((REPO/'config/photo_three_views.yaml').read_text())

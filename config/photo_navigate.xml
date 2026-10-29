@@ -1,19 +1,26 @@
 <!-- Photo arrival: position only; camera heading is handled by AcquireView.
-     Controller/planner failure propagates immediately. No recovery motion or
-     costmap clearing; normal collision-aware steering remains in FollowPath. -->
+     One stationary wait and fresh-plan retry handles a local collision that
+     arrives before the global obstacle update. No spin, reverse or clearing. -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
-    <PipelineSequence name="PhotoNavigateWithReplanning">
-      <RateController hz="1.0">
-        <Fallback>
-          <ReactiveSequence>
-            <Inverter><GlobalUpdatedGoal/></Inverter>
-            <IsPathValid path="{path}"/>
-          </ReactiveSequence>
-          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" server_timeout="200"/>
-        </Fallback>
-      </RateController>
-      <FollowPath path="{path}" controller_id="PhotoFollowPath" goal_checker_id="photo_goal_checker"/>
-    </PipelineSequence>
+    <RecoveryNode number_of_retries="1" name="PhotoOneFreshPlanRetry">
+      <Sequence name="PhotoPlanAndFollow">
+        <!-- Always obtain a fresh path on entry, including the bounded retry. -->
+        <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" server_timeout="2000"/>
+        <PipelineSequence name="PhotoNavigateWithReplanning">
+          <RateController hz="1.0">
+            <Fallback>
+              <ReactiveSequence>
+                <Inverter><GoalUpdated/></Inverter>
+                <IsPathValid path="{path}"/>
+              </ReactiveSequence>
+              <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" server_timeout="2000"/>
+            </Fallback>
+          </RateController>
+          <FollowPath path="{path}" controller_id="PhotoFollowPath" goal_checker_id="photo_goal_checker"/>
+        </PipelineSequence>
+      </Sequence>
+      <Wait wait_duration="1" server_timeout="2000"/>
+    </RecoveryNode>
   </BehaviorTree>
 </root>

@@ -21,6 +21,22 @@ def validate_photo_parameters(runtime, controller):
         raise ValueError('现场导航未加载 photo_goal_checker；需重启 field_trial 并重新完成定位、nav。')
 
 
+def validate_photo_obstacles(costmap):
+    """Reject a still-running static-only global map before task submission."""
+    plugins = costmap.get('plugins') or []
+    expected = ['static_layer', 'obstacle_layer', 'inflation_layer']
+    if (not all(name in plugins for name in expected) or
+            [plugins.index(name) for name in expected] != sorted(plugins.index(name) for name in expected) or
+            costmap.get('obstacle_layer.plugin') != 'agt_field_test_bringup/UnknownPreservingObstacleLayer' or
+            costmap.get('obstacle_layer.enabled') is not True or
+            costmap.get('obstacle_layer.combination_method') != 1 or
+            costmap.get('obstacle_layer.lidar3d_mark.topic') != '/agt/navigation/points_obstacles' or
+            costmap.get('obstacle_layer.lidar3d_mark.marking') is not True or
+            costmap.get('obstacle_layer.lidar3d_clear.topic') != '/agt/livox/points' or
+            costmap.get('obstacle_layer.lidar3d_clear.clearing') is not True):
+        raise ValueError('现场全局地图尚未加载实时障碍与未知区保护；停车结束旧任务后重启原 ./field_start photo 会话。')
+
+
 def check_photo_runtime():
     """Read actual running parameters before submitting any motion-capable task."""
     import rclpy
@@ -38,6 +54,12 @@ def check_photo_runtime():
         controller = read('controller_server', ['goal_checker_plugins',
                           'photo_goal_checker.xy_goal_tolerance', 'photo_goal_checker.yaw_goal_tolerance'])
         validate_photo_parameters(runtime, controller)
+        costmap = read('global_costmap/global_costmap', [
+            'plugins', 'obstacle_layer.plugin', 'obstacle_layer.enabled',
+            'obstacle_layer.combination_method', 'obstacle_layer.lidar3d_mark.topic',
+            'obstacle_layer.lidar3d_mark.marking', 'obstacle_layer.lidar3d_clear.topic',
+            'obstacle_layer.lidar3d_clear.clearing'])
+        validate_photo_obstacles(costmap)
     finally:
         node.destroy_node()
         rclpy.shutdown()

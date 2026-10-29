@@ -1,0 +1,20 @@
+{
+  "mission_id": "rviz_patrol_20261029_081256",
+  "timezone": "Asia/Shanghai",
+  "date": "2026-10-29",
+  "start_local": "08:12:56",
+  "end_local": "08:26:01",
+  "status": "completed",
+  "error_code": 0,
+  "completed_points": 5,
+  "photo_points": 4,
+  "return_home": true,
+  "capture_successes": 12,
+  "gimbal_recenter_successes": 4,
+  "measured_stop_passed": true,
+  "evidence_files": {
+    "manifest.json": "b0f99dd060beac2ab7e2e0a85f512ed3f20cc5db99b226f4bd3e1812a0651f08",
+    "events.jsonl": "b7e1c9eb40943cce7a34836a1d30cc9e42cd5c611a6f4b31d72a8621f8bb724b"
+  },
+  "scope": "Task flow completion only; not full localization/motion/obstacle acceptance."
+}

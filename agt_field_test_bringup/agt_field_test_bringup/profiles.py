@@ -196,11 +196,23 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
             obstacle[source].update(min_obstacle_height=-3.0,max_obstacle_height=3.4)
         local['obstacle_layer'] = obstacle
         local['plugins'] = ['obstacle_layer' if name=='voxel_layer' else name for name in local['plugins']]
+        # Smac and IsPathValid consume the global map, so local-only marking
+        # cannot invalidate a route blocked by a newly parked vehicle. Apply
+        # the same filtered marking and raw clearing rays before inflation in
+        # both Bunker planning profiles. Preserve static occupancy and unknown
+        # terrain: Humble's native Max merge can turn unknown into free when
+        # clearing rays pass through it, so the global layer guards that merge.
+        global_costmap = tree['global_costmap']['global_costmap']['ros__parameters']
+        global_costmap['obstacle_layer'] = copy.deepcopy(obstacle)
+        global_costmap['obstacle_layer']['plugin'] = 'agt_field_test_bringup/UnknownPreservingObstacleLayer'
+        global_costmap['obstacle_layer']['combination_method'] = 1
+        global_costmap['plugins'].insert(
+            global_costmap['plugins'].index('inflation_layer'), 'obstacle_layer')
         # Narrow the soft-cost halo, retaining the physical footprint/padding.
-        local['inflation_layer'].update(inflation_radius=.65,cost_scaling_factor=3.0)
-        tree['global_costmap']['global_costmap']['ros__parameters']['inflation_layer'].update(
-            inflation_radius=.80,cost_scaling_factor=3.0)
-        controller['FollowPath'].update(cost_scaling_dist=.60,inflation_cost_scaling_factor=3.0)
+        local['inflation_layer'].update(inflation_radius=1.00,cost_scaling_factor=2.0)
+        global_costmap['inflation_layer'].update(
+            inflation_radius=1.20,cost_scaling_factor=2.0)
+        controller['FollowPath'].update(cost_scaling_dist=.85,inflation_cost_scaling_factor=3.0)
     if p['navigation_self_mask_boxes']:
         params('agt_pointcloud_preprocessor')['self_filter']['extra_boxes'] = p['navigation_self_mask_boxes']
     controller['PhotoFollowPath'] = copy.deepcopy(controller['FollowPath'])

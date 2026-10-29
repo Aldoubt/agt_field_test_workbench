@@ -1,0 +1,5 @@
+<library path="agt_unknown_preserving_obstacle_layer">
+  <class name="agt_field_test_bringup/UnknownPreservingObstacleLayer" type="agt_field_test_bringup::UnknownPreservingObstacleLayer" base_class_type="nav2_costmap_2d::Layer">
+    <description>Native Humble obstacle marking and clearing with unknown master cells preserved for the static global map.</description>
+  </class>
+</library>

@@ -5,6 +5,7 @@
   <description>Controlled AGT field test launch entry points</description>
   <maintainer email="field-test@example.invalid">AGT Field Test</maintainer>
   <license>Apache-2.0</license>
+  <license>BSD-3-Clause</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
   <exec_depend>python3-yaml</exec_depend>
