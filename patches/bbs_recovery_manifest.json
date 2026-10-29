@@ -1,0 +1,28 @@
+{
+  "agt_navigation_v3": {
+    "commit": "b3a60487dff973c6326aca2ca2e9db1e78daeaaa",
+    "patch": "patches/bbs_recovery.patch",
+    "files": {
+      "navigation/localization/agt_global_relocalization/agt_global_relocalization/global_relocalization.py": {
+        "before": "96ac7babe6c8fe3e1b50c0d6f6561f47734b3bad02e44028a0817d2d1bf977fc",
+        "after": "f47a4870be934b6bb8375e0bc1dbcbbdb31170598c229cb33bc4f76062cba526"
+      },
+      "navigation/localization/agt_global_relocalization/agt_global_relocalization/attempt_evidence.py": {
+        "before": null,
+        "after": "a56d86e6423e0a725795d2953c19d8d8b8d305195918251841069ddebded6b5f"
+      },
+      "navigation/localization/agt_global_relocalization/config/global_relocalization.yaml": {
+        "before": "e7a1ff47bf62ded952f9d050f1cd6bbec382b8bffbdf2c5a4b3793ef35fafd50",
+        "after": "cce672eadbcaf36ec0cccc1bb2e8fc342eb057d0e03f4a14cde8bb923e467e5e"
+      },
+      "navigation/localization/agt_global_relocalization_native/src/candidate_bbs_gicp_localizer.cpp": {
+        "before": "4a2d753dc2aa7acf52a3b6f63249d3166d8ae4d87665ef211feb5e0e2eb04fd3",
+        "after": "8b6a6a2c6467502e86e8e14e9770f1c19efeac1e826c6f6b3de41d2fc4f5fd65"
+      },
+      "navigation/localization/agt_global_relocalization_native/include/agt_global_relocalization_native/candidate_quality.hpp": {
+        "before": null,
+        "after": "ae118589f2cb58426c51203c71a0650010e882d27f839b89356e252bccb06f5c"
+      }
+    }
+  }
+}

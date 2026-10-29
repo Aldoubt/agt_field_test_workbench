@@ -22,6 +22,17 @@ jobs:
           python -m compileall -q workbench agt_field_test_bringup/agt_field_test_bringup scripts/ros_bridge.py scripts/mapping_pipeline.py scripts/no_pgo_mapping.py agt_robot_studio/agt_robot_studio agt_dynamic_map_cleaner/agt_dynamic_map_cleaner
       - name: Run ROS-independent regressions
         run: PYTHONPATH=.:agt_field_test_bringup:agt_dynamic_map_cleaner python -m pytest -q tests/test_goal_safety.py tests/test_local_ground_workbench.py tests/test_workbench.py tests/test_mapping_assets.py tests/test_livox_self_filter_contract.py tests/test_device_supervisor.py tests/test_dynamic_map_cleaner.py tests/test_map_diff.py tests/test_sc_mode.py::test_sc_database_bound_to_pcd_and_geometry_not_grid_pixels tests/test_session_startup.py tests/test_safety.py tests/test_field_automation.py
+      - name: Checkout reviewed field navigation configuration
+        uses: actions/checkout@v4
+        with:
+          repository: Aldoubt/agt_navigation_v3
+          ref: 3dd05c173aaea2b82b3a2231e6eaa38792b4a2da
+          path: .ci/agt_navigation_v3
+      - name: Verify combined field policy and action protocol
+        env:
+          PYTHONPATH: .:agt_field_test_bringup:agt_robot_studio
+          AGT_NAV_SOURCE: .ci/agt_navigation_v3
+        run: python -m pytest -q tests/test_pr10_integration.py tests/test_action_status.py tests/test_bridge_actions.py tests/test_control_error_protocol.py tests/test_ui_action_protocol.py tests/test_studio_desktop.py
   qt-smoke:
     runs-on: ubuntu-22.04
     env:

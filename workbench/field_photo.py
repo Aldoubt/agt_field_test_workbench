@@ -6,6 +6,7 @@ import shlex
 import math
 
 import yaml
+from agt_field_test_bringup.photo_policy import photo_runtime_parameters
 
 REPO = Path(__file__).resolve().parents[1]
 ROOT = Path(os.environ.get('AGT_FIELD_TEST_WS', str(REPO.parent.parent)))
@@ -78,11 +79,12 @@ def command_plan(args):
     if args.command == 'runtime':
         from ament_index_python.packages import get_package_share_directory
         params = Path(get_package_share_directory('agt_navigation_runtime'))/'config/runtime.yaml'
-        return ['ros2', 'run', 'agt_navigation_runtime', 'mission_runtime', '--ros-args',
-                '--params-file', str(params), '-p', 'record_root:='+str(ROOT/'data/captures/missions'),
-                '-p', 'nav_behavior_tree:='+str(REPO/'config/photo_navigate.xml'),
-                '-p', 'recenter_after_capture:=true', '-p', 'stationary_timeout_sec:=15.0',
-                '-p', 'wait_for_bunker_control:=true', '-p', 'wheel_stop_gate:=true']
+        command = ['ros2', 'run', 'agt_navigation_runtime', 'mission_runtime', '--ros-args',
+                   '--params-file', str(params)]
+        for key, value in photo_runtime_parameters(
+                REPO/'config/photo_navigate.xml', ROOT/'data/captures/missions').items():
+            command += ['-p', key + ':=' + (str(value).lower() if isinstance(value, bool) else str(value))]
+        return command
     if args.command == 'queue':
         map_id = args.map_id or yaml.safe_load((ROOT/'config/field_trial.yaml').read_text())['map_id']
         return ['ros2', 'run', 'agt_rviz_patrol', 'rviz_patrol', '--ros-args',

@@ -212,7 +212,8 @@ def navigation(p, config_dir, output, planning_profile='navigation'):
         local['inflation_layer'].update(inflation_radius=1.00,cost_scaling_factor=2.0)
         global_costmap['inflation_layer'].update(
             inflation_radius=1.20,cost_scaling_factor=2.0)
-        controller['FollowPath'].update(cost_scaling_dist=.85,inflation_cost_scaling_factor=3.0)
+        controller['FollowPath'].update(cost_scaling_dist=.85,
+            inflation_cost_scaling_factor=local['inflation_layer']['cost_scaling_factor'])
     if p['navigation_self_mask_boxes']:
         params('agt_pointcloud_preprocessor')['self_filter']['extra_boxes'] = p['navigation_self_mask_boxes']
     controller['PhotoFollowPath'] = copy.deepcopy(controller['FollowPath'])

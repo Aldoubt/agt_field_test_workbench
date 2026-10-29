@@ -138,7 +138,7 @@ def test_actual_field_launch_keeps_runtime_guards_and_selected_frontend(monkeypa
     assert obstacle is not local['obstacle_layer']
     assert mark is not local['obstacle_layer']['lidar3d_mark']
     assert clear is not local['obstacle_layer']['lidar3d_clear']
-    assert local['inflation_layer']['cost_scaling_factor']==tree['controller_server']['ros__parameters']['FollowPath']['inflation_cost_scaling_factor']==3.
+    assert local['inflation_layer']['cost_scaling_factor']==tree['controller_server']['ros__parameters']['FollowPath']['inflation_cost_scaling_factor']==2.
     assert tree['controller_server']['ros__parameters']['FollowPath']['cost_scaling_dist']<=local['inflation_layer']['inflation_radius']
     assert tree['agt_pointcloud_preprocessor']['ros__parameters']['self_filter']['extra_boxes'] == [
         -.36,.02,-.17,.19,.72,1.68, -.95,-.60,-.12,.31,.82,1.68]

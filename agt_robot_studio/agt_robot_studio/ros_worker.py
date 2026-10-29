@@ -14,6 +14,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from .cloud import xyz_from_cloud
 from .visualization import LatestFrames, cloud_snapshot, transform_xyz
 from .map_io import occupancy_to_gray
+from .camera_preview import decode_image
 
 
 class TopicRate:
@@ -33,12 +34,18 @@ class TopicRate:
                 self.samples.popleft()
 
     def hz(self, now=None):
+        return self.snapshot(now)['rate_hz']
+
+    def snapshot(self, now=None):
+        """Take frequency and last-arrival age under one lock."""
         now = time.monotonic() if now is None else float(now)
         with self._lock:
-            if self.last is None or now-self.last > self.window_sec or len(self.samples) < 2:
-                return None
-            span = self.samples[-1]-self.samples[0]
-            return (len(self.samples)-1)/span if span > .05 else None
+            while self.samples and now-self.samples[0] > self.window_sec:
+                self.samples.popleft()
+            age = None if self.last is None else max(0., now-self.last)
+            span = self.samples[-1]-self.samples[0] if len(self.samples)>1 else 0.
+            rate = (len(self.samples)-1)/span if span > .05 else None
+            return {'rate_hz': rate, 'age_s': age}
 
 
 class RosWorker(QThread):
@@ -53,13 +60,26 @@ class RosWorker(QThread):
         self.alive = True
         self.odom = None
         self.odom_seen = 0.0
+        self.odom_source_age_s = 0.0
+        self.odom_error = None
         self.cloud_points = 0
         self.self_filter_status = None
         self.self_filter_seen = 0.0
         self.last_report = 0.0
         self.last_cloud = 0.0
         self.last_map_cloud = 0.0
-        self.rates = {name: TopicRate() for name in ('lidar', 'imu', 'odom')}
+        self.rates = {name: TopicRate() for name in ('lidar', 'imu', 'odom', 'camera', 'gimbal')}
+        self.topics = {
+            'lidar': self.cfg.get('raw_lidar_topic', '/livox/lidar'),
+            'imu': self.cfg.get('imu_topic', '/livox/imu'),
+            'odom': self.cfg.get('odom_topic', '/agt/odometry/local'),
+            'camera': self.cfg.get('camera_image_topic', '/cv_camera0/image_raw'),
+            'gimbal': '/pantilt_camera_serial0/pantilt_angle_info',
+        }
+        self.topic_errors = {}
+        self.adapter_error = None
+        self.callback_error = None
+        self.sampling_error = None
         self._decode_queue = queue.Queue(maxsize=1)
         self._decode_stop = threading.Event()
         self._decode_thread = None
@@ -67,10 +87,24 @@ class RosWorker(QThread):
         self._grid_queue = queue.Queue(maxsize=1)
         self.buffer = None
         self.display_error = None
+        self.map_robot_error = None
         self.gimbal_angles=None;self.gimbal_seen=0.
+        self.gimbal_error = None
         # Dedicated ROS executor: preview/map serialization must never starve 200Hz IMU.
         self._rate_stop = threading.Event()
         self._rate_thread = None
+        self._image_queue = queue.Queue(maxsize=1)
+        self._image_thread = None
+        self.last_image = 0.0
+        self.camera_image_seen = None
+        self.camera_image_source_age_s = 0.0
+        self.camera_image_error = None
+        self.camera_source = None
+        try:
+            frequency = float(self.cfg.get('camera_preview_hz', 5.0))
+            self._image_interval = 1.0/min(10.0, max(1.0, frequency)) if math.isfinite(frequency) else .2
+        except (ValueError, TypeError):
+            self._image_interval = .2
 
     def shutdown(self):
         self.alive = False
@@ -82,15 +116,41 @@ class RosWorker(QThread):
         return math.atan2(2*(q.w*q.z + q.x*q.y), 1-2*(q.y*q.y + q.z*q.z))
 
     def _on_odom(self, msg):
-        self.rates['odom'].add()
+        received = time.monotonic()
+        self.rates['odom'].add(received)
         try:
+            if msg.header.stamp.sec < 0 or not 0 <= msg.header.stamp.nanosec < 1_000_000_000:
+                raise ValueError('里程计源时间戳格式无效')
+            stamp = msg.header.stamp.sec + msg.header.stamp.nanosec/1e9
+            age = self._ros_node.get_clock().now().nanoseconds/1e9-stamp
+            if stamp <= 0 or not -.1 <= age <= 1.5:
+                raise ValueError('里程计源时间戳缺失或过期')
             p = msg.pose.pose
+            quaternion = (p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w)
+            if not all(math.isfinite(v) for v in quaternion) or abs(sum(v*v for v in quaternion)-1.)>1e-3:
+                raise ValueError('里程计姿态四元数无效')
             pose = (float(p.position.x), float(p.position.y), self._yaw(p.orientation))
-            if all(math.isfinite(x) for x in pose):
-                self.odom = pose
-                self.odom_seen = time.monotonic()
-        except (TypeError, ValueError, AttributeError, OverflowError):
-            return
+            if not all(math.isfinite(x) for x in pose):
+                raise ValueError('里程计位姿包含非有限数值')
+            self.odom = pose
+            self.odom_seen = received
+            self.odom_source_age_s = max(0., age)
+            self.odom_error = None
+        except (TypeError, ValueError, AttributeError, OverflowError) as exc:
+            self.odom_error = str(exc)
+
+    def _on_gimbal(self, msg):
+        now = time.monotonic()
+        self.rates['gimbal'].add(now)
+        try:
+            angles = {axis:float(getattr(msg,axis)) for axis in ('heading','pitch','roll')}
+            if not all(math.isfinite(value) for value in angles.values()):
+                raise ValueError('云台实测角度包含非有限数值')
+            self.gimbal_angles = angles
+            self.gimbal_seen = now
+            self.gimbal_error = None
+        except (TypeError, ValueError, AttributeError, OverflowError) as exc:
+            self.gimbal_error = str(exc)
 
     def _on_cloud(self, msg, is_map=False):
         now = time.monotonic()
@@ -106,6 +166,51 @@ class RosWorker(QThread):
                 self._decode_queue.put_nowait((msg, is_map))
             except (queue.Empty, queue.Full):
                 pass
+
+    def _on_image(self, msg):
+        now = time.monotonic()
+        # Source rate is measured before the preview throttle.
+        self.rates['camera'].add(now)
+        if now-self.last_image < self._image_interval:
+            return
+        self.last_image = now
+        try:
+            self._image_queue.put_nowait((msg, now))
+        except queue.Full:
+            try:
+                self._image_queue.get_nowait()
+                self._image_queue.put_nowait((msg, now))
+            except (queue.Empty, queue.Full):
+                pass
+
+    def _decode_image(self, msg, received):
+        try:
+            checked_at = time.monotonic()
+            stamp = msg.header.stamp.sec + msg.header.stamp.nanosec/1e9
+            now = self._ros_node.get_clock().now().nanoseconds/1e9
+            if stamp <= 0 or not -.1 <= now-stamp <= 2.0:
+                raise ValueError('图像时间戳缺失或过期；请核对相机时钟和图像话题')
+            frame = decode_image(msg, received=received,
+                                 topic=self.cfg.get('camera_image_topic', '/cv_camera0/image_raw'))
+            # The widget adds elapsed monotonic time since receipt. Subtract
+            # decoder waiting time here so queue delay is not counted twice.
+            frame['source_age_s'] = max(0.0, now-stamp-max(0.0, checked_at-received))
+            self.frames.put('camera', frame)
+            self.camera_image_seen = received
+            self.camera_image_source_age_s = frame['source_age_s']
+            self.camera_source = {key:frame[key] for key in (
+                'topic','frame_id','stamp_sec','width','height','encoding')}
+            self.camera_image_error = None
+        except Exception as ex:
+            self.camera_image_error = str(ex)
+
+    def _decode_images(self):
+        while not self._decode_stop.is_set():
+            try:
+                msg, received = self._image_queue.get(timeout=.2)
+            except queue.Empty:
+                continue
+            self._decode_image(msg, received)
 
     def _decode_loop(self):
         while not self._decode_stop.is_set():
@@ -195,29 +300,60 @@ class RosWorker(QThread):
             if stamp == 0 or not -.1 <= age <= .8:
                 raise ValueError('map → base_link TF stale')
             t = tf.transform
+            quaternion = (t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w)
+            if not all(math.isfinite(v) for v in quaternion) or abs(sum(v*v for v in quaternion)-1.)>1e-3:
+                raise ValueError('invalid robot TF quaternion')
             pose = dict(x=t.translation.x, y=t.translation.y, z=t.translation.z,
                         yaw=self._yaw(t.rotation), frame_id=self.cfg.get('map_frame', 'map'),
                         received=time.monotonic())
             if not all(math.isfinite(pose[k]) for k in ('x','y','z','yaw')):
                 raise ValueError('invalid robot TF')
+            pose['source_age_s'] = max(0., age)
+            self.map_robot_error = None
+            if self.display_error and self.display_error.startswith('机器人 TF 不可用:'):
+                self.display_error = None
             return pose
         except Exception as ex:
-            self.display_error = '机器人 TF 不可用: ' + str(ex)
+            self.map_robot_error = '机器人 TF 不可用: ' + str(ex)
+            self.display_error = self.map_robot_error
             return None
+
+    def _state_snapshot(self, now, connected=True):
+        odom_age = max(0.,now-self.odom_seen)+self.odom_source_age_s if self.odom else None
+        topics = {key:dict(rate.snapshot(now), topic=self.topics[key],
+                          error=self.topic_errors.get(key) or (self.sampling_error if key in ('lidar','imu') else None))
+                  for key,rate in self.rates.items()}
+        topics['odom']['error'] = self.odom_error or topics['odom']['error']
+        topics['gimbal']['error'] = self.gimbal_error or topics['gimbal']['error']
+        topics['camera']['error'] = self.camera_image_error or topics['camera']['error']
+        return {'connected': connected, 'adapter_error': self.adapter_error,
+                         'callback_error': self.callback_error,
+                         'map_frame': self.cfg.get('map_frame', 'map'),
+                         'topic_status': topics,
+                         'odom': self.odom if connected and odom_age is not None and odom_age<=1.5 and not self.odom_error else None,
+                         'odom_error': self.odom_error,
+                         'camera_image_age_s': None if self.camera_image_seen is None else now-self.camera_image_seen+self.camera_image_source_age_s,
+                         'camera_image_error': self.camera_image_error,
+                         'camera_source': dict(self.camera_source) if self.camera_source else None,
+                         'gimbal_angles':self.gimbal_angles if connected and now-self.gimbal_seen<1.5 and not self.gimbal_error else None,
+                         'gimbal_age_s':max(0.0,now-self.gimbal_seen) if self.gimbal_angles is not None else None,
+                         'gimbal_error': self.gimbal_error,
+                         'map_robot': self._map_robot() if connected else None,
+                         'map_robot_error': self.map_robot_error,
+                         'display_error': self.display_error,
+                         'odom_age_s': odom_age,
+                         'cloud_points': self.cloud_points,
+                         'self_filter': self.self_filter_status
+                             if connected and now-self.self_filter_seen < 3. else None,
+                         'self_filter_age_s': max(0.,now-self.self_filter_seen) if self.self_filter_status else None,
+                         'rates': {key: value['rate_hz'] for key,value in topics.items()}}
 
     def _emit_state(self):
         now = time.monotonic()
         if now - self.last_report < .3:
             return
         self.last_report = now
-        self.state.emit({'connected': True, 'odom': self.odom,
-                         'gimbal_angles':self.gimbal_angles if now-self.gimbal_seen<1.5 else None,
-                         'map_robot': self._map_robot(), 'display_error': self.display_error,
-                         'odom_age_s': now-self.odom_seen if self.odom else None,
-                         'cloud_points': self.cloud_points,
-                         'self_filter': self.self_filter_status
-                             if now-self.self_filter_seen < 3. else None,
-                         'rates': {name: rate.hz(now) for name, rate in self.rates.items()}})
+        self.state.emit(self._state_snapshot(now))
 
     def run(self):
         node = None
@@ -229,7 +365,7 @@ class RosWorker(QThread):
             from rclpy.executors import SingleThreadedExecutor
             from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, qos_profile_sensor_data
             from nav_msgs.msg import Odometry, OccupancyGrid
-            from sensor_msgs.msg import PointCloud2, Imu
+            from sensor_msgs.msg import PointCloud2, Imu, Image
             from std_msgs.msg import String
             try:
                 from livox_ros_driver2.msg import CustomMsg
@@ -240,12 +376,9 @@ class RosWorker(QThread):
             node = Node('agt_robot_studio_gui')
             try:
                 from pantilt_camera_serial.msg import PantiltAngleInfo
-                def on_angles(msg):
-                    self.gimbal_angles={axis:float(getattr(msg,axis)) for axis in ('heading','pitch','roll')}
-                    self.gimbal_seen=time.monotonic()
-                node.create_subscription(PantiltAngleInfo,'/pantilt_camera_serial0/pantilt_angle_info',on_angles,qos_profile_sensor_data)
+                node.create_subscription(PantiltAngleInfo,self.topics['gimbal'],self._on_gimbal,qos_profile_sensor_data)
             except ImportError:
-                pass
+                self.topic_errors['gimbal'] = 'pantilt_camera_serial 消息包未安装；无法订阅云台反馈'
             self._ros_node = node
             self.buffer = Buffer()
             listener = TransformListener(self.buffer, node)
@@ -253,6 +386,10 @@ class RosWorker(QThread):
             map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                                  reliability=ReliabilityPolicy.RELIABLE)
             node.create_subscription(Odometry, self.cfg['odom_topic'], self._on_odom, qos_profile_sensor_data)
+            image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
+                                   durability=DurabilityPolicy.VOLATILE)
+            node.create_subscription(Image, self.cfg.get('camera_image_topic', '/cv_camera0/image_raw'),
+                                     self._on_image, image_qos)
             # Rate accounting needs only message arrival, not 400KB+ of decoded
             # CustomPoint objects. Full Python deserialization at 10 Hz starves
             # the IMU callback on the same executor (measured ~81 vs ~203 Hz).
@@ -260,7 +397,9 @@ class RosWorker(QThread):
                 rate_node.create_subscription(CustomMsg, self.cfg['raw_lidar_topic'],
                                               lambda _m: self.rates['lidar'].add(),
                                               qos_profile_sensor_data, raw=True)
-            else:self.notice.emit('Livox 消息包缺失：雷达频率不可用；其余实时视图继续运行')
+            else:
+                self.topic_errors['lidar'] = 'Livox 消息包缺失：雷达频率不可用'
+                self.notice.emit('Livox 消息包缺失：雷达频率不可用；其余实时视图继续运行')
             rate_node.create_subscription(Imu, self.cfg['imu_topic'],
                                           lambda _m: self.rates['imu'].add(), qos_profile_sensor_data)
             node.create_subscription(
@@ -282,7 +421,9 @@ class RosWorker(QThread):
                 while self.alive and not self._rate_stop.is_set() and rclpy.ok():
                     try:
                         rate_executor.spin_once(timeout_sec=.01)
+                        self.sampling_error = None
                     except Exception as ex:
+                        self.sampling_error = str(ex)
                         self.notice.emit('传感器显示采样异常（不影响驱动）：' + repr(ex))
                         if self._rate_stop.wait(.1):
                             break
@@ -292,21 +433,29 @@ class RosWorker(QThread):
             self._rate_thread.start()
             self._decode_thread = threading.Thread(target=self._decode_loop, name='studio-cloud-display', daemon=True)
             self._decode_thread.start()
+            self._image_thread = threading.Thread(target=self._decode_images, name='studio-camera-display', daemon=True)
+            self._image_thread.start()
             self.notice.emit('ROS 显示适配器已连接；运动与重定位由现有 Workbench 后端执行')
             while self.alive and rclpy.ok():
                 try:
                     rclpy.spin_once(node, timeout_sec=.04)
+                    self.callback_error = None
                 except Exception as ex:
+                    self.callback_error = str(ex)
                     self.notice.emit('ROS 回调异常（已隔离）：' + repr(ex))
                 self._emit_state()
         except Exception as ex:
+            self.adapter_error = str(ex)
             self.notice.emit('ROS 显示适配器不可用，仍可使用 Workbench 和离线地图：' + repr(ex))
-            self.state.emit({'connected': False, 'odom': None})
         finally:
+            # Normal shutdown also invalidates the last hardware-looking state.
+            self.state.emit(self._state_snapshot(time.monotonic(), connected=False))
             self._rate_stop.set()
             self._decode_stop.set()
             if self._decode_thread is not None:
                 self._decode_thread.join(timeout=2.0)
+            if self._image_thread is not None:
+                self._image_thread.join(timeout=2.0)
             if self._rate_thread is not None:
                 self._rate_thread.join(timeout=2.0)
             try:

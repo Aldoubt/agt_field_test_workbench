@@ -17,6 +17,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from agt_field_test_bringup import profiles, calibration
 from agt_field_test_bringup.navigation_policy import require_navigation_calibration
+from agt_field_test_bringup.photo_policy import photo_runtime_parameters
 from agt_field_test_bringup.fwmini import load_profile, require_mode, robot_description, lio_configs
 from agt_field_test_bringup.livox import validate_mid360s_config
 
@@ -272,7 +273,8 @@ def _configure(context):
             runtime_share=Path(get_package_share_directory('agt_navigation_runtime'))
             nodes.append(Node(package='agt_navigation_runtime',executable='mission_runtime',
                 name='mission_runtime',output='screen',parameters=[str(runtime_share/'config/runtime.yaml'),
-                    {'record_root':str(workspace/'data/captures/missions')}]))
+                    photo_runtime_parameters(value('inspection_behavior_tree'),
+                                             workspace/'data/captures/missions', robot)]))
     return nodes
 
 
@@ -287,6 +289,8 @@ def generate_launch_description():
         DeclareLaunchArgument('sc_database', default_value=''),
         DeclareLaunchArgument('relocalization_assets', default_value=''),
         DeclareLaunchArgument('enable_inspection', default_value='true'),
+        DeclareLaunchArgument('inspection_behavior_tree', default_value=str(
+            Path(get_package_share_directory('agt_field_test_bringup'))/'config/photo_navigate.xml')),
         DeclareLaunchArgument('enable_camera_gimbal', default_value='false'),
         DeclareLaunchArgument('camera_device_path', default_value='/dev/video0'),
         DeclareLaunchArgument('gimbal_port_name', default_value='/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0'),
