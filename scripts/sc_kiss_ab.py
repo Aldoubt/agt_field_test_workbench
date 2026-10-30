@@ -76,10 +76,10 @@ def main():
             assets=spec.get('relocalization_assets')
             if mode=='bbs' and assets and (Path(assets)/'polar_context.db').is_file():
                 command=[str(native.with_name('candidate_bbs_gicp_localizer')),'--map',spec['map'],'--scan',item['pcd'],
-                    '--assets-dir',assets,'--timeout',str(budget),'--candidate-top-k','2','--descriptor-prefilter','40',
-                    '--candidate-xy-radius','4.0','--candidate-z-radius','2.0','--candidate-yaw-range-deg','0.0',
+                    '--assets-dir',assets,'--timeout',str(budget),'--candidate-top-k','4','--descriptor-prefilter','80',
+                    '--candidate-xy-radius','5.0','--candidate-z-radius','2.5','--candidate-yaw-range-deg','0.0',
                     '--roll-pitch-range-deg','0.0','--bbs-query-frame-mode','mapping_body',
-                    '--per-candidate-timeout','8.0','--bbs-score-threshold','0.05']
+                    '--per-candidate-timeout','6.0','--bbs-score-threshold','0.03','--gicp-max-corr','2.5']
             result=run(command,budget+5,directory)
             if mode=='bbs':result['backend']='polar_context_bbs_gicp' if assets and (Path(assets)/'polar_context.db').is_file() else 'whole_map_bbs_gicp'
             if mode=='bbs':

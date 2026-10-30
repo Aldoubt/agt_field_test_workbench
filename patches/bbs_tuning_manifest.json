@@ -1,0 +1,12 @@
+{
+  "agt_navigation_v3": {
+    "commit": "b3a60487dff973c6326aca2ca2e9db1e78daeaaa",
+    "patch": "patches/bbs_field_tuning.patch",
+    "files": {
+      "navigation/localization/agt_global_relocalization/config/global_relocalization.yaml": {
+        "before": "e7a1ff47bf62ded952f9d050f1cd6bbec382b8bffbdf2c5a4b3793ef35fafd50",
+        "after": "798912268f70d51910f68353fda94a3fc4ca0e7bee4feb853c4c722c499cffc4"
+      }
+    }
+  }
+}
